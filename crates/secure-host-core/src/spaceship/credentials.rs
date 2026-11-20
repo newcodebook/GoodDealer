@@ -169,21 +169,9 @@ pub fn purge_spaceship_credential_guarded(
         .lock()
         .map_err(|_| SpaceshipError::CustodyUnavailable)?;
     guard()?;
-    if let Some(bytes) =
-        slots::load(SERVICE, &account).map_err(|_| SpaceshipError::CustodyUnavailable)?
-    {
-        decode(&bytes, plan)?;
-        guard()?;
-        let unknown = SpaceshipError::CustodyOutcomeUnknown;
-        slots::delete(SERVICE, &account).map_err(|_| unknown)?;
-        guard()?;
-        if slots::load(SERVICE, &account)
-            .map_err(|_| unknown)?
-            .is_some()
-        {
-            return Err(unknown);
-        }
-    }
+    // Retirement authorizes erasure of exact immutable metadata even when the original
+    // envelope is corrupt or the OS reports more than one matching item.
+    slots::purge_exact(SERVICE, &account).map_err(|_| SpaceshipError::CustodyOutcomeUnknown)?;
     guard()
 }
 
@@ -386,5 +374,33 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires an isolated unlocked Secret Service session"]
+    fn retired_spaceship_slot_purges_corruption_and_duplicates_by_exact_scope() {
+        use crate::secret_service_custody::create_duplicate_canary;
+        let plan = Plan {
+            digest: "6".repeat(64),
+            generation: 1,
+            proof: "test-canary".repeat(4),
+        };
+        let account = slot(&plan).unwrap();
+        let adjacent = Service::Afternic;
+        slots::store(SERVICE, &account, b"malformed-spaceship").unwrap();
+        slots::store(adjacent, &account, b"independent-purpose").unwrap();
+        create_duplicate_canary("com.gooddealer.desktop.spaceship.registrar.v1", &account).unwrap();
+        assert_eq!(
+            purge_spaceship_credential_guarded(&plan, &mut || Err(SpaceshipError::AuthorityStale)),
+            Err(SpaceshipError::AuthorityStale)
+        );
+        purge_spaceship_credential_guarded(&plan, &mut || Ok(())).unwrap();
+        assert!(slots::load(SERVICE, &account).unwrap().is_none());
+        assert_eq!(
+            slots::load(adjacent, &account).unwrap().unwrap().as_slice(),
+            b"independent-purpose"
+        );
+        slots::purge_exact(adjacent, &account).unwrap();
     }
 }

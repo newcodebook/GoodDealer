@@ -54,6 +54,7 @@ const expectedSourceFiles = [
   "spaceship.rs",
   "spaceship/credentials.rs",
   "spaceship/registrar_wire.rs",
+  "spaceship/sellerhub_wire.rs",
   "windows_credential_capture.rs",
   "windows_custody.rs",
   "windows_custody/format.rs",
@@ -69,7 +70,8 @@ const expectedAfternicExports = [
 ];
 const expectedSpaceshipExports = [
   "SpaceshipCapture", "SpaceshipCredential", "SpaceshipCredentialPlan", "SpaceshipError", "SpaceshipGuard",
-  "SpaceshipRegistrarClient", "SpaceshipRegistration", "SpaceshipRegistrationStanding",
+  "SpaceshipClient", "SpaceshipRegistration", "SpaceshipRegistrationStanding",
+  "SpaceshipSellerHubListing", "SpaceshipSellerHubStatus",
   "load_spaceship_credential_guarded", "publish_spaceship_credential_guarded", "purge_spaceship_credential_guarded",
 ];
 const expectedAliyunExports = [
@@ -292,6 +294,7 @@ const expectedLocalStorageExportModules = [
   "desktop_local_host::cloudflare_registrar_account",
   "desktop_local_host::godaddy_registrar",
   "desktop_local_host::spaceship_registrar",
+  "desktop_local_host::spaceship_sellerhub",
   "portfolio_projection",
   "application_root",
   "desktop_business_runtime",
@@ -418,6 +421,12 @@ const expectedLocalStoragePublicExports = [
   "DesktopAliyunConnectionSummary",
   "DesktopGoDaddyConnectionSummary",
   "DesktopSpaceshipRegistrarStatus",
+  "DesktopSellerHubConnection",
+  "DesktopSellerHubConnectionSummary",
+  "DesktopSellerHubListingFact",
+  "DesktopSellerHubListingState",
+  "DesktopSellerHubScanReceipt",
+  "DesktopSellerHubStatus",
   "DesktopAliyunRegistrarStatus",
   "DesktopGoDaddyRegistrarStatus",
   "DesktopAtomConnection",

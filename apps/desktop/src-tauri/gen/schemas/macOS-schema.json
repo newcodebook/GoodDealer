@@ -753,6 +753,18 @@
           "markdownDescription": "Enables the local_sync_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the sellerhub_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-status",
+          "markdownDescription": "Enables the sellerhub_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sellerhub_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-submit",
+          "markdownDescription": "Enables the sellerhub_submit command without any pre-configured scope."
+        },
+        {
           "description": "Enables the spaceship_registrar_status command without any pre-configured scope.",
           "type": "string",
           "const": "allow-spaceship-registrar-status",
@@ -1195,6 +1207,18 @@
           "type": "string",
           "const": "deny-local-sync-status",
           "markdownDescription": "Denies the local_sync_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-status",
+          "markdownDescription": "Denies the sellerhub_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-submit",
+          "markdownDescription": "Denies the sellerhub_submit command without any pre-configured scope."
         },
         {
           "description": "Denies the spaceship_registrar_status command without any pre-configured scope.",

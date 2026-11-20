@@ -3,4 +3,4 @@ export * from "./cloudflare-notice";
 export { CloudflareRetirementPanel } from "./cloudflare-retirement-panel";
 export { CloudflareRegistrarPanel } from "./cloudflare-registrar-panel";
 export { AfternicPanel } from "./afternic-panel";
-export { SpaceshipRegistrarPanel, AliyunRegistrarPanel, GoDaddyRegistrarPanel, AtomMarketplacePanel, CloudflareRegistrarAccountPanel } from "./account-inventory-panel";
+export { SpaceshipRegistrarPanel, SellerHubPanel, AliyunRegistrarPanel, GoDaddyRegistrarPanel, AtomMarketplacePanel, CloudflareRegistrarAccountPanel } from "./account-inventory-panel";

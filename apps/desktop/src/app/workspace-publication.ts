@@ -3,6 +3,7 @@ import {
   type DeviceDirectorySettingsPort,
   type AfternicConnectionPort,
   type SpaceshipRegistrarPort,
+  type SellerHubPort,
   type AliyunRegistrarPort,
   type GoDaddyRegistrarPort,
   type CloudflareRegistrarAccountPort,
@@ -73,6 +74,7 @@ export interface AuthoritativeWorkspacePorts {
   readonly cloudflare: CloudflareConnectionPort;
   readonly afternic: AfternicConnectionPort;
   readonly spaceship?: SpaceshipRegistrarPort;
+  readonly sellerhub?: SellerHubPort;
   readonly aliyun?: AliyunRegistrarPort;
   readonly godaddy?: GoDaddyRegistrarPort;
   readonly cloudflareRegistrarAccount?: CloudflareRegistrarAccountPort;

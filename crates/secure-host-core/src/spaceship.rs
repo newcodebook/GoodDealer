@@ -1,5 +1,5 @@
-//! Spaceship's official Domain Management API. Credentials, contact identities and raw
-//! Provider responses are private to this Native service.
+//! Spaceship's official Registrar and `SellerHub` APIs. Credentials, contact identities
+//! and raw Provider responses are private to this Native service.
 
 use futures_util::StreamExt;
 use reqwest::{Client, Request, StatusCode, header};
@@ -10,16 +10,24 @@ use zeroize::Zeroizing;
 mod credentials;
 #[path = "spaceship/registrar_wire.rs"]
 mod registrar_wire;
+#[path = "spaceship/sellerhub_wire.rs"]
+mod sellerhub_wire;
 pub use credentials::{
     SpaceshipCapture, SpaceshipCredentialPlan, load_spaceship_credential_guarded,
     publish_spaceship_credential_guarded, purge_spaceship_credential_guarded,
 };
-use registrar_wire::InventoryScan;
+use registrar_wire::{InventoryScan, valid_hostname};
+use sellerhub_wire::SellerHubScan;
+pub use sellerhub_wire::{SpaceshipSellerHubListing, SpaceshipSellerHubStatus};
 
 const DOMAINS: &str = "https://spaceship.dev/api/v1/domains";
+const SELLERHUB_DOMAINS: &str = "https://spaceship.dev/api/v1/sellerhub/domains";
 const PAGE_SIZE: usize = 100;
 const MAX_REGISTRATIONS: usize = 10_000;
-const MAX_BODY: usize = 512 * 1024;
+const MAX_REGISTRAR_BODY: usize = 512 * 1024;
+// SellerHub permits 5,000-character descriptions on every row. Size the wire
+// limit for a full page even when those characters are escaped in JSON.
+const MAX_SELLERHUB_BODY: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpaceshipError {
@@ -87,11 +95,11 @@ pub enum SpaceshipRegistrationStanding {
     Inactive,
 }
 
-pub struct SpaceshipRegistrarClient {
+pub struct SpaceshipClient {
     client: Client,
 }
 
-impl SpaceshipRegistrarClient {
+impl SpaceshipClient {
     /// Constructs a direct, fixed-origin HTTPS client.
     ///
     /// # Errors
@@ -104,7 +112,7 @@ impl SpaceshipRegistrarClient {
             .retry(reqwest::retry::never())
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
-            .user_agent("GoodDealer/0.0.0 (Spaceship Registrar client)")
+            .user_agent("GoodDealer/0.0.0 (Spaceship client)")
             .build()
             .map(|client| Self { client })
             .map_err(|_| SpaceshipError::Unavailable)
@@ -115,7 +123,7 @@ impl SpaceshipRegistrarClient {
     ///
     /// # Errors
     /// Refuses stale authority, access failures, incomplete scans and invalid responses.
-    pub async fn scan(
+    pub async fn scan_registrations(
         &self,
         credential: &SpaceshipCredential,
         guard: &mut SpaceshipGuard<'_>,
@@ -123,11 +131,8 @@ impl SpaceshipRegistrarClient {
         let mut inventory = InventoryScan::default();
         loop {
             guard()?;
-            let request = self.request(credential, inventory.offset())?;
-            let response = self.client.execute(request).await;
-            guard()?;
-            let response = response.map_err(|_| SpaceshipError::Unavailable)?;
-            let body = read_page(response, guard).await?;
+            let request = self.registrar_request(credential, inventory.offset())?;
+            let body = self.fetch_page(request, MAX_REGISTRAR_BODY, guard).await?;
             let complete = inventory.accept(&body)?;
             guard()?;
             if complete {
@@ -136,20 +141,74 @@ impl SpaceshipRegistrarClient {
         }
     }
 
-    fn request(
+    /// Reads the unfiltered `SellerHub` listing collection with `sellerhub:read`.
+    ///
+    /// # Errors
+    /// Refuses stale authority, access failures, incomplete scans and invalid responses.
+    pub async fn scan_sellerhub_listings(
+        &self,
+        credential: &SpaceshipCredential,
+        guard: &mut SpaceshipGuard<'_>,
+    ) -> Result<Vec<SpaceshipSellerHubListing>, SpaceshipError> {
+        let mut inventory = SellerHubScan::default();
+        loop {
+            guard()?;
+            let request = self.sellerhub_request(credential, inventory.offset())?;
+            let body = self.fetch_page(request, MAX_SELLERHUB_BODY, guard).await?;
+            let complete = inventory.accept(&body)?;
+            guard()?;
+            if complete {
+                return Ok(inventory.into_listings());
+            }
+        }
+    }
+
+    fn registrar_request(
         &self,
         credential: &SpaceshipCredential,
         offset: usize,
     ) -> Result<Request, SpaceshipError> {
+        self.get(
+            credential,
+            format!("{DOMAINS}?take={PAGE_SIZE}&skip={offset}&orderBy=name"),
+        )
+    }
+
+    fn sellerhub_request(
+        &self,
+        credential: &SpaceshipCredential,
+        offset: usize,
+    ) -> Result<Request, SpaceshipError> {
+        self.get(
+            credential,
+            format!("{SELLERHUB_DOMAINS}?take={PAGE_SIZE}&skip={offset}"),
+        )
+    }
+
+    fn get(
+        &self,
+        credential: &SpaceshipCredential,
+        url: String,
+    ) -> Result<Request, SpaceshipError> {
         self.client
-            .get(format!(
-                "{DOMAINS}?take={PAGE_SIZE}&skip={offset}&orderBy=name"
-            ))
+            .get(url)
             .header("x-api-key", secret_header(&credential.key)?)
             .header("x-api-secret", secret_header(&credential.secret)?)
             .header(header::ACCEPT, "application/json")
             .build()
             .map_err(|_| SpaceshipError::Unavailable)
+    }
+
+    async fn fetch_page(
+        &self,
+        request: Request,
+        max_body: usize,
+        guard: &mut SpaceshipGuard<'_>,
+    ) -> Result<Zeroizing<Vec<u8>>, SpaceshipError> {
+        let response = self.client.execute(request).await;
+        guard()?;
+        let response = response.map_err(|_| SpaceshipError::Unavailable)?;
+        read_page(response, max_body, guard).await
     }
 }
 
@@ -162,6 +221,7 @@ fn secret_header(value: &str) -> Result<header::HeaderValue, SpaceshipError> {
 
 async fn read_page(
     response: reqwest::Response,
+    max_body: usize,
     guard: &mut SpaceshipGuard<'_>,
 ) -> Result<Zeroizing<Vec<u8>>, SpaceshipError> {
     let invalid = SpaceshipError::ProtocolRejected;
@@ -189,7 +249,7 @@ async fn read_page(
         || content_types.next().is_some()
         || response
             .content_length()
-            .is_some_and(|size| size > MAX_BODY as u64)
+            .is_some_and(|size| size > max_body as u64)
     {
         return Err(invalid);
     }
@@ -198,7 +258,7 @@ async fn read_page(
     while let Some(chunk) = stream.next().await {
         guard()?;
         let chunk = chunk.map_err(|_| SpaceshipError::Unavailable)?;
-        if chunk.len() > MAX_BODY - body.len() {
+        if chunk.len() > max_body - body.len() {
             return Err(invalid);
         }
         body.extend_from_slice(&chunk);
@@ -212,12 +272,12 @@ mod tests {
 
     #[test]
     fn domain_request_has_fixed_destination_and_sensitive_auth_headers() {
-        let client = SpaceshipRegistrarClient::production().unwrap();
+        let client = SpaceshipClient::production().unwrap();
         let credential = SpaceshipCredential {
             key: Zeroizing::new("synthetic-key".to_owned()),
             secret: Zeroizing::new("synthetic-secret".to_owned()),
         };
-        let request = client.request(&credential, 100).unwrap();
+        let request = client.registrar_request(&credential, 100).unwrap();
         assert_eq!(request.method(), reqwest::Method::GET);
         assert_eq!(
             request.url().as_str(),
@@ -225,6 +285,24 @@ mod tests {
         );
         assert_eq!(request.headers()["x-api-key"], "synthetic-key");
         assert_eq!(request.headers()["x-api-secret"], "synthetic-secret");
+        assert!(request.headers()["x-api-key"].is_sensitive());
+        assert!(request.headers()["x-api-secret"].is_sensitive());
+        assert!(!format!("{request:?} {credential:?}").contains("synthetic"));
+    }
+
+    #[test]
+    fn sellerhub_requests_use_the_fixed_unfiltered_collection() {
+        let client = SpaceshipClient::production().unwrap();
+        let credential = SpaceshipCredential {
+            key: Zeroizing::new("synthetic-key".to_owned()),
+            secret: Zeroizing::new("synthetic-secret".to_owned()),
+        };
+        let request = client.sellerhub_request(&credential, 200).unwrap();
+        assert_eq!(request.method(), reqwest::Method::GET);
+        assert_eq!(
+            request.url().as_str(),
+            "https://spaceship.dev/api/v1/sellerhub/domains?take=100&skip=200"
+        );
         assert!(request.headers()["x-api-key"].is_sensitive());
         assert!(request.headers()["x-api-secret"].is_sensitive());
         assert!(!format!("{request:?} {credential:?}").contains("synthetic"));

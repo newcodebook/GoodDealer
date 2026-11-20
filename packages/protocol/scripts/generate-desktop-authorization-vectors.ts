@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 import {
   DESKTOP_AUTHORIZATION_GRANT_ROLE_EXCHANGE_SCHEMA_VERSION,
+  DESKTOP_COMMERCIAL_CAPABILITIES,
   desktopAuthorizationGrantSchema,
   encodeDesktopAuthorizationGrantSignatureTranscript,
 } from "../src/devices/index.ts";
@@ -41,8 +42,10 @@ const cases = [
   capabilityCase("atom-marketplace-only", ["atom:marketplace:observe"]),
   capabilityCase("godaddy-registrar-only", ["godaddy:registrar:observe"]),
   capabilityCase("spaceship-registrar-only", ["spaceship:registrar:observe"]),
-  capabilityCase("all-capabilities", ["afternic:marketplace:observe", "afternic:marketplace:write", "aliyun:registrar:observe", "atom:marketplace:observe", "cloudflare:dns:observe", "cloudflare:registrar:observe", "godaddy:registrar:observe", "spaceship:registrar:observe"]),
+  capabilityCase("spaceship-marketplace-only", ["spaceship:marketplace:observe"]),
+  capabilityCase("all-capabilities", DESKTOP_COMMERCIAL_CAPABILITIES),
   capabilityCase("unrecognized-spaceship-write", ["spaceship:registrar:write"]),
+  capabilityCase("unrecognized-sellerhub-write", ["spaceship:marketplace:observe", "spaceship:marketplace:write"]),
   capabilityCase("unrecognized-atom-write", ["atom:marketplace:observe", "atom:marketplace:write"]),
   capabilityCase("write-without-observe", ["afternic:marketplace:write"]),
   capabilityCase("cloudflare-does-not-imply-afternic-observe", ["afternic:marketplace:write", "cloudflare:dns:observe"]),

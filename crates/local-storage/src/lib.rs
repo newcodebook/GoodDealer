@@ -176,8 +176,9 @@ pub use active_workspace::business::{
     DesktopCloudflareRegistrarAccountSummary, DesktopCloudflareRegistrarScanReceipt,
     DesktopCloudflareRegistrationFact, DesktopCloudflareRegistrationStanding,
     DesktopGoDaddyConnectionState, DesktopGoDaddyConnectionSummary, DesktopRegistrarScanReceipt,
-    DesktopRegistrationFact, DesktopRegistrationStanding, DesktopSpaceshipConnectionState,
-    DesktopSpaceshipConnectionSummary,
+    DesktopRegistrationFact, DesktopRegistrationStanding, DesktopSellerHubConnectionSummary,
+    DesktopSellerHubListingFact, DesktopSellerHubListingState, DesktopSellerHubScanReceipt,
+    DesktopSpaceshipConnectionState, DesktopSpaceshipConnectionSummary,
 };
 #[cfg(all(test, unix))]
 pub(crate) use active_workspace::business::{
@@ -217,6 +218,9 @@ pub use desktop_local_host::godaddy_registrar::{
 };
 pub use desktop_local_host::spaceship_registrar::{
     DesktopSpaceshipConnection, DesktopSpaceshipRegistrarStatus,
+};
+pub use desktop_local_host::spaceship_sellerhub::{
+    DesktopSellerHubConnection, DesktopSellerHubStatus,
 };
 #[cfg(all(test, unix))]
 pub(crate) use portfolio_projection::DomainAssetProjectionRow;

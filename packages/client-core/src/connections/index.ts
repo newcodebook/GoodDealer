@@ -320,3 +320,4 @@ export { parseGoDaddyRegistrarStatus, godaddyRegistrarIntentSchema, type GoDaddy
 export { parseAtomMarketplaceStatus, atomMarketplaceIntentSchema, type AtomMarketplaceIntent, type AtomMarketplacePort, type AtomMarketplaceStatus } from "./atom-marketplace";
 
 export { parseCloudflareRegistrarAccountStatus, cloudflareRegistrarAccountIntentSchema, type CloudflareRegistrarAccountIntent, type CloudflareRegistrarAccountPort, type CloudflareRegistrarAccountStatus } from "./cloudflare-registrar-account";
+export { parseSellerHubStatus, sellerHubIntentSchema, type SellerHubIntent, type SellerHubPort, type SellerHubStatus } from "./sellerhub";

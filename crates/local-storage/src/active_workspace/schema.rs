@@ -114,6 +114,42 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "spaceship_sellerhub_connections",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "credential_proof",
+            "state",
+            "created_at",
+            "purged_at",
+        ],
+    ),
+    (
+        "spaceship_sellerhub_pending_scans",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "device_id",
+            "lease_epoch",
+            "request_id",
+        ],
+    ),
+    (
+        "spaceship_sellerhub_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "observation_run_id",
+            "observed_count",
+            "imported_count",
+            "skipped_count",
+            "completed_at",
+        ],
+    ),
+    (
         "aliyun_registrar_connections",
         &[
             "workspace_id",
@@ -956,6 +992,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "binding_resource_digest",
             "binding_generation",
             "atom_standard_asset_generation",
+            "sellerhub_asset_generation",
         ],
     ),
     (

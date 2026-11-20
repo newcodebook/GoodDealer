@@ -85,6 +85,8 @@ function createFixture() {
     "local_storage_repair",
     "spaceship_registrar_status",
     "spaceship_registrar_submit",
+    "sellerhub_status",
+    "sellerhub_submit",
     "target_bootstrap_status",
     "target_installation_start",
     "target_installation_status",
@@ -183,6 +185,8 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
     commands.filter(command => command.startsWith("aliyun_")).map(command => `invoke("${command}")`).join("\n"));
   writeFile(root, "apps/desktop/src/adapters/tauri/godaddy-registrar.ts",
     commands.filter(command => command.startsWith("godaddy_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/sellerhub.ts",
+    commands.filter(command => command.startsWith("sellerhub_")).map(command => `invoke("${command}")`).join("\n"));
   writeFile(root, "apps/desktop/src/adapters/tauri/portable-backup.ts",
     commands.includes("local_portable_backup") ? 'invoke("local_portable_backup")' : "");
   writeFile(root, "apps/desktop/src/adapters/tauri/atom-marketplace.ts",

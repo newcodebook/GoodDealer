@@ -41,6 +41,8 @@ fn main() {
             "cloudflare_registrar_inventory_refresh",
             "spaceship_registrar_status",
             "spaceship_registrar_submit",
+            "sellerhub_status",
+            "sellerhub_submit",
             "aliyun_registrar_status",
             "aliyun_registrar_submit",
             "godaddy_registrar_status",

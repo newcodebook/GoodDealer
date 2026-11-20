@@ -107,6 +107,7 @@ mod cloudflare_retirement;
 mod godaddy_registrar;
 mod registrar_inventory;
 mod spaceship_registrar;
+mod spaceship_sellerhub;
 pub(crate) use aliyun_registrar::{AliyunConnectionSeed, AliyunInventoryCommit};
 pub use aliyun_registrar::{DesktopAliyunConnectionState, DesktopAliyunConnectionSummary};
 pub(crate) use atom_marketplace::{AtomConnectionSeed, AtomInventoryCommit};
@@ -132,6 +133,11 @@ pub use registrar_inventory::{
 };
 pub use spaceship_registrar::{DesktopSpaceshipConnectionState, DesktopSpaceshipConnectionSummary};
 pub(crate) use spaceship_registrar::{SpaceshipConnectionSeed, SpaceshipInventoryCommit};
+pub use spaceship_sellerhub::{
+    DesktopSellerHubConnectionSummary, DesktopSellerHubListingFact, DesktopSellerHubListingState,
+    DesktopSellerHubScanReceipt,
+};
+pub(crate) use spaceship_sellerhub::{SellerHubConnectionSeed, SellerHubInventoryCommit};
 mod drain_claims;
 mod normal_handoff;
 pub(crate) use cloudflare_credential::{

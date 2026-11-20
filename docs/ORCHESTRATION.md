@@ -115,14 +115,14 @@ master → architect（仅跨边界设计）→ 有界构建者（可并行）�
 
 ## 当前源码范围与声明控制
 
-当前 Desktop Renderer production 入口使用窄本地业务、认证、Cloudflare、Afternic、Atom、GoDaddy、Spaceship 与阿里云 Registrar adapter。Tauri 已精确注册具名本地业务、
+当前 Desktop Renderer production 入口使用窄本地业务、认证、Cloudflare、Afternic、Atom、GoDaddy、Spaceship Registrar、Spaceship SellerHub 与阿里云 Registrar adapter。Tauri 已精确注册具名本地业务、
 备份、认证与 Provider 命令，manifest/capability/adapter 策略测试拒绝清单漂移。独立备份通过一条有界 raw IPC 调用 Local Host，原生选择器、文件句柄、密钥与隔离 SQLCipher 数据集由该所有者处理。Cloudflare 激活、
 状态、观察和读取已进入 Renderer。Cloud 的公开业务 route 已有精确 allowlist，周期作业只允许 Licensing provider
 operation/inbox/reconciliation/due-authority/release。共享开发环境已部署 systemd self-hosted worker 和
 Stripe test-mode Provider；生产 worker、live Provider、全系统 V1 验收和发行仍未完成，因此产品
 readiness 声明仍不成立。
 
-`secure-host-core` 的私有 Cloudflare Zone/DNS/Registrar（含独立账户录入）、Afternic 库存与 Listing 写入、Atom 卖家库存、GoDaddy、Spaceship 与阿里云 Registrar 已组合进 Native ProviderLane。Host 组合
+`secure-host-core` 的私有 Cloudflare Zone/DNS/Registrar（含独立账户录入）、Afternic 库存与 Listing 写入、Atom 卖家库存、GoDaddy、Spaceship 与阿里云 Registrar，以及 Spaceship SellerHub 挂牌读取，已组合进 Native ProviderLane。Host 组合
 不等于真实 Provider 资格。后续 Desktop 整合者必须扩展严格 Renderer adapter、保持显式
 capability allowlist，并重新检查入口、注册表和可达性；不得把未组合 feature、视觉资料或已删除
 connector 路径恢复为兼容、过渡或 fixture 路线。

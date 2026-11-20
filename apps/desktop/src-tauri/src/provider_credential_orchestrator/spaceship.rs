@@ -1,4 +1,7 @@
 //! Connect and recover Spaceship Registrar through the existing serial Provider lane.
+#[path = "spaceship_sellerhub.rs"]
+mod sellerhub;
+
 use super::ProviderCredentialError;
 use crate::native_cloud_runtime::NativeCloudCancelFence;
 use gooddealer_local_storage::{
@@ -7,8 +10,8 @@ use gooddealer_local_storage::{
     DesktopSpaceshipRegistrarStatus,
 };
 use gooddealer_secure_host_core::{
-    NativePowerCommitGuard, NativePowerGate, SpaceshipCapture, SpaceshipCredential,
-    SpaceshipCredentialPlan, SpaceshipError, SpaceshipGuard, SpaceshipRegistrarClient,
+    NativePowerCommitGuard, NativePowerGate, SpaceshipCapture, SpaceshipClient,
+    SpaceshipCredential, SpaceshipCredentialPlan, SpaceshipError, SpaceshipGuard,
     SpaceshipRegistration, SpaceshipRegistrationStanding, load_spaceship_credential_guarded,
     publish_spaceship_credential_guarded, purge_spaceship_credential_guarded,
 };
@@ -198,11 +201,11 @@ impl Run {
         credential: &SpaceshipCredential,
         guard: &mut SpaceshipGuard<'_>,
     ) -> Result<Vec<DesktopRegistrationFact>> {
-        let client = SpaceshipRegistrarClient::production().map_err(native_error)?;
+        let client = SpaceshipClient::production().map_err(native_error)?;
         let registrations = tokio::select! {
             biased;
             _ = self.power.wait_for_epoch_change(self.epoch) => Err(SpaceshipError::AuthorityStale),
-            result = client.scan(credential, guard) => result,
+            result = client.scan_registrations(credential, guard) => result,
         }
         .map_err(native_error)?;
         Ok(registrations.into_iter().map(registration_fact).collect())

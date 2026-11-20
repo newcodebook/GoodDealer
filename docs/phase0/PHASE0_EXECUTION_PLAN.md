@@ -582,3 +582,11 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 追加迁移 `202611200009` 将正向证据关联至当次刷新请求、原 Listing 观察、Binding 和资产代次。重开可读回当次报告。零匹配与未知分别持久表达，旧扫描、撤销或包含隔离观察的报告不展示正向结果。独立复审复验未知状态（含两侧同一未知状态）、样本之外的隔离观察、SQLCipher 回滚/重开和原 IPC 的准入，17 项通过。
 - 重新观察到两个匿名官方只读响应均为 HTTP 200 与 `text/html`，`/domains?type=standard` 返回凭据缺失，`/domain-details` 返回凭据无效或权限不足。都没有提供认证账户内 Listing 精确缺席的证据。Standard 下架仍待执行流程与真实对账完成。[接口证据](../PROVIDER_API_REVIEW.md)
 - 根 `pnpm check` 通过，含 SQLCipher 682 项、Tauri 192 项和 Core 138 项。Linux 与 Windows GNU 的相关 crate 全目标严格 Clippy 通过。Linux 隔离 D-Bus 的原生 Atom 凭据槽读取及撤销通过。认证卖家接口与 Windows/macOS 实机分别待验收。
+
+## 2026-11-20 Spaceship SellerHub 账户挂牌归集
+
+- 设置接入独立 SellerHub 连接。同一 Spaceship Native Service 先用候选密钥通过完整库存预检，再发布并精确读回凭据槽。刷新受理前保存请求，重开按同一连接 incarnation、设备与 Lease 从首面续读。断开先持久撤销，之后按精确槽位元数据清理并确认缺席。
+- 追加迁移 `202611200010` 保存原子归集回执，沿用原资产、Outbox、Listing 绑定、观察和销售投影。同域名的独立账户保持各自绑定。资产重加后新观察换代，扫描缺席只使先前观察失去新鲜度。当前销售投影使用明确启用、可表示的一口价。Registrar 和 SellerHub 读取独立授权和恢复。
+- SQLCipher 回归覆盖重开、整笔回滚、错误设备与 Lease、重复回执、空清单、跨连接、资产重加和撤销。本机隔离 PostgreSQL 设备授权 184 项、Windows GNU 及 Linux 严格 Clippy 通过。Linux 隔离 Secret Service 实跑损坏与重复槽清理。独立复审关闭命令集合、错误分类和凭据清理问题。[审查记录](../reviews/2026-11-20-spaceship-sellerhub-inventory-review.md)
+- 最终根 `pnpm check` 通过，含 Desktop 435 项、Tauri 194 项、SQLCipher 687 项及 Core 142 项。整合修复了设置文案计数与命令证据排序。既有 localhost 测试在具备 loopback 权限的环境复跑通过。
+- 匿名库存、精确域名与验证记录入口均返回 401。认证验收需要具名开发范围、Native 录入的 `sellerhub:read` 凭据和可核对挂牌。继续实现上下架、改价和自动验证。Windows/macOS 实机与发行资格分别验收。

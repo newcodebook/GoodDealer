@@ -32,6 +32,7 @@ mod restore;
 )]
 mod source;
 pub(crate) mod spaceship_registrar;
+pub(crate) mod spaceship_sellerhub;
 #[cfg(all(test, unix))]
 mod standby_tests;
 mod sync;

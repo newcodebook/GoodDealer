@@ -1,11 +1,50 @@
 // @vitest-environment happy-dom
-import { parseCloudflareRegistrarAccountStatus, type AliyunRegistrarStatus, type AtomMarketplaceStatus, type CloudflareRegistrarAccountStatus, type GoDaddyRegistrarStatus, type SpaceshipRegistrarStatus } from "@gooddealer/client-core";
+import { parseCloudflareRegistrarAccountStatus, type AliyunRegistrarStatus, type AtomMarketplaceStatus, type CloudflareRegistrarAccountStatus, type GoDaddyRegistrarStatus, type SellerHubStatus, type SpaceshipRegistrarStatus } from "@gooddealer/client-core";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
-import { AliyunRegistrarPanel, AtomMarketplacePanel, CloudflareRegistrarAccountPanel, GoDaddyRegistrarPanel, SpaceshipRegistrarPanel } from "./account-inventory-panel";
+import { AliyunRegistrarPanel, AtomMarketplacePanel, CloudflareRegistrarAccountPanel, GoDaddyRegistrarPanel, SellerHubPanel, SpaceshipRegistrarPanel } from "./account-inventory-panel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+it("uses the separate SellerHub role and keeps the saved inventory available read-only", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const connectionId = "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953";
+  const ready: SellerHubStatus = {
+    schemaVersion: 1, observeQualified: true, observeEntitled: true, capturable: true,
+    laneState: "ready", connections: [], lastOperation: null,
+  };
+  const saved: SellerHubStatus = {
+    ...ready,
+    connections: [{ connectionId, state: "active", scanPending: false,
+      lastScan: { observed: 2, imported: 2, skipped: 0, completedAt: "2026-11-20T00:00:00Z" } }],
+    lastOperation: { kind: "sellerhub_connect", outcome: "confirmed" },
+  };
+  const status = vi.fn<() => Promise<SellerHubStatus>>().mockResolvedValueOnce(ready).mockResolvedValue(saved);
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const port = { status, submit };
+  const render = (writable: boolean) => root.render(<SellerHubPanel locale="zh-CN" port={port} writable={writable} onChanged={() => {}} />);
+  const connect = () => [...container.querySelectorAll("button")].find((node) => node.textContent === "连接 SellerHub");
+  const refresh = () => container.querySelector<HTMLButtonElement>('button[aria-label="刷新 SellerHub 挂牌 SellerHub"]');
+  try {
+    await act(async () => render(true));
+    expect(container.textContent).toContain("sellerhub:read");
+    expect(container.querySelector("input")).toBeNull();
+    await act(async () => connect()!.click());
+    expect(submit).toHaveBeenNthCalledWith(1, { schemaVersion: 1, action: "connect" });
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("SellerHub 归集结果已保存。");
+    await act(async () => refresh()!.click());
+    expect(submit).toHaveBeenNthCalledWith(2, { schemaVersion: 1, action: "refresh", connectionId });
+    await act(async () => render(false));
+    expect(connect()).toBeUndefined();
+    expect(refresh()).toBeNull();
+    expect(container.textContent).toContain("读取 2 个，新增 2 个，跳过 0 个。");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
 
 it("connects once, reads the saved scan and preserves it after a later failed refresh", async () => {
   vi.useFakeTimers();

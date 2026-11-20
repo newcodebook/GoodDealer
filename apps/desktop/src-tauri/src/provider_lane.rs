@@ -38,6 +38,13 @@ pub(crate) enum ProviderOperation {
     SpaceshipRevoke {
         connection_id: String,
     },
+    SellerHubConnect,
+    SellerHubRefresh {
+        connection_id: String,
+    },
+    SellerHubRevoke {
+        connection_id: String,
+    },
     AliyunConnect,
     AliyunRefresh {
         connection_id: String,
@@ -113,7 +120,7 @@ impl ProviderOperation {
             Self::AfternicDelistStep => "afternic:delist",
             Self::AfternicListingWriteStep => "afternic:listing-write",
             Self::AfternicConnect { .. } => "afternic:new-connection",
-            Self::SpaceshipConnect => "spaceship:new-connection",
+            Self::SpaceshipConnect | Self::SellerHubConnect => "spaceship:new-connection",
             Self::AliyunConnect => "aliyun:new-connection",
             Self::GoDaddyConnect => "godaddy:new-connection",
             Self::AtomConnect => "atom:new-connection",
@@ -123,10 +130,12 @@ impl ProviderOperation {
             }
             Self::Activate { connection_id }
             | Self::SpaceshipRefresh { connection_id }
+            | Self::SellerHubRefresh { connection_id }
             | Self::AliyunRefresh { connection_id }
             | Self::GoDaddyRefresh { connection_id }
             | Self::AtomRefresh { connection_id }
             | Self::SpaceshipRevoke { connection_id }
+            | Self::SellerHubRevoke { connection_id }
             | Self::AliyunRevoke { connection_id }
             | Self::GoDaddyRevoke { connection_id }
             | Self::AtomRevoke { connection_id }
@@ -184,6 +193,7 @@ pub(crate) struct ProviderRecoveryOutcome {
     pub(crate) cloudflare_registrar_account: ProviderRecovery,
     pub(crate) afternic: ProviderRecovery,
     pub(crate) spaceship: ProviderRecovery,
+    pub(crate) sellerhub: ProviderRecovery,
     pub(crate) aliyun: ProviderRecovery,
     pub(crate) godaddy: ProviderRecovery,
     pub(crate) atom: ProviderRecovery,
@@ -200,6 +210,9 @@ impl ProviderRecoveryOutcome {
             ProviderOperation::SpaceshipConnect
             | ProviderOperation::SpaceshipRefresh { .. }
             | ProviderOperation::SpaceshipRevoke { .. } => self.spaceship,
+            ProviderOperation::SellerHubConnect
+            | ProviderOperation::SellerHubRefresh { .. }
+            | ProviderOperation::SellerHubRevoke { .. } => self.sellerhub,
             ProviderOperation::AliyunConnect
             | ProviderOperation::AliyunRefresh { .. }
             | ProviderOperation::AliyunRevoke { .. } => self.aliyun,
@@ -223,6 +236,7 @@ impl From<bool> for ProviderRecoveryOutcome {
             cloudflare_registrar_account: recovery,
             afternic: recovery,
             spaceship: recovery,
+            sellerhub: recovery,
             aliyun: recovery,
             godaddy: recovery,
             atom: recovery,
@@ -268,6 +282,7 @@ impl ProviderAdmissionState {
                     ProviderOperation::Purge { .. }
                         | ProviderOperation::AfternicRevoke { .. }
                         | ProviderOperation::SpaceshipRevoke { .. }
+                        | ProviderOperation::SellerHubRevoke { .. }
                         | ProviderOperation::AliyunRevoke { .. }
                         | ProviderOperation::GoDaddyRevoke { .. }
                         | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
@@ -305,6 +320,7 @@ impl ProviderAdmissionState {
             ProviderOperation::Activate { .. }
             | ProviderOperation::AfternicConnect { .. }
             | ProviderOperation::SpaceshipConnect
+            | ProviderOperation::SellerHubConnect
             | ProviderOperation::AliyunConnect
             | ProviderOperation::GoDaddyConnect
             | ProviderOperation::CloudflareRegistrarAccountConnect
@@ -321,6 +337,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::CloudflareRegistrarRefresh { .. }
             | ProviderOperation::CloudflareRegistrarAccountRefresh { .. }
             | ProviderOperation::SpaceshipRefresh { .. }
+            | ProviderOperation::SellerHubRefresh { .. }
             | ProviderOperation::AliyunRefresh { .. }
             | ProviderOperation::GoDaddyRefresh { .. }
             | ProviderOperation::AtomRefresh { .. }
@@ -347,6 +364,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::Revoke { .. }
             | ProviderOperation::Purge { .. }
             | ProviderOperation::SpaceshipRevoke { .. }
+            | ProviderOperation::SellerHubRevoke { .. }
             | ProviderOperation::AliyunRevoke { .. }
             | ProviderOperation::GoDaddyRevoke { .. }
             | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
@@ -402,6 +420,9 @@ impl ProviderLaneHandle {
     }
     pub(crate) fn spaceship_status(&self) -> ProviderStatus {
         self.status_for(|state| state.recovery.spaceship)
+    }
+    pub(crate) fn sellerhub_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.sellerhub)
     }
     pub(crate) fn aliyun_status(&self) -> ProviderStatus {
         self.status_for(|state| state.recovery.aliyun)
@@ -480,6 +501,18 @@ impl ProviderLaneHandle {
     ) -> ProviderSubmission {
         self.submit_at_after(
             &ProviderOperation::SpaceshipRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_sellerhub_refresh_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::SellerHubRefresh { connection_id },
             Instant::now(),
             persist,
         )
@@ -691,6 +724,7 @@ impl ProviderLane {
                             operation,
                             ProviderOperation::AfternicRevoke { .. }
                                 | ProviderOperation::SpaceshipRevoke { .. }
+                                | ProviderOperation::SellerHubRevoke { .. }
                                 | ProviderOperation::AliyunRevoke { .. }
                                 | ProviderOperation::GoDaddyRevoke { .. }
                                 | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
@@ -861,6 +895,41 @@ mod tests {
     }
 
     #[test]
+    fn sellerhub_uses_durable_refresh_and_keeps_registrar_recovery_independent() {
+        let (handle, mut lane) = ProviderLane::new();
+        let mut outcome: ProviderRecoveryOutcome = true.into();
+        outcome.sellerhub = false.into();
+        lane.finish_recovery(Some(0), outcome);
+        assert_eq!(handle.spaceship_status(), ProviderStatus::Ready);
+        assert_eq!(handle.sellerhub_status(), ProviderStatus::Recovering);
+        assert_eq!(
+            handle.submit_sellerhub_refresh_after("seller-connection".into(), || panic!(
+                "recovery must not enqueue a scan"
+            )),
+            ProviderSubmission::Busy
+        );
+        lane.finish_recovery(Some(0), true);
+        assert_eq!(
+            handle.submit_sellerhub_refresh_after("rejected-connection".into(), || false),
+            ProviderSubmission::Unavailable
+        );
+        assert_eq!(
+            handle.submit_sellerhub_refresh_after("seller-connection".into(), || true),
+            ProviderSubmission::Accepted
+        );
+        assert_eq!(
+            handle.submit(&ProviderOperation::SpaceshipConnect),
+            ProviderSubmission::Busy
+        );
+        assert_eq!(
+            lane.commands.try_recv().unwrap(),
+            ProviderOperation::SellerHubRefresh {
+                connection_id: "seller-connection".into()
+            }
+        );
+    }
+
+    #[test]
     fn aliyun_refresh_reserves_the_lane_and_persists_before_acknowledgement() {
         let (handle, mut lane) = ProviderLane::new();
         lane.finish_recovery(Some(0), true);
@@ -989,6 +1058,7 @@ mod tests {
                 cloudflare: true.into(),
                 afternic: false.into(),
                 spaceship: true.into(),
+                sellerhub: true.into(),
                 aliyun: true.into(),
                 godaddy: true.into(),
                 cloudflare_registrar_account: true.into(),
@@ -1012,6 +1082,7 @@ mod tests {
                 cloudflare: false.into(),
                 afternic: true.into(),
                 spaceship: true.into(),
+                sellerhub: true.into(),
                 aliyun: true.into(),
                 godaddy: true.into(),
                 cloudflare_registrar_account: true.into(),
@@ -1052,6 +1123,7 @@ mod tests {
                 cloudflare: true.into(),
                 afternic: true.into(),
                 spaceship: true.into(),
+                sellerhub: true.into(),
                 aliyun: false.into(),
                 godaddy: false.into(),
                 cloudflare_registrar_account: true.into(),

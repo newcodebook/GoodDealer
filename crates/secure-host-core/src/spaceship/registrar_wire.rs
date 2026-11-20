@@ -136,7 +136,7 @@ impl Domain {
     }
 }
 
-fn valid_hostname(host: &str) -> bool {
+pub(super) fn valid_hostname(host: &str) -> bool {
     (4..=253).contains(&host.len())
         && host.contains('.')
         && host.split('.').all(|label| {

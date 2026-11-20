@@ -1224,5 +1224,6 @@ mod asset_lifecycle;
 mod checkpoint;
 mod providers;
 mod reads;
+mod sellerhub;
 mod sync;
 mod transactions;

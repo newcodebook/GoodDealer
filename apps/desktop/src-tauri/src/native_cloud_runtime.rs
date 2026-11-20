@@ -94,6 +94,7 @@ impl ProviderOperationRecord {
             Err(ProviderCredentialError::Keychain)
                 if kind.starts_with("afternic_")
                     || kind.starts_with("spaceship_")
+                    || kind.starts_with("sellerhub_")
                     || kind.starts_with("aliyun_")
                     || kind.starts_with("godaddy_")
                     || kind.starts_with("atom_") =>
@@ -103,6 +104,7 @@ impl ProviderOperationRecord {
             Err(ProviderCredentialError::Host)
                 if kind.starts_with("afternic_")
                     || kind.starts_with("spaceship_")
+                    || kind.starts_with("sellerhub_")
                     || kind.starts_with("aliyun_")
                     || kind.starts_with("godaddy_")
                     || kind.starts_with("atom_") =>
@@ -112,7 +114,11 @@ impl ProviderOperationRecord {
             Err(ProviderCredentialError::Capture)
                 if matches!(
                     kind,
-                    "spaceship_connect" | "aliyun_connect" | "atom_connect" | "godaddy_connect"
+                    "spaceship_connect"
+                        | "sellerhub_connect"
+                        | "aliyun_connect"
+                        | "atom_connect"
+                        | "godaddy_connect"
                 ) =>
             {
                 "capture_incomplete"
@@ -351,11 +357,13 @@ impl NativeCloudCoordinator {
                                 )
                                 .await
                                 .is_ok();
-                            let spaceship = Arc::new(
+                            let spaceship_run = Arc::new(
                                 crate::provider_credential_orchestrator::spaceship::Run::new(
                                     Arc::clone(&host), Arc::clone(&cancel_fence), power.clone(), true,
                                 ),
-                            ).recover().await.is_ok();
+                            );
+                            let spaceship = spaceship_run.recover().await.is_ok();
+                            let sellerhub = spaceship_run.sellerhub_recover().await.is_ok();
                             let aliyun = Arc::new(
                                 crate::provider_credential_orchestrator::aliyun::Run::new(
                                     Arc::clone(&host), Arc::clone(&cancel_fence), power.clone(), true,
@@ -376,6 +384,7 @@ impl NativeCloudCoordinator {
                                 cloudflare_registrar_account: cloudflare_registrar_account.into(),
                                 afternic: afternic.into(),
                                 spaceship: spaceship.into(),
+                                sellerhub: sellerhub.into(),
                                 aliyun: aliyun.into(),
                                 godaddy: godaddy.into(),
                                 atom: atom.into(),
@@ -604,6 +613,30 @@ impl NativeCloudCoordinator {
             })
     }
 
+    pub(crate) fn submit_sellerhub_inventory_refresh(
+        &self,
+        host: &DesktopLocalHost,
+        connection_id: &str,
+    ) -> ProviderSubmission {
+        if self.cancel_fence.is_cancelled() {
+            return ProviderSubmission::Unavailable;
+        }
+        let epoch = self.power.snapshot().epoch;
+        self.provider
+            .submit_sellerhub_refresh_after(connection_id.to_owned(), || {
+                let Ok(_power) = self.power.hold_write_epoch(epoch) else {
+                    return false;
+                };
+                self.cancel_fence
+                    .commit(|| {
+                        host.begin_native_cloud_run().and_then(|admission| {
+                            host.queue_sellerhub_inventory_refresh(&admission, connection_id)
+                        })
+                    })
+                    .is_some_and(|result| result.is_ok())
+            })
+    }
+
     pub(crate) fn submit_aliyun_inventory_refresh(
         &self,
         host: &DesktopLocalHost,
@@ -660,6 +693,10 @@ impl NativeCloudCoordinator {
     }
     pub(crate) fn spaceship_provider_status(&self) -> ProviderStatus {
         self.provider.spaceship_status()
+    }
+
+    pub(crate) fn sellerhub_provider_status(&self) -> ProviderStatus {
+        self.provider.sellerhub_status()
     }
 
     pub(crate) fn aliyun_provider_status(&self) -> ProviderStatus {
@@ -833,6 +870,33 @@ async fn run_provider_operation(
             Some(ProviderOperationRecord::of(
                 "spaceship_revoke",
                 run.revoke(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::SellerHubConnect => {
+            let run = Arc::new(spaceship::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "sellerhub_connect",
+                run.sellerhub_connect().await.as_ref().map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::SellerHubRefresh { connection_id } => {
+            let run = Arc::new(spaceship::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "sellerhub_refresh",
+                run.sellerhub_refresh(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::SellerHubRevoke { connection_id } => {
+            let run = Arc::new(spaceship::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "sellerhub_revoke",
+                run.sellerhub_revoke(connection_id)
                     .await
                     .as_ref()
                     .map(|()| "confirmed"),
@@ -1898,7 +1962,19 @@ mod tests {
                 ProviderOperationRecord::of("afternic_refresh", Err(&error)).outcome,
                 outcome
             );
+            assert_eq!(
+                ProviderOperationRecord::of("sellerhub_refresh", Err(&error)).outcome,
+                outcome
+            );
         }
+        assert_eq!(
+            ProviderOperationRecord::of(
+                "sellerhub_connect",
+                Err(&ProviderCredentialError::Capture)
+            )
+            .outcome,
+            "capture_incomplete"
+        );
         for error in [
             ProviderCredentialError::Host,
             ProviderCredentialError::Capture,

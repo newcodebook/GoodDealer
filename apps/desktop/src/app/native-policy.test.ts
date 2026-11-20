@@ -81,6 +81,8 @@ describe("Desktop native policy", () => {
       "allow-afternic-inventory-refresh",
       "allow-spaceship-registrar-status",
       "allow-spaceship-registrar-submit",
+      "allow-sellerhub-status",
+      "allow-sellerhub-submit",
       "allow-aliyun-registrar-status",
       "allow-godaddy-registrar-status",
       "allow-aliyun-registrar-submit",

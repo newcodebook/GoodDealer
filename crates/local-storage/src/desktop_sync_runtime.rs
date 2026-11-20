@@ -1868,6 +1868,7 @@ pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
         "cloudflare:dns:observe",
         "cloudflare:registrar:observe",
         "godaddy:registrar:observe",
+        crate::active_workspace::capability_qualification::SPACESHIP_MARKETPLACE_OBSERVE,
         "spaceship:registrar:observe",
     ];
     values.len() <= CAPABILITIES.len()
@@ -1886,7 +1887,9 @@ pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::active_workspace::capability_qualification::SPACESHIP_REGISTRAR_OBSERVE;
+    use crate::active_workspace::capability_qualification::{
+        SPACESHIP_MARKETPLACE_OBSERVE, SPACESHIP_REGISTRAR_OBSERVE,
+    };
     use std::sync::{
         Arc, Barrier,
         atomic::{AtomicBool, Ordering as AtomicOrdering},
@@ -2141,6 +2144,41 @@ mod tests {
             runtime.require_provider_capability(&standby, CLOUDFLARE_DNS_OBSERVE),
             Err(DesktopSyncError::StaleAuthority)
         );
+    }
+
+    #[test]
+    fn spaceship_listing_access_requires_its_own_signed_capability() {
+        let (_directory, database) = database("workspace-local");
+        let mut runtime = runtime();
+        runtime.provider_capabilities = vec![SPACESHIP_REGISTRAR_OBSERVE.to_owned()];
+        let registrar = runtime.begin_sync_run(&database).unwrap();
+        assert!(
+            runtime
+                .require_provider_capability(&registrar, SPACESHIP_REGISTRAR_OBSERVE)
+                .is_ok()
+        );
+        assert_eq!(
+            runtime.require_provider_capability(&registrar, SPACESHIP_MARKETPLACE_OBSERVE),
+            Err(DesktopSyncError::Blocked)
+        );
+
+        runtime.provider_capabilities = vec![SPACESHIP_MARKETPLACE_OBSERVE.to_owned()];
+        let marketplace = runtime.begin_sync_run(&database).unwrap();
+        assert_eq!(
+            runtime.require_provider_capability(&registrar, SPACESHIP_REGISTRAR_OBSERVE),
+            Err(DesktopSyncError::StaleAuthority)
+        );
+        assert!(
+            runtime
+                .require_provider_capability(&marketplace, SPACESHIP_MARKETPLACE_OBSERVE)
+                .is_ok()
+        );
+        for capability in [SPACESHIP_REGISTRAR_OBSERVE, "spaceship:marketplace:write"] {
+            assert_eq!(
+                runtime.require_provider_capability(&marketplace, capability),
+                Err(DesktopSyncError::Blocked)
+            );
+        }
     }
 
     #[test]

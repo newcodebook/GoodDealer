@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sellerhub-submit"
+description = "Enables the sellerhub_submit command without any pre-configured scope."
+commands.allow = ["sellerhub_submit"]
+
+[[permission]]
+identifier = "deny-sellerhub-submit"
+description = "Denies the sellerhub_submit command without any pre-configured scope."
+commands.deny = ["sellerhub_submit"]

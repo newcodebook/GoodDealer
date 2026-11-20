@@ -71,10 +71,10 @@ pub use godaddy::{
 };
 
 pub use spaceship::{
-    SpaceshipCapture, SpaceshipCredential, SpaceshipCredentialPlan, SpaceshipError, SpaceshipGuard,
-    SpaceshipRegistrarClient, SpaceshipRegistration, SpaceshipRegistrationStanding,
-    load_spaceship_credential_guarded, publish_spaceship_credential_guarded,
-    purge_spaceship_credential_guarded,
+    SpaceshipCapture, SpaceshipClient, SpaceshipCredential, SpaceshipCredentialPlan,
+    SpaceshipError, SpaceshipGuard, SpaceshipRegistration, SpaceshipRegistrationStanding,
+    SpaceshipSellerHubListing, SpaceshipSellerHubStatus, load_spaceship_credential_guarded,
+    publish_spaceship_credential_guarded, purge_spaceship_credential_guarded,
 };
 
 pub use afternic_credentials::{
