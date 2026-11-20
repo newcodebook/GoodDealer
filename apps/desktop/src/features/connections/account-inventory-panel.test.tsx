@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-import type { AliyunRegistrarStatus, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
+import type { AliyunRegistrarStatus, AtomMarketplaceStatus, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
-import { AliyunRegistrarPanel, SpaceshipRegistrarPanel } from "./spaceship-registrar-panel";
+import { AliyunRegistrarPanel, AtomMarketplacePanel, SpaceshipRegistrarPanel } from "./account-inventory-panel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -86,6 +86,33 @@ it("uses the Aliyun port and customer copy with the same durable registrar panel
     expect(submit).toHaveBeenCalledWith({ schemaVersion: 1, action: "connect" });
     expect(container.querySelector('[role="status"]')?.textContent).toContain("阿里云归集结果已保存");
     expect(container.textContent).not.toContain("Spaceship");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("shows Atom portfolio results and only sends bound seller inventory intents", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const connectionId = "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953";
+  const saved: AtomMarketplaceStatus = {
+    schemaVersion: 1, observeQualified: true, observeEntitled: true, capturable: true,
+    laneState: "ready", connections: [{ connectionId, state: "active", scanPending: false,
+      lastScan: { observed: 3, imported: 1, skipped: 0, completedAt: "2026-11-20T00:00:00Z" } }],
+    lastOperation: { kind: "atom_connect", outcome: "confirmed" },
+  };
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const status = vi.fn<() => Promise<AtomMarketplaceStatus>>().mockResolvedValue(saved);
+  try {
+    await act(async () => {
+      root.render(<AtomMarketplacePanel locale="zh-CN" port={{ status, submit }} writable onChanged={() => {}} />);
+    });
+    expect(container.querySelector("input")).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("Atom 卖家库存已保存。");
+    const refresh = container.querySelector<HTMLButtonElement>('button[aria-label="刷新卖家库存 Atom"]')!;
+    await act(async () => { refresh.click(); });
+    expect(submit).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 1, action: "refresh", connectionId });
   } finally {
     await act(async () => root.unmount());
     container.remove();

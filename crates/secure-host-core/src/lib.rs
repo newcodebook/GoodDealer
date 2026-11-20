@@ -32,6 +32,7 @@ mod afternic_credentials;
 mod afternic_provider;
 mod afternic_wire;
 mod aliyun;
+mod atom;
 mod cloudflare_capture;
 mod cloudflare_keychain;
 mod cloudflare_provider;
@@ -53,6 +54,12 @@ pub use aliyun::{
     AliyunCapture, AliyunCredential, AliyunCredentialPlan, AliyunError, AliyunGuard,
     AliyunRegistrarClient, AliyunRegistration, load_aliyun_credential_guarded,
     publish_aliyun_credential_guarded, purge_aliyun_credential_guarded,
+};
+
+pub use atom::{
+    AtomCapture, AtomCredential, AtomCredentialPlan, AtomError, AtomGuard, AtomListing,
+    AtomListingState, AtomPortfolioClient, load_atom_credential_guarded,
+    publish_atom_credential_guarded, purge_atom_credential_guarded,
 };
 
 pub use spaceship::{

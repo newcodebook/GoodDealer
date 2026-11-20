@@ -116,13 +116,9 @@ export function settingsConnectionHealth(connection: SettingsConnection): Provid
   return connection.validationStatus === "valid" ? "healthy" : "retained_unverified";
 }
 
-/**
- * How the connection authenticates. Only Cloudflare's API token flow exists; the other platforms'
- * methods are recorded from their official documentation in their own ADR-0027 phase, so until then
- * the method is unknown rather than guessed.
- */
+/** Authentication methods displayed in the grouped settings read. */
 function providerMethod(kind: SettingsConnection["providerKind"]): "api" | null {
-  return kind === "cloudflare" ? "api" : null;
+  return kind === "cloudflare" || kind === "atom" ? "api" : null;
 }
 
 /**

@@ -20,6 +20,7 @@ export const DESKTOP_COMMERCIAL_CAPABILITIES = [
   "afternic:marketplace:observe",
   "afternic:marketplace:write",
   "aliyun:registrar:observe",
+  "atom:marketplace:observe",
   "cloudflare:dns:observe",
   "cloudflare:registrar:observe",
   "spaceship:registrar:observe",

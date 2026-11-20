@@ -481,3 +481,10 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 追加迁移 `202611190011`，沿原 SQLCipher writer 原子提交注册观察、资产、Outbox 与回执。重开从首面继续未完成扫描，确认空准备槽才撤销并清理。AccessKey、联系人相关字段、备注与标签保留在 Native，缺失的自动续费和锁信息写为未知。
 - 根 `pnpm check`、Linux Desktop 构建、Linux 与 Windows GNU 目标严格 Clippy、PostgreSQL 184 项及 Linux GTK 与隔离 Secret Service 测试通过。见 [独立审查记录](../reviews/2026-11-20-aliyun-registrar-review.md)。
 - 真实验证尚缺当前构建的具名开发准入及阿里云中国站 RAM AccessKey，需要包含 `domain:QueryCommonInfo` 与一项可核对的账户域名。所有凭据只通过原生窗口录入。卖家上下架和所有权验证继续按私有接口交付。
+
+## 2026-11-20 Atom 官方卖家库存
+
+- 设置页组合了专属 Native 凭据输入、后台卖家库存刷新、脱敏计数与断开。使用现有 ProviderLane 在重开时恢复持久扫描。确认账户内 Listing 时保留原域名用户字段，销售状态保持未知。
+- 本地追加迁移 `202611190012`，复用既有市场观察与 Listing 绑定。单一事务提交归集结果及普通资产 Outbox；未知或不完整响应保留上次扫描。连接替换、撤销和过期授权均由 Host 准入检查。
+- 根 `pnpm check`、PostgreSQL 18.6 授权回归 184 项、SQLCipher 三项专项、生产 Linux 构建、Linux GTK 和独立 Secret Service 验证通过。Windows GNU 目标严格 Clippy 通过，Windows 与 macOS 实机仍待验收。
+- 真实验收需具名开发准入、获批的 Atom Seller API 用户 ID 和 token，以及账户中可核对的 Listing。上架、下架和自动验证尚待实现。接口与边界见 [独立审查记录](../reviews/2026-11-20-atom-marketplace-inventory-review.md)。

@@ -1,0 +1,273 @@
+//! Connect and recover the Atom seller portfolio through the existing serial Provider lane.
+use super::ProviderCredentialError;
+use crate::native_cloud_runtime::NativeCloudCancelFence;
+use gooddealer_local_storage::{
+    DesktopAtomConnection, DesktopAtomConnectionState, DesktopAtomListingFact,
+    DesktopAtomListingState, DesktopAtomMarketplaceStatus, DesktopLocalHost, DesktopLocalHostError,
+};
+use gooddealer_secure_host_core::{
+    AtomCapture, AtomCredential, AtomCredentialPlan, AtomError, AtomListing, AtomListingState,
+    AtomPortfolioClient, NativePowerCommitGuard, NativePowerGate, load_atom_credential_guarded,
+    publish_atom_credential_guarded, purge_atom_credential_guarded,
+};
+use std::sync::Arc;
+
+type Result<T> = std::result::Result<T, ProviderCredentialError>;
+
+struct Slot<'a>(&'a DesktopAtomConnection);
+impl AtomCredentialPlan for Slot<'_> {
+    fn connection_incarnation(&self) -> &str {
+        self.0.connection_incarnation()
+    }
+    fn connection_digest(&self) -> &str {
+        self.0.connection_digest()
+    }
+    fn generation(&self) -> u64 {
+        1
+    }
+    fn public_proof(&self) -> &str {
+        self.0.public_proof()
+    }
+}
+
+pub(crate) struct Run {
+    host: Arc<DesktopLocalHost>,
+    cancel: Arc<NativeCloudCancelFence>,
+    power: NativePowerGate,
+    epoch: u64,
+    recovering: bool,
+}
+
+impl Run {
+    pub(crate) fn new(
+        host: Arc<DesktopLocalHost>,
+        cancel: Arc<NativeCloudCancelFence>,
+        power: NativePowerGate,
+        recovering: bool,
+    ) -> Self {
+        let epoch = power.snapshot().epoch;
+        Self {
+            host,
+            cancel,
+            power,
+            epoch,
+            recovering,
+        }
+    }
+
+    fn hold_power(&self) -> std::result::Result<NativePowerCommitGuard<'_>, AtomError> {
+        let held = if self.recovering {
+            self.power.hold_reconciliation_epoch(self.epoch)
+        } else {
+            self.power.hold_write_epoch(self.epoch)
+        }
+        .map_err(|_| AtomError::AuthorityStale)?;
+        if self.cancel.is_cancelled() {
+            return Err(AtomError::AuthorityStale);
+        }
+        Ok(held)
+    }
+
+    fn check(&self, connection: &DesktopAtomConnection) -> std::result::Result<(), AtomError> {
+        drop(self.hold_power()?);
+        self.host
+            .recheck_atom_connection(connection)
+            .map_err(|_| AtomError::AuthorityStale)?;
+        drop(self.hold_power()?);
+        Ok(())
+    }
+
+    fn commit<T>(
+        &self,
+        operation: impl FnOnce(&DesktopLocalHost) -> std::result::Result<T, DesktopLocalHostError>,
+    ) -> Result<T> {
+        let _power = self.hold_power().map_err(native_error)?;
+        self.cancel
+            .commit(|| operation(&self.host))
+            .ok_or(ProviderCredentialError::Host)?
+            .map_err(host_error)
+    }
+
+    pub(crate) async fn connect(self: &Arc<Self>) -> Result<()> {
+        if !AtomCapture::supported() {
+            return Err(ProviderCredentialError::Unavailable);
+        }
+        let run = Arc::clone(self);
+        let (connection, credential) = tauri::async_runtime::spawn_blocking(move || {
+            let connection = run.commit(|host| {
+                host.prepare_atom_connection(host.begin_native_cloud_run()?, "Atom")
+            })?;
+            let mut guard = || run.check(&connection);
+            let credential = match AtomCapture::capture_guarded(&mut guard) {
+                Ok(credential) => credential,
+                Err(error @ (AtomError::CaptureCancelled | AtomError::InputRejected)) => {
+                    let retired = run.commit(|host| host.abandon_atom_preparation(connection))?;
+                    run.purge_and_confirm(&retired)?;
+                    return Err(native_error(error));
+                }
+                Err(error) => return Err(native_error(error)),
+            };
+            publish_atom_credential_guarded(&Slot(&connection), &credential, &mut guard)
+                .map_err(native_error)?;
+            drop(credential);
+            let credential = load_exact(&connection, &mut guard)?;
+            Ok((connection, credential))
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)??;
+        self.scan_and_commit(connection, credential).await
+    }
+
+    pub(crate) async fn refresh(self: &Arc<Self>, id: String) -> Result<()> {
+        let run = Arc::clone(self);
+        let work = tauri::async_runtime::spawn_blocking(move || {
+            let connection = run
+                .commit(|host| host.resume_atom_connection(host.begin_native_cloud_run()?, &id))?;
+            let credential =
+                load_atom_credential_guarded(&Slot(&connection), &mut || run.check(&connection))
+                    .map_err(native_error)?;
+            match credential {
+                Some(credential) => Ok(Some((connection, credential))),
+                None if connection.is_prepared() => {
+                    let retired = run.commit(|host| host.abandon_atom_preparation(connection))?;
+                    run.purge_and_confirm(&retired)?;
+                    Ok(None)
+                }
+                None => Err(ProviderCredentialError::Keychain),
+            }
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)??;
+        let (connection, credential) = work.ok_or(ProviderCredentialError::Keychain)?;
+        self.scan_and_commit(connection, credential).await
+    }
+
+    pub(crate) async fn revoke(self: &Arc<Self>, id: String) -> Result<()> {
+        let run = Arc::clone(self);
+        tauri::async_runtime::spawn_blocking(move || run.revoke_blocking(&id))
+            .await
+            .map_err(|_| ProviderCredentialError::Unavailable)?
+    }
+
+    fn revoke_blocking(&self, id: &str) -> Result<()> {
+        let connection =
+            self.commit(|host| host.revoke_atom_connection(host.begin_native_cloud_run()?, id))?;
+        self.purge_and_confirm(&connection)
+    }
+
+    fn purge_and_confirm(&self, connection: &DesktopAtomConnection) -> Result<()> {
+        purge_atom_credential_guarded(&Slot(connection), &mut || self.check(connection))
+            .map_err(native_error)?;
+        self.commit(|host| host.confirm_atom_purge(connection))
+    }
+
+    async fn scan_and_commit(
+        self: &Arc<Self>,
+        connection: DesktopAtomConnection,
+        credential: AtomCredential,
+    ) -> Result<()> {
+        let client = AtomPortfolioClient::production().map_err(native_error)?;
+        let mut guard = || self.check(&connection);
+        let listings = tokio::select! {
+            biased;
+            _ = self.power.wait_for_epoch_change(self.epoch) => Err(AtomError::AuthorityStale),
+            result = client.scan(&credential, &mut guard) => result,
+        }
+        .map_err(native_error)?;
+        drop(credential);
+        let listings: Vec<_> = listings.into_iter().map(listing_fact).collect();
+        let run = Arc::clone(self);
+        tauri::async_runtime::spawn_blocking(move || {
+            run.commit(|host| {
+                host.commit_atom_inventory(&connection, &listings)
+                    .map(|_| ())
+            })
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)?
+    }
+
+    async fn status(&self) -> Result<DesktopAtomMarketplaceStatus> {
+        let host = Arc::clone(&self.host);
+        tauri::async_runtime::spawn_blocking(move || host.read_atom_marketplace_status())
+            .await
+            .map_err(|_| ProviderCredentialError::Unavailable)?
+            .map_err(host_error)
+    }
+
+    pub(crate) async fn recover(self: &Arc<Self>) -> Result<()> {
+        let status = self.status().await?;
+        // Complete interrupted local retirement separately from read-only scans. A scan failure
+        // preserves the last receipt and leaves the manual refresh path available.
+        for row in status.connections {
+            drop(self.hold_power().map_err(native_error)?);
+            if row.state == DesktopAtomConnectionState::Revoked {
+                let _ = self.revoke(row.connection_id).await;
+            } else if status.observe_entitled && status.observe_qualified && row.scan_pending {
+                let _ = self.refresh(row.connection_id).await;
+            }
+        }
+        // A refresh can retire a preparation when custody proves the slot absent. Reread
+        // durable state so a failed purge/confirmation in that branch also keeps the gate closed.
+        let current = self.status().await?;
+        drop(self.hold_power().map_err(native_error)?);
+        if current
+            .connections
+            .iter()
+            .any(|row| row.state == DesktopAtomConnectionState::Revoked)
+        {
+            return Err(ProviderCredentialError::Keychain);
+        }
+        Ok(())
+    }
+}
+
+fn load_exact(
+    connection: &DesktopAtomConnection,
+    guard: &mut gooddealer_secure_host_core::AtomGuard<'_>,
+) -> Result<AtomCredential> {
+    load_atom_credential_guarded(&Slot(connection), guard)
+        .map_err(native_error)?
+        .ok_or(ProviderCredentialError::Keychain)
+}
+
+fn listing_fact(row: AtomListing) -> DesktopAtomListingFact {
+    use std::fmt::Write as _;
+    let mut digest = String::with_capacity(64);
+    for byte in row.resource_digest {
+        write!(digest, "{byte:02x}").expect("writing into String");
+    }
+    DesktopAtomListingFact {
+        domain: row.domain,
+        resource_digest: digest,
+        state: match row.state {
+            AtomListingState::SellerApproved => DesktopAtomListingState::SellerApproved,
+            AtomListingState::TransferComplete => DesktopAtomListingState::TransferComplete,
+            AtomListingState::Unclassified => DesktopAtomListingState::Unclassified,
+        },
+    }
+}
+
+fn host_error(error: DesktopLocalHostError) -> ProviderCredentialError {
+    if error == DesktopLocalHostError::CapabilityUnqualified {
+        ProviderCredentialError::Unqualified
+    } else {
+        ProviderCredentialError::Host
+    }
+}
+
+const fn native_error(error: AtomError) -> ProviderCredentialError {
+    match error {
+        AtomError::AuthorityStale => ProviderCredentialError::Host,
+        AtomError::CaptureCancelled | AtomError::InputRejected => ProviderCredentialError::Capture,
+        AtomError::CustodyUnavailable
+        | AtomError::CustodyMismatch
+        | AtomError::CustodyOutcomeUnknown => ProviderCredentialError::Keychain,
+        AtomError::AuthenticationRequired | AtomError::Forbidden => {
+            ProviderCredentialError::CredentialRejected
+        }
+        AtomError::RateLimited => ProviderCredentialError::ProviderRetryLater,
+        AtomError::Unavailable => ProviderCredentialError::ProviderUnreachable,
+        AtomError::ProtocolRejected => ProviderCredentialError::ProviderResponseRejected,
+    }
+}

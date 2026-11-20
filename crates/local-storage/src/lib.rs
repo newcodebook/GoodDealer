@@ -170,11 +170,12 @@ pub(crate) use active_workspace::business::{
 pub use active_workspace::business::{
     DesktopAfternicConnectionSummary, DesktopAfternicConnectionsRead,
     DesktopAfternicInventoryReceipt, DesktopAfternicListingObservation, DesktopAfternicScanSummary,
-    DesktopAliyunConnectionState, DesktopAliyunConnectionSummary,
-    DesktopCloudflareRegistrarScanReceipt, DesktopCloudflareRegistrationFact,
-    DesktopCloudflareRegistrationStanding, DesktopRegistrarScanReceipt, DesktopRegistrationFact,
-    DesktopRegistrationStanding, DesktopSpaceshipConnectionState,
-    DesktopSpaceshipConnectionSummary,
+    DesktopAliyunConnectionState, DesktopAliyunConnectionSummary, DesktopAtomConnectionState,
+    DesktopAtomConnectionSummary, DesktopAtomInventoryReceipt, DesktopAtomListingFact,
+    DesktopAtomListingState, DesktopCloudflareRegistrarScanReceipt,
+    DesktopCloudflareRegistrationFact, DesktopCloudflareRegistrationStanding,
+    DesktopRegistrarScanReceipt, DesktopRegistrationFact, DesktopRegistrationStanding,
+    DesktopSpaceshipConnectionState, DesktopSpaceshipConnectionSummary,
 };
 #[cfg(all(test, unix))]
 pub(crate) use active_workspace::business::{
@@ -202,6 +203,9 @@ pub use active_workspace::storage_repair::StorageRepairKind;
 pub use desktop_local_host::afternic::DesktopAfternicConnection;
 pub use desktop_local_host::aliyun_registrar::{
     DesktopAliyunConnection, DesktopAliyunRegistrarStatus,
+};
+pub use desktop_local_host::atom_marketplace::{
+    DesktopAtomConnection, DesktopAtomMarketplaceStatus,
 };
 pub use desktop_local_host::spaceship_registrar::{
     DesktopSpaceshipConnection, DesktopSpaceshipRegistrarStatus,

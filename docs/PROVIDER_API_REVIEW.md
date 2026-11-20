@@ -45,6 +45,8 @@ Linux 真实账户库存观察到两个响应行为。未投影的 `maxLeasePeri
 
 ### Atom
 
+2026-11-20 读取当前官方 OpenAPI 1.0.0。库存固定 `GET https://www.atom.com/api/marketplace/domains`，使用 `api_token`、整数 `user_id`、`page`、`limit`，响应文档为 JSON 数组。匿名真实请求返回 HTTP 200 和 `text/html`，响应体为 `{"message":"API Token and UserId are required"}`。Native 明确识别这种认证错误，正常库存须为 JSON 数组。账户库存读取使用有界逐页扫描、拒绝重复 Listing ID 和域名，直到空页才提交。官方合同没有总数或快照标识，真实账号验收需与卖家页面核对计数和翻页。价格币种和状态终态仍待取证。
+
 `add-domain`、`remove-domain`、`verify-dns` 的官方文档使用 **GET**；它们仍是有副作用的操作，
 不能进入通用只读缓存、预取、探活或自动重试路径。Token 在 query 内，完整 URL 不得进入日志、错误和遥测。
 `verify-dns` 只返回 `DNS check request accepted`。详情示例的 `status: Seller Approved` 是 Listing 状态示例，

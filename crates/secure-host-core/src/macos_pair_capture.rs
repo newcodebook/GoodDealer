@@ -5,6 +5,7 @@ pub(super) enum Purpose {
     Afternic,
     Spaceship,
     Aliyun,
+    Atom,
 }
 
 pub(super) enum CaptureError {
@@ -37,6 +38,11 @@ return apiKey & linefeed & apiSecret"#
             r#"set apiKey to text returned of (display dialog "Alibaba Cloud AccessKey ID" default answer "" with hidden answer)
 set apiSecret to text returned of (display dialog "Alibaba Cloud AccessKey secret" default answer "" with hidden answer)
 return apiKey & linefeed & apiSecret"#
+        }
+        Purpose::Atom => {
+            r#"set sellerId to text returned of (display dialog "Atom seller user ID" default answer "" with hidden answer)
+set apiToken to text returned of (display dialog "Atom Seller API token" default answer "" with hidden answer)
+return sellerId & linefeed & apiToken"#
         }
     };
     let mut child = Command::new("/usr/bin/osascript")

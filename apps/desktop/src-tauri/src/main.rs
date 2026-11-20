@@ -246,6 +246,8 @@ fn main() {
             command_handlers::spaceship_registrar::spaceship_registrar_submit,
             command_handlers::aliyun_registrar::aliyun_registrar_status,
             command_handlers::aliyun_registrar::aliyun_registrar_submit,
+            command_handlers::atom_marketplace::atom_marketplace_status,
+            command_handlers::atom_marketplace::atom_marketplace_submit,
             command_handlers::cloudflare_connection_activate,
             command_handlers::cloudflare_connection_create,
             command_handlers::cloudflare_connection_revoke,

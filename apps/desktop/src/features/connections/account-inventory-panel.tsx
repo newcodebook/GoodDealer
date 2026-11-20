@@ -1,30 +1,37 @@
-import type { AliyunRegistrarPort, AliyunRegistrarStatus, SpaceshipRegistrarIntent, SpaceshipRegistrarPort, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
+import type { AliyunRegistrarPort, AliyunRegistrarStatus, AtomMarketplacePort, AtomMarketplaceStatus, SpaceshipRegistrarIntent, SpaceshipRegistrarPort, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
 import { formatDate, formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { Badge, Button, Panel } from "@gooddealer/ui";
 import { useEffect, useRef, useState } from "react";
 
-type RegistrarPanelProps<P> = {
+type InventoryPanelProps<P> = {
   readonly locale: Locale;
   readonly port: P;
   readonly writable: boolean;
   readonly onChanged: () => void;
 };
 
-export function SpaceshipRegistrarPanel(props: RegistrarPanelProps<SpaceshipRegistrarPort>) {
-  return <AccountRegistrarPanel provider="spaceship" {...props} />;
+export function SpaceshipRegistrarPanel(props: InventoryPanelProps<SpaceshipRegistrarPort>) {
+  return <AccountInventoryPanel provider="spaceship" {...props} />;
 }
 
-export function AliyunRegistrarPanel(props: RegistrarPanelProps<AliyunRegistrarPort>) {
-  return <AccountRegistrarPanel provider="aliyun" {...props} />;
+export function AliyunRegistrarPanel(props: InventoryPanelProps<AliyunRegistrarPort>) {
+  return <AccountInventoryPanel provider="aliyun" {...props} />;
 }
 
-function AccountRegistrarPanel({ provider, locale, port, writable, onChanged }:
-  RegistrarPanelProps<SpaceshipRegistrarPort | AliyunRegistrarPort> & {
-    readonly provider: "spaceship" | "aliyun";
+export function AtomMarketplacePanel(props: InventoryPanelProps<AtomMarketplacePort>) {
+  return <AccountInventoryPanel provider="atom" {...props} />;
+}
+
+function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
+  InventoryPanelProps<SpaceshipRegistrarPort | AliyunRegistrarPort | AtomMarketplacePort> & {
+    readonly provider: "spaceship" | "aliyun" | "atom";
   }) {
   const copy = getPresentationCopy(locale, "settings");
-  const providerName = provider === "aliyun" ? copy.aliyunRegistrarName : "Spaceship";
-  const [view, setView] = useState<SpaceshipRegistrarStatus | AliyunRegistrarStatus | null>(null);
+  const providerName = { spaceship: "Spaceship", aliyun: copy.aliyunRegistrarName, atom: "Atom" }[provider];
+  const copyPrefix = { spaceship: "spaceshipRegistrar", aliyun: "aliyunRegistrar", atom: "atomMarketplace" } as const;
+  const prefix = copyPrefix[provider];
+  const refresh = provider === "atom" ? copy.atomMarketplaceRefresh : copy.spaceshipRegistrarRefresh;
+  const [view, setView] = useState<SpaceshipRegistrarStatus | AliyunRegistrarStatus | AtomMarketplaceStatus | null>(null);
   const [retry, setRetry] = useState(0);
   const [readFailed, setReadFailed] = useState(false);
   const [submission, setSubmission] = useState<"pending" | "failed" | null>(null);
@@ -66,18 +73,18 @@ function AccountRegistrarPanel({ provider, locale, port, writable, onChanged }:
     revoked: copy.spaceshipRegistrarRevoked,
   };
   const outcomes = {
-    confirmed: view?.lastOperation?.kind === `${provider}_revoke` ? null : copy[`${provider}RegistrarImported`],
-    unqualified: copy[`${provider}RegistrarQualification`],
-    unreachable: copy[`${provider}RegistrarTryLater`],
-    retry_later: copy[`${provider}RegistrarTryLater`],
-    credential_rejected: copy[`${provider}RegistrarPermission`],
+    confirmed: view?.lastOperation?.kind === `${provider}_revoke` ? null : copy[`${prefix}Imported`],
+    unqualified: copy[`${prefix}Qualification`],
+    unreachable: copy[`${prefix}TryLater`],
+    retry_later: copy[`${prefix}TryLater`],
+    credential_rejected: copy[`${prefix}Permission`],
     credential_store_unavailable: copy.spaceshipRegistrarCustody,
     local_operation_blocked: copy.spaceshipRegistrarFailed,
-    provider_response_rejected: copy[`${provider}RegistrarInvalidResponse`],
+    provider_response_rejected: copy[`${prefix}InvalidResponse`],
     capture_incomplete: copy.spaceshipRegistrarCapture,
     failed: copy.spaceshipRegistrarFailed,
   };
-  const message = readFailed ? copy[`${provider}RegistrarUnavailable`]
+  const message = readFailed ? copy[`${prefix}Unavailable`]
     : submission === "failed" ? copy.spaceshipRegistrarFailed
     : (!busy && view?.lastOperation != null) ? outcomes[view.lastOperation.outcome] : null;
 
@@ -99,12 +106,12 @@ function AccountRegistrarPanel({ provider, locale, port, writable, onChanged }:
     });
   };
 
-  return <Panel title={copy[`${provider}RegistrarTitle`]}
+  return <Panel title={copy[`${prefix}Title`]}
     actions={<Button type="button" size="sm" disabled={submission === "pending"} onClick={() => setRetry((value) => value + 1)}>{copy.afternicRefreshStatus}</Button>}>
-    <p>{copy[`${provider}RegistrarHelp`]}</p>
-    {writable && view !== null && !view.observeEntitled ? <p>{copy[`${provider}RegistrarEntitlement`]}</p> : null}
-    {writable && view !== null && (!view.observeQualified || !view.capturable) ? <p>{copy[`${provider}RegistrarQualification`]}</p> : null}
-    {busy ? <p>{copy[`${provider}RegistrarWorking`]}</p> : null}
+    <p>{copy[`${prefix}Help`]}</p>
+    {writable && view !== null && !view.observeEntitled ? <p>{copy[`${prefix}Entitlement`]}</p> : null}
+    {writable && view !== null && (!view.observeQualified || !view.capturable) ? <p>{copy[`${prefix}Qualification`]}</p> : null}
+    {busy ? <p>{copy[`${prefix}Working`]}</p> : null}
     <p role="status">{message}</p>
     {view?.connections.length ? <ul className="settings-device-directory" role="list">
       {view.connections.map((connection) => {
@@ -122,8 +129,8 @@ function AccountRegistrarPanel({ provider, locale, port, writable, onChanged }:
           </div>
           {writable ? <div>
             {connection.state === "revoked" ? null : <Button type="button" size="sm" disabled={!canScan}
-              aria-label={`${copy.spaceshipRegistrarRefresh} ${name}`}
-              onClick={() => submit({ schemaVersion: 1, action: "refresh", connectionId: connection.connectionId })}>{copy.spaceshipRegistrarRefresh}</Button>}
+              aria-label={`${refresh} ${name}`}
+              onClick={() => submit({ schemaVersion: 1, action: "refresh", connectionId: connection.connectionId })}>{refresh}</Button>}
             <Button type="button" size="sm" disabled={readFailed || busy || view.laneState === "blocked"}
               aria-label={`${revokeLabel} ${name}`}
               onClick={() => submit({ schemaVersion: 1, action: "revoke", connectionId: connection.connectionId })}>{revokeLabel}</Button>
@@ -132,6 +139,6 @@ function AccountRegistrarPanel({ provider, locale, port, writable, onChanged }:
       })}
     </ul> : null}
     {writable ? <Button type="button" disabled={!canScan || !view?.capturable}
-      onClick={() => submit({ schemaVersion: 1, action: "connect" })}>{copy[`${provider}RegistrarConnect`]}</Button> : null}
+      onClick={() => submit({ schemaVersion: 1, action: "connect" })}>{copy[`${prefix}Connect`]}</Button> : null}
   </Panel>;
 }

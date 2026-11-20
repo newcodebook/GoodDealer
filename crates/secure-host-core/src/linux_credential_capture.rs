@@ -24,6 +24,7 @@ pub(super) enum Purpose {
     Afternic,
     Spaceship,
     Aliyun,
+    Atom,
 }
 impl Purpose {
     const fn title(self) -> &'static str {
@@ -32,6 +33,7 @@ impl Purpose {
             Self::Afternic => "GoodDealer — Connect Afternic",
             Self::Spaceship => "GoodDealer — Connect Spaceship",
             Self::Aliyun => "GoodDealer — Connect Alibaba Cloud",
+            Self::Atom => "GoodDealer — Connect Atom",
         }
     }
 }
@@ -184,6 +186,11 @@ fn capture_controls(purpose: Purpose, form: &Form) -> (gtk::Grid, gtk::Button, g
             "Alibaba Cloud AccessKey _ID",
             "Alibaba Cloud AccessKey _secret",
             "Connect Alibaba Cloud",
+        ),
+        Purpose::Atom => (
+            "Atom seller _user ID",
+            "Atom Seller API _token",
+            "Connect Atom",
         ),
     };
     let key_label = gtk::Label::new(Some(first_label));
@@ -435,6 +442,7 @@ mod tests {
             assert_eq!(secret.input_purpose(), gtk::InputPurpose::Password);
             let (first, second) = match purpose {
                 Purpose::Aliyun => ("NativeCanaryAccessKeyId", "native_canary_secret_1234"),
+                Purpose::Atom => ("123", "native_canary_token_1234"),
                 Purpose::Afternic | Purpose::Spaceship => {
                     ("native_canary_key_1234", "native_canary_secret_1234")
                 }
@@ -504,6 +512,23 @@ mod tests {
         }
     }
 
+    fn run_atom_case(worker_revoked: &AtomicBool, case: NativeCase) -> bool {
+        use crate::AtomError;
+        let result = crate::AtomCapture::capture_guarded(&mut || {
+            if worker_revoked.load(Ordering::SeqCst) {
+                Err(AtomError::AuthorityStale)
+            } else {
+                Ok(())
+            }
+        });
+        match case {
+            NativeCase::Submit => result.is_ok(),
+            NativeCase::Cancel => matches!(result, Err(AtomError::CaptureCancelled)),
+            NativeCase::Revoke => matches!(result, Err(AtomError::AuthorityStale)),
+            NativeCase::Invalid => matches!(result, Err(AtomError::InputRejected)),
+        }
+    }
+
     fn run_native_case(purpose: Purpose, case: NativeCase) {
         let revoked = Arc::new(AtomicBool::new(false));
         let worker_revoked = Arc::clone(&revoked);
@@ -514,6 +539,7 @@ mod tests {
             let accepted = match purpose {
                 Purpose::Spaceship => run_spaceship_case(&worker_revoked, case),
                 Purpose::Aliyun => run_aliyun_case(&worker_revoked, case),
+                Purpose::Atom => run_atom_case(&worker_revoked, case),
                 Purpose::Afternic => {
                     use crate::afternic_provider::AfternicError;
                     let result = crate::AfternicCapture::capture_guarded(&mut || {
@@ -616,6 +642,7 @@ mod tests {
             Purpose::Cloudflare,
             Purpose::Spaceship,
             Purpose::Aliyun,
+            Purpose::Atom,
         ] {
             assert!(matches!(
                 capture(purpose, &mut || true),

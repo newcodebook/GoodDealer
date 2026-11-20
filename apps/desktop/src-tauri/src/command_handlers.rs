@@ -4,6 +4,7 @@ pub(crate) mod afternic_delist;
 pub(crate) mod afternic_listing_plan;
 pub(crate) mod afternic_listing_write;
 pub(crate) mod aliyun_registrar;
+pub(crate) mod atom_marketplace;
 pub(crate) mod forced_takeover;
 pub(crate) mod spaceship_registrar;
 pub(crate) mod target_bootstrap;
@@ -635,6 +636,9 @@ fn cloudflare_connection_status_never_includes_other_platform_operations() {
         "aliyun_connect",
         "aliyun_refresh",
         "aliyun_revoke",
+        "atom_connect",
+        "atom_refresh",
+        "atom_revoke",
         "spaceship_connect",
         "spaceship_refresh",
         "spaceship_revoke",

@@ -22,6 +22,9 @@ const expectedSourceFiles = [
   "aliyun/credentials.rs",
   "aliyun/registrar_wire.rs",
   "aliyun/signing.rs",
+  "atom.rs",
+  "atom/credentials.rs",
+  "atom/portfolio_wire.rs",
   "cloudflare_capture.rs",
   "cloudflare_keychain.rs",
   "cloudflare_provider.rs",
@@ -69,6 +72,11 @@ const expectedAliyunExports = [
   "AliyunCapture", "AliyunCredential", "AliyunCredentialPlan", "AliyunError", "AliyunGuard",
   "AliyunRegistrarClient", "AliyunRegistration",
   "load_aliyun_credential_guarded", "publish_aliyun_credential_guarded", "purge_aliyun_credential_guarded",
+];
+const expectedAtomExports = [
+  "AtomCapture", "AtomCredential", "AtomCredentialPlan", "AtomError", "AtomGuard",
+  "AtomListing", "AtomListingState", "AtomPortfolioClient",
+  "load_atom_credential_guarded", "publish_atom_credential_guarded", "purge_atom_credential_guarded",
 ];
 const expectedCloudflareCaptureExports = [
   "CloudflareCandidate",
@@ -264,6 +272,7 @@ const expectedLocalStorageExportModules = [
   "active_workspace::storage_repair",
   "desktop_local_host::afternic",
   "desktop_local_host::aliyun_registrar",
+  "desktop_local_host::atom_marketplace",
   "desktop_local_host::spaceship_registrar",
   "portfolio_projection",
   "application_root",
@@ -385,6 +394,13 @@ const expectedLocalStoragePublicExports = [
   "DesktopAliyunConnectionSummary",
   "DesktopSpaceshipRegistrarStatus",
   "DesktopAliyunRegistrarStatus",
+  "DesktopAtomConnection",
+  "DesktopAtomConnectionState",
+  "DesktopAtomConnectionSummary",
+  "DesktopAtomMarketplaceStatus",
+  "DesktopAtomInventoryReceipt",
+  "DesktopAtomListingFact",
+  "DesktopAtomListingState",
   "DesktopCloudflareResolution",
   "DesktopCloudflareRetirement",
   "DesktopCloudflareRetirementCandidate",
@@ -506,10 +522,11 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   if (pathState(libPath) !== "file") return errors;
   const libSource = readRegularFile(libPath, errors);
   if (libSource === null) return errors;
-  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory|native_power|native_continuous_clock|aliyun|spaceship)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
+  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory|native_power|native_continuous_clock|aliyun|atom|spaceship)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
   const exportMatches = [...libSource.matchAll(exportPattern)];
   const expectedExportModules = [
     "aliyun",
+    "atom",
     "spaceship",
     "afternic_credentials",
     "afternic_provider",    "cloudflare_capture",
@@ -538,6 +555,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     ...expectedAfternicExports,
     ...expectedSpaceshipExports,
     ...expectedAliyunExports,
+    ...expectedAtomExports,
     ...expectedCloudflareCaptureExports,
     ...expectedCloudflareKeychainExports,
     ...expectedCloudflareProviderExports,

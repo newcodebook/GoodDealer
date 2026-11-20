@@ -8,6 +8,7 @@ pub(crate) mod afternic;
 mod afternic_controlled_acceptance;
 pub(crate) mod afternic_delist;
 pub(crate) mod aliyun_registrar;
+pub(crate) mod atom_marketplace;
 mod authority;
 mod authorization;
 mod backup_workflow;
@@ -1075,5 +1076,5 @@ fn valid_opaque_identifier(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
-pub(crate) mod afternic_listing_write;
 pub(crate) mod afternic_listing_plan;
+pub(crate) mod afternic_listing_write;

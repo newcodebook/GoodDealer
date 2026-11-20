@@ -19,6 +19,7 @@ pub(crate) enum Purpose {
     Afternic,
     Spaceship,
     Aliyun,
+    Atom,
 }
 impl Purpose {
     const fn dialog_labels(self) -> (&'static str, &'static str, &'static str, bool) {
@@ -45,6 +46,12 @@ impl Purpose {
                 "Connect Alibaba Cloud - GoodDealer",
                 "Alibaba Cloud AccessKey ID",
                 "Alibaba Cloud AccessKey secret",
+                true,
+            ),
+            Self::Atom => (
+                "Connect Atom - GoodDealer",
+                "Atom seller user ID",
+                "Atom Seller API token",
                 true,
             ),
         }

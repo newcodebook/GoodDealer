@@ -94,19 +94,24 @@ impl ProviderOperationRecord {
             Err(ProviderCredentialError::Keychain)
                 if kind.starts_with("afternic_")
                     || kind.starts_with("spaceship_")
-                    || kind.starts_with("aliyun_") =>
+                    || kind.starts_with("aliyun_")
+                    || kind.starts_with("atom_") =>
             {
                 "credential_store_unavailable"
             }
             Err(ProviderCredentialError::Host)
                 if kind.starts_with("afternic_")
                     || kind.starts_with("spaceship_")
-                    || kind.starts_with("aliyun_") =>
+                    || kind.starts_with("aliyun_")
+                    || kind.starts_with("atom_") =>
             {
                 "local_operation_blocked"
             }
             Err(ProviderCredentialError::Capture)
-                if matches!(kind, "spaceship_connect" | "aliyun_connect") =>
+                if matches!(
+                    kind,
+                    "spaceship_connect" | "aliyun_connect" | "atom_connect"
+                ) =>
             {
                 "capture_incomplete"
             }
@@ -345,6 +350,11 @@ impl NativeCloudCoordinator {
                             ).recover().await.is_ok();
                             let aliyun = Arc::new(
                                 crate::provider_credential_orchestrator::aliyun::Run::new(
+                                    Arc::clone(&host), Arc::clone(&cancel_fence), power.clone(), true,
+                                ),
+                            ).recover().await.is_ok();
+                            let atom = Arc::new(
+                                crate::provider_credential_orchestrator::atom::Run::new(
                                     host, cancel_fence, power, true,
                                 ),
                             ).recover().await.is_ok();
@@ -353,6 +363,7 @@ impl NativeCloudCoordinator {
                                 afternic: afternic.into(),
                                 spaceship: spaceship.into(),
                                 aliyun: aliyun.into(),
+                                atom: atom.into(),
                             }
                         }
                     },
@@ -492,6 +503,10 @@ impl NativeCloudCoordinator {
         self.provider.aliyun_status()
     }
 
+    pub(crate) fn atom_provider_status(&self) -> ProviderStatus {
+        self.provider.atom_status()
+    }
+
     /// The latest Provider operation's closed outcome; none after the session is cancelled.
     ///
     /// It is read apart from `provider_status`, so while an operation runs it still names the
@@ -595,7 +610,9 @@ async fn run_provider_operation(
     operation: ProviderOperation,
     power: gooddealer_secure_host_core::NativePowerGate,
 ) {
-    use crate::provider_credential_orchestrator::{RevocationOutcome, afternic, aliyun, spaceship};
+    use crate::provider_credential_orchestrator::{
+        RevocationOutcome, afternic, aliyun, atom, spaceship,
+    };
     // The outcome is recorded for the connection status as a closed value only. Every operation
     // may have committed before it ended, whatever it returned: activation imports the Zone and
     // records its prewrite state, revocation commits the denial when it is prepared, and a
@@ -675,6 +692,33 @@ async fn run_provider_operation(
             let run = Arc::new(aliyun::Run::new(host, cancel_fence, power, false));
             Some(ProviderOperationRecord::of(
                 "aliyun_revoke",
+                run.revoke(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::AtomConnect => {
+            let run = Arc::new(atom::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "atom_connect",
+                run.connect().await.as_ref().map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::AtomRefresh { connection_id } => {
+            let run = Arc::new(atom::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "atom_refresh",
+                run.refresh(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::AtomRevoke { connection_id } => {
+            let run = Arc::new(atom::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "atom_revoke",
                 run.revoke(connection_id)
                     .await
                     .as_ref()

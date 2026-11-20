@@ -21,8 +21,8 @@ use crate::portfolio_projection::{
 
 mod afternic;
 mod afternic_delist;
-mod afternic_ownership_review;
 mod afternic_listing_plan;
+mod afternic_ownership_review;
 pub(crate) use afternic_listing_plan::AfternicListingPlanWorkSeed;
 mod execution_evidence;
 mod execution_evidence_delivery;
@@ -98,6 +98,7 @@ pub use wire::verify_rebootstrap_page_digest;
 pub use wire::verify_rebootstrap_plan_digest;
 
 mod aliyun_registrar;
+mod atom_marketplace;
 mod cloudflare_credential;
 mod cloudflare_registrar;
 mod cloudflare_retirement;
@@ -105,6 +106,11 @@ mod registrar_inventory;
 mod spaceship_registrar;
 pub(crate) use aliyun_registrar::{AliyunConnectionSeed, AliyunInventoryCommit};
 pub use aliyun_registrar::{DesktopAliyunConnectionState, DesktopAliyunConnectionSummary};
+pub(crate) use atom_marketplace::{AtomConnectionSeed, AtomInventoryCommit};
+pub use atom_marketplace::{
+    DesktopAtomConnectionState, DesktopAtomConnectionSummary, DesktopAtomInventoryReceipt,
+    DesktopAtomListingFact, DesktopAtomListingState,
+};
 pub(crate) use cloudflare_registrar::{
     CloudflareRegistrarInventoryCommit, CloudflareRegistrarScanHead,
 };
@@ -1500,11 +1506,10 @@ mod afternic_ownership_review_tests;
 mod afternic_listing_plan_wire;
 pub use afternic_listing_plan_wire::{
     DesktopAfternicListingPlan, DesktopAfternicListingPlanAction,
-    DesktopAfternicListingPlanApproveRequest,
-    DesktopAfternicListingPlanCurrentSummary, DesktopAfternicListingPlanDetail,
-    DesktopAfternicListingPlanItem, DesktopAfternicListingPlanOwnershipReview,
-    DesktopAfternicListingPlanOwnershipReviewObserved, DesktopAfternicListingPlanPreviewRequest,
-    DesktopAfternicListingPlanStatus,
+    DesktopAfternicListingPlanApproveRequest, DesktopAfternicListingPlanCurrentSummary,
+    DesktopAfternicListingPlanDetail, DesktopAfternicListingPlanItem,
+    DesktopAfternicListingPlanOwnershipReview, DesktopAfternicListingPlanOwnershipReviewObserved,
+    DesktopAfternicListingPlanPreviewRequest, DesktopAfternicListingPlanStatus,
     DesktopAfternicListingPlanStatusRequest, DesktopAfternicListingPlanSummary,
     DesktopAfternicListingPlanWrite,
 };

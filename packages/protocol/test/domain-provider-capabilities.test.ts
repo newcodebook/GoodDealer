@@ -72,6 +72,7 @@ describe("domain Provider coverage and financial confirmation", () => {
     expect(domainProviderCapabilityManifest.filter(({ reason }) => reason === "qualification_pending")
       .map(({ platform, capabilityId }) => `${platform}:${capabilityId}`)).toEqual([
         "aliyun:registrar.domain.observe",
+        "atom:marketplace.listing.observe",
         "cloudflare:registrar.domain.observe", "cloudflare:zone.observe", "cloudflare:dns.records.observe",
         "spaceship:registrar.domain.observe",
       ]);

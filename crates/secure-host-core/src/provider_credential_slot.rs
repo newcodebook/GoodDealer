@@ -7,6 +7,7 @@ pub(super) enum Service {
     Afternic,
     Spaceship,
     Aliyun,
+    Atom,
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
@@ -16,6 +17,7 @@ impl Service {
             Self::Afternic => "com.gooddealer.desktop.afternic.listing.v1",
             Self::Spaceship => "com.gooddealer.desktop.spaceship.registrar.v1",
             Self::Aliyun => "com.gooddealer.desktop.aliyun.registrar.v1",
+            Self::Atom => "com.gooddealer.desktop.atom.marketplace.v1",
         }
     }
 }

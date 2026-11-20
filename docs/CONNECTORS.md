@@ -58,10 +58,11 @@ Repository 已移除，M002 仅存允许字段的脱敏副本，`cloud-client` �
 Desktop 已组合用户触发的原生 Token 激活、状态、观察、本地读取，以及从已提交且已验证的 Zone 观察派生的现有资产本地绑定。原生 Grant/Lease 门禁和原子撤销已组合。缺少真实受控 Provider
 资格，客户环境尚不能执行相应读取与写入。已组合的 Registrar 设置入口使用受限原生连接、独立签名权益及资格，完整导入后读取持久汇总。协议覆盖目录（版本 2：每项能力带
 registrar/dns/marketplace/acquisition 角色，覆盖 ADR-0027“完整域名能力目录”的全部能力）、每平台 capability manifest 骨架
-（十二个平台 × 全部目录能力，逐项写明不可执行原因：`platform_facts_pending` 或 Cloudflare、Spaceship、阿里云只读观察的
+（十二个平台 × 全部目录能力，逐项写明不可执行原因：`platform_facts_pending` 或 Cloudflare、Spaceship、阿里云、Atom 只读观察的
 `qualification_pending`，没有可执行状态）与单项资金确认引用已定义，仍不可执行；Provider-specific 最小权限及未知结果
 对账资格尚需逐项确证。
 Afternic 的原生库存已通过真实 Linux 开发账户读取。Spaceship Registrar 已通过 Native 连接、设置页、ProviderLane 和单 SQLCipher writer 组合完整归集，使用独立签名权益及资格。阿里云按相同客户入口组合同一批量资产事务，采用单独的 ACS3 签名及原生托管。各平台实测与发行状态见 [当前实现](CURRENT_IMPLEMENTATION.md)。
+Atom 使用官方卖家库存接口、原生专属托管与同一 Listing 绑定所有者。设置页读取持久结果，实际账户和目标系统资格仍待验收。
 
 ## 证据边界
 

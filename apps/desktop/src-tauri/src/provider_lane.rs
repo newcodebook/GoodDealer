@@ -45,6 +45,13 @@ pub(crate) enum ProviderOperation {
     AliyunRevoke {
         connection_id: String,
     },
+    AtomConnect,
+    AtomRefresh {
+        connection_id: String,
+    },
+    AtomRevoke {
+        connection_id: String,
+    },
     Activate {
         connection_id: String,
     },
@@ -94,14 +101,17 @@ impl ProviderOperation {
             Self::AfternicConnect { .. } => "afternic:new-connection",
             Self::SpaceshipConnect => "spaceship:new-connection",
             Self::AliyunConnect => "aliyun:new-connection",
+            Self::AtomConnect => "atom:new-connection",
             Self::AfternicRefresh { connection_id } | Self::AfternicRevoke { connection_id } => {
                 connection_id
             }
             Self::Activate { connection_id }
             | Self::SpaceshipRefresh { connection_id }
             | Self::AliyunRefresh { connection_id }
+            | Self::AtomRefresh { connection_id }
             | Self::SpaceshipRevoke { connection_id }
             | Self::AliyunRevoke { connection_id }
+            | Self::AtomRevoke { connection_id }
             | Self::CloudflareRegistrarRefresh { connection_id }
             | Self::Revoke { connection_id }
             | Self::Purge { connection_id, .. }
@@ -154,6 +164,25 @@ pub(crate) struct ProviderRecoveryOutcome {
     pub(crate) afternic: ProviderRecovery,
     pub(crate) spaceship: ProviderRecovery,
     pub(crate) aliyun: ProviderRecovery,
+    pub(crate) atom: ProviderRecovery,
+}
+
+impl ProviderRecoveryOutcome {
+    fn for_operation(self, operation: &ProviderOperation) -> ProviderRecovery {
+        match operation {
+            ProviderOperation::SpaceshipConnect
+            | ProviderOperation::SpaceshipRefresh { .. }
+            | ProviderOperation::SpaceshipRevoke { .. } => self.spaceship,
+            ProviderOperation::AliyunConnect
+            | ProviderOperation::AliyunRefresh { .. }
+            | ProviderOperation::AliyunRevoke { .. } => self.aliyun,
+            ProviderOperation::AtomConnect
+            | ProviderOperation::AtomRefresh { .. }
+            | ProviderOperation::AtomRevoke { .. } => self.atom,
+            operation if operation.is_afternic() => self.afternic,
+            _ => self.cloudflare,
+        }
+    }
 }
 
 impl From<bool> for ProviderRecoveryOutcome {
@@ -164,6 +193,7 @@ impl From<bool> for ProviderRecoveryOutcome {
             afternic: recovery,
             spaceship: recovery,
             aliyun: recovery,
+            atom: recovery,
         }
     }
 }
@@ -198,16 +228,7 @@ impl ProviderAdmissionState {
     fn admit(&mut self, operation: &ProviderOperation, now: Instant) -> ProviderAdmission {
         // Serial execution still drains any queued/running recovery first. Only permanent
         // retirement may pass a failed recovery gate; the Host rejects possible live writers.
-        let recovering = match operation {
-            ProviderOperation::SpaceshipConnect
-            | ProviderOperation::SpaceshipRefresh { .. }
-            | ProviderOperation::SpaceshipRevoke { .. } => self.recovery.spaceship,
-            ProviderOperation::AliyunConnect
-            | ProviderOperation::AliyunRefresh { .. }
-            | ProviderOperation::AliyunRevoke { .. } => self.recovery.aliyun,
-            operation if operation.is_afternic() => self.recovery.afternic,
-            _ => self.recovery.cloudflare,
-        };
+        let recovering = self.recovery.for_operation(operation);
         if self.recovery_generation.is_none()
             || (recovering == ProviderRecovery::Pending
                 && !matches!(
@@ -216,6 +237,7 @@ impl ProviderAdmissionState {
                         | ProviderOperation::AfternicRevoke { .. }
                         | ProviderOperation::SpaceshipRevoke { .. }
                         | ProviderOperation::AliyunRevoke { .. }
+                        | ProviderOperation::AtomRevoke { .. }
                 ))
         {
             return ProviderAdmission::Busy;
@@ -228,6 +250,7 @@ impl ProviderAdmissionState {
                     | ProviderOperation::AfternicRefresh { .. }
                     | ProviderOperation::SpaceshipRefresh { .. }
                     | ProviderOperation::AliyunRefresh { .. }
+                    | ProviderOperation::AtomRefresh { .. }
             ) && in_flight == operation
             {
                 ProviderAdmission::Coalesced
@@ -250,7 +273,8 @@ impl ProviderAdmissionState {
             ProviderOperation::Activate { .. }
             | ProviderOperation::AfternicConnect { .. }
             | ProviderOperation::SpaceshipConnect
-            | ProviderOperation::AliyunConnect => {
+            | ProviderOperation::AliyunConnect
+            | ProviderOperation::AtomConnect => {
                 if rate
                     .last_activation
                     .is_some_and(|last| now.duration_since(last) < ACTIVATION_WINDOW)
@@ -263,6 +287,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::CloudflareRegistrarRefresh { .. }
             | ProviderOperation::SpaceshipRefresh { .. }
             | ProviderOperation::AliyunRefresh { .. }
+            | ProviderOperation::AtomRefresh { .. }
             | ProviderOperation::AfternicRefresh { .. } => {
                 while rate
                     .observations
@@ -287,6 +312,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::Purge { .. }
             | ProviderOperation::SpaceshipRevoke { .. }
             | ProviderOperation::AliyunRevoke { .. }
+            | ProviderOperation::AtomRevoke { .. }
             | ProviderOperation::AfternicRevoke { .. } => {}
         }
         self.in_flight = Some(operation.clone());
@@ -338,6 +364,9 @@ impl ProviderLaneHandle {
     }
     pub(crate) fn aliyun_status(&self) -> ProviderStatus {
         self.status_for(|state| state.recovery.aliyun)
+    }
+    pub(crate) fn atom_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.atom)
     }
     fn status_for(
         &self,
@@ -536,6 +565,7 @@ impl ProviderLane {
                             ProviderOperation::AfternicRevoke { .. }
                                 | ProviderOperation::SpaceshipRevoke { .. }
                                 | ProviderOperation::AliyunRevoke { .. }
+                                | ProviderOperation::AtomRevoke { .. }
                         )
                     {
                         let generation = self.recovery_generation();
@@ -673,6 +703,7 @@ mod tests {
                 afternic: false.into(),
                 spaceship: true.into(),
                 aliyun: true.into(),
+                atom: true.into(),
             },
         );
         assert_eq!(handle.status(), ProviderStatus::Ready);
@@ -693,6 +724,7 @@ mod tests {
                 afternic: true.into(),
                 spaceship: true.into(),
                 aliyun: true.into(),
+                atom: true.into(),
             },
         );
         assert_eq!(
@@ -730,6 +762,7 @@ mod tests {
                 afternic: true.into(),
                 spaceship: true.into(),
                 aliyun: false.into(),
+                atom: false.into(),
             },
         );
         let refresh = ProviderOperation::AliyunRefresh {

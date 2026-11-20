@@ -435,6 +435,18 @@
           "markdownDescription": "Enables the aliyun_registrar_submit command without any pre-configured scope."
         },
         {
+          "description": "Enables the atom_marketplace_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-atom-marketplace-status",
+          "markdownDescription": "Enables the atom_marketplace_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the atom_marketplace_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-atom-marketplace-submit",
+          "markdownDescription": "Enables the atom_marketplace_submit command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cloudflare_connection_activate command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cloudflare-connection-activate",
@@ -835,6 +847,18 @@
           "type": "string",
           "const": "deny-aliyun-registrar-submit",
           "markdownDescription": "Denies the aliyun_registrar_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the atom_marketplace_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-atom-marketplace-status",
+          "markdownDescription": "Denies the atom_marketplace_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the atom_marketplace_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-atom-marketplace-submit",
+          "markdownDescription": "Denies the atom_marketplace_submit command without any pre-configured scope."
         },
         {
           "description": "Denies the cloudflare_connection_activate command without any pre-configured scope.",
