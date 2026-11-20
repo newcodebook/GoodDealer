@@ -1,16 +1,30 @@
-import type { SpaceshipRegistrarIntent, SpaceshipRegistrarPort, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
+import type { AliyunRegistrarPort, AliyunRegistrarStatus, SpaceshipRegistrarIntent, SpaceshipRegistrarPort, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
 import { formatDate, formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { Badge, Button, Panel } from "@gooddealer/ui";
 import { useEffect, useRef, useState } from "react";
 
-export function SpaceshipRegistrarPanel({ locale, port, writable, onChanged }: {
+type RegistrarPanelProps<P> = {
   readonly locale: Locale;
-  readonly port: SpaceshipRegistrarPort;
+  readonly port: P;
   readonly writable: boolean;
   readonly onChanged: () => void;
-}) {
+};
+
+export function SpaceshipRegistrarPanel(props: RegistrarPanelProps<SpaceshipRegistrarPort>) {
+  return <AccountRegistrarPanel provider="spaceship" {...props} />;
+}
+
+export function AliyunRegistrarPanel(props: RegistrarPanelProps<AliyunRegistrarPort>) {
+  return <AccountRegistrarPanel provider="aliyun" {...props} />;
+}
+
+function AccountRegistrarPanel({ provider, locale, port, writable, onChanged }:
+  RegistrarPanelProps<SpaceshipRegistrarPort | AliyunRegistrarPort> & {
+    readonly provider: "spaceship" | "aliyun";
+  }) {
   const copy = getPresentationCopy(locale, "settings");
-  const [view, setView] = useState<SpaceshipRegistrarStatus | null>(null);
+  const providerName = provider === "aliyun" ? copy.aliyunRegistrarName : "Spaceship";
+  const [view, setView] = useState<SpaceshipRegistrarStatus | AliyunRegistrarStatus | null>(null);
   const [retry, setRetry] = useState(0);
   const [readFailed, setReadFailed] = useState(false);
   const [submission, setSubmission] = useState<"pending" | "failed" | null>(null);
@@ -52,18 +66,18 @@ export function SpaceshipRegistrarPanel({ locale, port, writable, onChanged }: {
     revoked: copy.spaceshipRegistrarRevoked,
   };
   const outcomes = {
-    confirmed: view?.lastOperation?.kind === "spaceship_revoke" ? null : copy.spaceshipRegistrarImported,
-    unqualified: copy.spaceshipRegistrarQualification,
-    unreachable: copy.spaceshipRegistrarTryLater,
-    retry_later: copy.spaceshipRegistrarTryLater,
-    credential_rejected: copy.spaceshipRegistrarPermission,
+    confirmed: view?.lastOperation?.kind === `${provider}_revoke` ? null : copy[`${provider}RegistrarImported`],
+    unqualified: copy[`${provider}RegistrarQualification`],
+    unreachable: copy[`${provider}RegistrarTryLater`],
+    retry_later: copy[`${provider}RegistrarTryLater`],
+    credential_rejected: copy[`${provider}RegistrarPermission`],
     credential_store_unavailable: copy.spaceshipRegistrarCustody,
     local_operation_blocked: copy.spaceshipRegistrarFailed,
-    provider_response_rejected: copy.spaceshipRegistrarInvalidResponse,
+    provider_response_rejected: copy[`${provider}RegistrarInvalidResponse`],
     capture_incomplete: copy.spaceshipRegistrarCapture,
     failed: copy.spaceshipRegistrarFailed,
   };
-  const message = readFailed ? copy.spaceshipRegistrarUnavailable
+  const message = readFailed ? copy[`${provider}RegistrarUnavailable`]
     : submission === "failed" ? copy.spaceshipRegistrarFailed
     : (!busy && view?.lastOperation != null) ? outcomes[view.lastOperation.outcome] : null;
 
@@ -85,16 +99,16 @@ export function SpaceshipRegistrarPanel({ locale, port, writable, onChanged }: {
     });
   };
 
-  return <Panel title={copy.spaceshipRegistrarTitle}
+  return <Panel title={copy[`${provider}RegistrarTitle`]}
     actions={<Button type="button" size="sm" disabled={submission === "pending"} onClick={() => setRetry((value) => value + 1)}>{copy.afternicRefreshStatus}</Button>}>
-    <p>{copy.spaceshipRegistrarHelp}</p>
-    {writable && view !== null && !view.observeEntitled ? <p>{copy.spaceshipRegistrarEntitlement}</p> : null}
-    {writable && view !== null && (!view.observeQualified || !view.capturable) ? <p>{copy.spaceshipRegistrarQualification}</p> : null}
-    {busy ? <p>{copy.spaceshipRegistrarWorking}</p> : null}
+    <p>{copy[`${provider}RegistrarHelp`]}</p>
+    {writable && view !== null && !view.observeEntitled ? <p>{copy[`${provider}RegistrarEntitlement`]}</p> : null}
+    {writable && view !== null && (!view.observeQualified || !view.capturable) ? <p>{copy[`${provider}RegistrarQualification`]}</p> : null}
+    {busy ? <p>{copy[`${provider}RegistrarWorking`]}</p> : null}
     <p role="status">{message}</p>
     {view?.connections.length ? <ul className="settings-device-directory" role="list">
       {view.connections.map((connection) => {
-        const name = view.connections.length === 1 ? "Spaceship" : `Spaceship · ${connection.connectionId.slice(0, 8)}`;
+        const name = view.connections.length === 1 ? providerName : `${providerName} · ${connection.connectionId.slice(0, 8)}`;
         const scan = connection.lastScan;
         const summary = scan === null ? copy.spaceshipRegistrarNeverScanned : copy.spaceshipRegistrarCounts
           .replace("{observed}", formatNumber(locale, scan.observed))
@@ -118,6 +132,6 @@ export function SpaceshipRegistrarPanel({ locale, port, writable, onChanged }: {
       })}
     </ul> : null}
     {writable ? <Button type="button" disabled={!canScan || !view?.capturable}
-      onClick={() => submit({ schemaVersion: 1, action: "connect" })}>{copy.spaceshipRegistrarConnect}</Button> : null}
+      onClick={() => submit({ schemaVersion: 1, action: "connect" })}>{copy[`${provider}RegistrarConnect`]}</Button> : null}
   </Panel>;
 }

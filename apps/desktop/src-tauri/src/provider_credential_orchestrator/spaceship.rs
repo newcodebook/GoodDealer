@@ -244,8 +244,8 @@ fn registration_fact(row: SpaceshipRegistration) -> DesktopRegistrationFact {
         domain: row.domain,
         registered_on: row.registered_on,
         expires_on: Some(row.expires_on),
-        auto_renew: row.auto_renew,
-        locked: row.transfer_locked,
+        auto_renew: Some(row.auto_renew),
+        locked: Some(row.transfer_locked),
         standing: match row.standing {
             SpaceshipRegistrationStanding::Active => DesktopRegistrationStanding::Active,
             SpaceshipRegistrationStanding::Pending => DesktopRegistrationStanding::Pending,

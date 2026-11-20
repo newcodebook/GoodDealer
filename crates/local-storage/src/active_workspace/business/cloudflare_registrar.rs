@@ -204,8 +204,8 @@ mod tests {
             domain: "fresh.test".into(),
             registered_on: "2026-10-20".into(),
             expires_on: None,
-            auto_renew: false,
-            locked: false,
+            auto_renew: Some(false),
+            locked: Some(false),
             standing: DesktopCloudflareRegistrationStanding::Pending,
         }];
         let input = CloudflareRegistrarInventoryCommit {

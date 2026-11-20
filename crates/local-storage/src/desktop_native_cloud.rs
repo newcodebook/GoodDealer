@@ -2878,8 +2878,8 @@ mod tests {
             domain: domain.to_owned(),
             registered_on: "2025-10-02".to_owned(),
             expires_on: Some("2027-10-02".to_owned()),
-            auto_renew: true,
-            locked: true,
+            auto_renew: Some(true),
+            locked: Some(true),
             standing: crate::DesktopCloudflareRegistrationStanding::Active,
         }
     }

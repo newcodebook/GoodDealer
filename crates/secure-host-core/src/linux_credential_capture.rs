@@ -23,6 +23,7 @@ pub(super) enum Purpose {
     Cloudflare,
     Afternic,
     Spaceship,
+    Aliyun,
 }
 impl Purpose {
     const fn title(self) -> &'static str {
@@ -30,6 +31,7 @@ impl Purpose {
             Self::Cloudflare => "GoodDealer — Connect Cloudflare",
             Self::Afternic => "GoodDealer — Connect Afternic",
             Self::Spaceship => "GoodDealer — Connect Spaceship",
+            Self::Aliyun => "GoodDealer — Connect Alibaba Cloud",
         }
     }
 }
@@ -177,6 +179,11 @@ fn capture_controls(purpose: Purpose, form: &Form) -> (gtk::Grid, gtk::Button, g
             "Spaceship API _key",
             "Spaceship API _secret",
             "Connect Spaceship",
+        ),
+        Purpose::Aliyun => (
+            "Alibaba Cloud AccessKey _ID",
+            "Alibaba Cloud AccessKey _secret",
+            "Connect Alibaba Cloud",
         ),
     };
     let key_label = gtk::Label::new(Some(first_label));
@@ -427,6 +434,7 @@ mod tests {
             );
             assert_eq!(secret.input_purpose(), gtk::InputPurpose::Password);
             let (first, second) = match purpose {
+                Purpose::Aliyun => ("NativeCanaryAccessKeyId", "native_canary_secret_1234"),
                 Purpose::Afternic | Purpose::Spaceship => {
                     ("native_canary_key_1234", "native_canary_secret_1234")
                 }
@@ -477,6 +485,25 @@ mod tests {
         }
     }
 
+    fn run_aliyun_case(worker_revoked: &AtomicBool, case: NativeCase) -> bool {
+        use crate::{AliyunCapture, AliyunError};
+        let result = AliyunCapture::capture_guarded(&mut || {
+            if worker_revoked.load(Ordering::SeqCst) {
+                Err(AliyunError::AuthorityStale)
+            } else {
+                Ok(())
+            }
+        });
+        match case {
+            NativeCase::Submit => result.is_ok(),
+            NativeCase::Cancel => {
+                matches!(result, Err(AliyunError::CaptureCancelled))
+            }
+            NativeCase::Revoke => matches!(result, Err(AliyunError::AuthorityStale)),
+            NativeCase::Invalid => matches!(result, Err(AliyunError::InputRejected)),
+        }
+    }
+
     fn run_native_case(purpose: Purpose, case: NativeCase) {
         let revoked = Arc::new(AtomicBool::new(false));
         let worker_revoked = Arc::clone(&revoked);
@@ -486,6 +513,7 @@ mod tests {
             // error classification and full credential bytes without printing the canary.
             let accepted = match purpose {
                 Purpose::Spaceship => run_spaceship_case(&worker_revoked, case),
+                Purpose::Aliyun => run_aliyun_case(&worker_revoked, case),
                 Purpose::Afternic => {
                     use crate::afternic_provider::AfternicError;
                     let result = crate::AfternicCapture::capture_guarded(&mut || {
@@ -583,7 +611,12 @@ mod tests {
     #[ignore = "requires a real GTK display; native canaries only, no account credentials"]
     fn actual_gtk_capture_submission_cancellation_revocation_and_late_dispatch() {
         assert!(gtk::init().is_ok(), "GTK display unavailable");
-        for purpose in [Purpose::Afternic, Purpose::Cloudflare, Purpose::Spaceship] {
+        for purpose in [
+            Purpose::Afternic,
+            Purpose::Cloudflare,
+            Purpose::Spaceship,
+            Purpose::Aliyun,
+        ] {
             assert!(matches!(
                 capture(purpose, &mut || true),
                 Err(CaptureError::Unavailable)

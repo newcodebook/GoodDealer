@@ -18,7 +18,39 @@ pub(crate) enum Purpose {
     Cloudflare,
     Afternic,
     Spaceship,
+    Aliyun,
 }
+impl Purpose {
+    const fn dialog_labels(self) -> (&'static str, &'static str, &'static str, bool) {
+        match self {
+            Self::Cloudflare => (
+                "Connect Cloudflare - GoodDealer",
+                "Zone ID",
+                "API token",
+                false,
+            ),
+            Self::Afternic => (
+                "Connect Afternic - GoodDealer",
+                "API key",
+                "API secret",
+                true,
+            ),
+            Self::Spaceship => (
+                "Connect Spaceship - GoodDealer",
+                "Spaceship API key",
+                "Spaceship API secret",
+                true,
+            ),
+            Self::Aliyun => (
+                "Connect Alibaba Cloud - GoodDealer",
+                "Alibaba Cloud AccessKey ID",
+                "Alibaba Cloud AccessKey secret",
+                true,
+            ),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum CaptureError {
     Unavailable,
@@ -98,26 +130,7 @@ struct Dialog {
 }
 impl Dialog {
     fn build(purpose: Purpose) -> Self {
-        let (title, first_label, second_label, mask_first) = match purpose {
-            Purpose::Cloudflare => (
-                "Connect Cloudflare - GoodDealer",
-                "Zone ID",
-                "API token",
-                false,
-            ),
-            Purpose::Afternic => (
-                "Connect Afternic - GoodDealer",
-                "API key",
-                "API secret",
-                true,
-            ),
-            Purpose::Spaceship => (
-                "Connect Spaceship - GoodDealer",
-                "Spaceship API key",
-                "Spaceship API secret",
-                true,
-            ),
-        };
+        let (title, first_label, second_label, mask_first) = purpose.dialog_labels();
         let window = gui::WindowMain::new(gui::WindowMainOpts {
             class_name: "GoodDealer.NativeCredentialCapture.V1",
             title,

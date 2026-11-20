@@ -6,6 +6,7 @@ use zeroize::Zeroizing;
 pub(super) enum Service {
     Afternic,
     Spaceship,
+    Aliyun,
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
@@ -14,6 +15,7 @@ impl Service {
         match self {
             Self::Afternic => "com.gooddealer.desktop.afternic.listing.v1",
             Self::Spaceship => "com.gooddealer.desktop.spaceship.registrar.v1",
+            Self::Aliyun => "com.gooddealer.desktop.aliyun.registrar.v1",
         }
     }
 }

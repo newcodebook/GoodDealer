@@ -315,8 +315,8 @@ pub(crate) async fn refresh_registrar_inventory(
             domain: row.domain,
             registered_on: row.registered_on,
             expires_on: row.expires_on,
-            auto_renew: row.auto_renew,
-            locked: row.locked,
+            auto_renew: Some(row.auto_renew),
+            locked: Some(row.locked),
             standing: match row.standing {
                 gooddealer_secure_host_core::CloudflareRegistrationStanding::Active => {
                     DesktopCloudflareRegistrationStanding::Active

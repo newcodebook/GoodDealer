@@ -4,6 +4,7 @@
 pub(crate) mod afternic;
 pub(crate) mod afternic_delist;
 pub(crate) mod afternic_listing_write;
+pub(crate) mod aliyun;
 mod cloudflare;
 pub(crate) mod spaceship;
 

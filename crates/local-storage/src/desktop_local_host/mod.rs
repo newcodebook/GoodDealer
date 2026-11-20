@@ -7,6 +7,7 @@
 pub(crate) mod afternic;
 mod afternic_controlled_acceptance;
 pub(crate) mod afternic_delist;
+pub(crate) mod aliyun_registrar;
 mod authority;
 mod authorization;
 mod backup_workflow;

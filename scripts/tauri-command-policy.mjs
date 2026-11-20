@@ -17,6 +17,8 @@ const reviewedCommands = [
   "afternic_listing_write_approve",
   "afternic_listing_write_preview",
   "afternic_listing_write_status",
+  "aliyun_registrar_status",
+  "aliyun_registrar_submit",
   "cloudflare_connection_activate",
   "cloudflare_connection_create",
   "cloudflare_connection_purge",
@@ -316,6 +318,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     "apps/desktop/src/adapters/tauri/afternic-listing-plan.ts",
     "apps/desktop/src/adapters/tauri/afternic-listing-write.ts",
     "apps/desktop/src/adapters/tauri/spaceship-registrar.ts",
+    "apps/desktop/src/adapters/tauri/aliyun-registrar.ts",
   ].map((path) => requiredRegularFile(root, path, errors));
   const desktopManifest = requiredRegularFile(root, "apps/desktop/src-tauri/Cargo.toml", errors);
   const backupIpcSource = requiredRegularFile(
@@ -359,7 +362,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     attributed: attributedCommands(sources),
     capability: capabilityCommands(capability),
     adapter: unique(adapterSources.flatMap((source, index) => adapterCommands(source, {
-      literalInvocationsOnly: index === 3 || index === 4 || index === 6,
+      literalInvocationsOnly: index === 3 || index === 4 || index === 6 || index === 7,
     }))),
   };
   for (const [name, commands] of Object.entries(sets)) {

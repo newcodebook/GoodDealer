@@ -18,12 +18,13 @@ Linux 构件通过 freedesktop Secret Service（GNOME Keyring、KWallet Secret S
 | `com.gooddealer.desktop.afternic.listing.v1` | `secure-host-core` | Afternic API key/secret；固定连接 slot 与凭据代次绑定 |
 | `com.gooddealer.desktop.cloudflare.dns.v1` | `secure-host-core` | Cloudflare Zone 与 Token 的 v3 托管信封，使用现有连接代次及托管转换 |
 | `com.gooddealer.desktop.spaceship.registrar.v1` | `secure-host-core` | Spaceship Registrar API key/secret，按工作区、连接 incarnation 的固定槽独立托管 |
+| `com.gooddealer.desktop.aliyun.registrar.v1` | `secure-host-core` | 阿里云 Registrar RAM AccessKey ID/Secret，按工作区和连接 incarnation 隔离 |
 
 Afternic 只允许固定 Native GTK 掩码输入窗口录入 API key/secret，沿同一私有 Service 的连接 slot 托管；不接受 Renderer、普通 TypeScript、环境变量、命令参数或日志传递秘密。取消、超时或授权撤回须清空窗口并丢弃结果；凭据只在 Native 受限内存借用。其同 UID 可读及第三方后端同步残余风险与下文一致，扩大到此条目时明确接受相同边界。
 
 Cloudflare 通过固定 Native GTK 窗口接收 Zone ID 和 Token。进入 prewrite 前须通过电源与取消栅栏。同一个私有 Service 校验原连接 scope、代次及凭据见证。Secret Service 访问用固定服务名和连接摘要，读写撤销与清理沿用同一跨进程锁及既有 CAS。Cloudflare 条目使用下文相同的当前用户会话信任边界，接受同 UID 可读和服务后端不可证明无同步的残余风险。备份 KEK 与 rebootstrap 写入在 Linux 上保持 `unavailable`，需要各自的后续决定。
 
-Spaceship 通过专用 Native GTK 掩码窗口采集 API key/secret。写入仅用于持久准备的精确槽，沿用工作区独占进程锁并在读取确认后才使用。换凭据建立新 incarnation。该条目接受下文同 UID 可读及后端同步无法证明的残余风险。
+Spaceship 与阿里云分别通过具名 Native GTK 掩码窗口采集所需凭据。写入仅用于持久准备的精确槽，沿用工作区独占进程锁并在读取确认后才使用。换凭据建立新 incarnation。这两个条目接受下文同 UID 可读及后端同步无法证明的残余风险。
 
 ### 适配器约束
 

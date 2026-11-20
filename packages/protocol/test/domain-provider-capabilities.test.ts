@@ -71,6 +71,7 @@ describe("domain Provider coverage and financial confirmation", () => {
     // Implemented read-only observations still require qualification.
     expect(domainProviderCapabilityManifest.filter(({ reason }) => reason === "qualification_pending")
       .map(({ platform, capabilityId }) => `${platform}:${capabilityId}`)).toEqual([
+        "aliyun:registrar.domain.observe",
         "cloudflare:registrar.domain.observe", "cloudflare:zone.observe", "cloudflare:dns.records.observe",
         "spaceship:registrar.domain.observe",
       ]);

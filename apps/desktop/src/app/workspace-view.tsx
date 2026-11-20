@@ -11,7 +11,7 @@ import { AfternicDelistPanel, AfternicListingWritePanel, BatchList } from "../fe
 import { ManualTaskInbox } from "../features/operations/manual-tasks";
 import { OperationHistory } from "../features/operations/operation-history";
 import { RenewalDesk, type RenewalListView } from "../features/registration";
-import { AfternicPanel, CloudflareRegistrarPanel, CloudflareRetirementPanel, SpaceshipRegistrarPanel, cloudflareNoticeCopyKey, readCloudflareNotice } from "../features/connections";
+import { AfternicPanel, CloudflareRegistrarPanel, CloudflareRetirementPanel, SpaceshipRegistrarPanel, AliyunRegistrarPanel, cloudflareNoticeCopyKey, readCloudflareNotice } from "../features/connections";
 import { DeviceDirectoryPanel, SettingsPanel } from "../features/settings";
 import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
@@ -275,6 +275,7 @@ function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepai
         const summary = (connection: SettingsConnection) => {
           if (connection.providerKind === "cloudflare") return copy[cloudflareNoticeCopyKey[cloudflare.notice]];
           if (connection.providerKind === "spaceship") return copy.spaceshipRegistrarHelp;
+          if (connection.providerKind === "aliyun") return copy.aliyunRegistrarHelp;
           return copy.capabilityPendingSummary;
         };
         if (!cancelled) setState({ kind: "ready", connections: projectConnectionSettings(read, summary), storageIntegrity: read.storageIntegrity, readGeneration: read.readGeneration });
@@ -301,6 +302,7 @@ function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepai
         <AfternicPanel locale={locale} port={ports.afternic} readOnly={!writable} onChanged={() => setAttempt((current) => current + 1)} />
         <CloudflareRegistrarPanel locale={locale} port={ports.cloudflare} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />
         {ports.spaceship === undefined ? null : <SpaceshipRegistrarPanel locale={locale} port={ports.spaceship} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}
+        {ports.aliyun === undefined ? null : <AliyunRegistrarPanel locale={locale} port={ports.aliyun} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}
         {writable ? <CloudflareRetirementPanel locale={locale} port={ports.cloudflare} onChanged={() => setAttempt((current) => current + 1)} /> : null}
       </>}
       devices={null}

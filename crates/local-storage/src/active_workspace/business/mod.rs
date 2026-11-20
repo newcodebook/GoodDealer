@@ -97,11 +97,14 @@ pub use wire::verify_rebootstrap_page_digest;
 #[cfg(all(test, unix))]
 pub use wire::verify_rebootstrap_plan_digest;
 
+mod aliyun_registrar;
 mod cloudflare_credential;
 mod cloudflare_registrar;
 mod cloudflare_retirement;
 mod registrar_inventory;
 mod spaceship_registrar;
+pub(crate) use aliyun_registrar::{AliyunConnectionSeed, AliyunInventoryCommit};
+pub use aliyun_registrar::{DesktopAliyunConnectionState, DesktopAliyunConnectionSummary};
 pub(crate) use cloudflare_registrar::{
     CloudflareRegistrarInventoryCommit, CloudflareRegistrarScanHead,
 };

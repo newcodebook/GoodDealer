@@ -3,6 +3,7 @@ pub(crate) mod afternic;
 pub(crate) mod afternic_delist;
 pub(crate) mod afternic_listing_plan;
 pub(crate) mod afternic_listing_write;
+pub(crate) mod aliyun_registrar;
 pub(crate) mod forced_takeover;
 pub(crate) mod spaceship_registrar;
 pub(crate) mod target_bootstrap;
@@ -631,6 +632,9 @@ fn is_cloudflare_connection_operation(kind: &str) -> bool {
 #[test]
 fn cloudflare_connection_status_never_includes_other_platform_operations() {
     for kind in [
+        "aliyun_connect",
+        "aliyun_refresh",
+        "aliyun_revoke",
         "spaceship_connect",
         "spaceship_refresh",
         "spaceship_revoke",

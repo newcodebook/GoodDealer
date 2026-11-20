@@ -31,6 +31,7 @@ mod windows_protected_acl_tests;
 mod afternic_credentials;
 mod afternic_provider;
 mod afternic_wire;
+mod aliyun;
 mod cloudflare_capture;
 mod cloudflare_keychain;
 mod cloudflare_provider;
@@ -47,6 +48,12 @@ mod provider_credential_slot;
 #[cfg(target_os = "linux")]
 mod secret_service_custody;
 mod spaceship;
+
+pub use aliyun::{
+    AliyunCapture, AliyunCredential, AliyunCredentialPlan, AliyunError, AliyunGuard,
+    AliyunRegistrarClient, AliyunRegistration, load_aliyun_credential_guarded,
+    publish_aliyun_credential_guarded, purge_aliyun_credential_guarded,
+};
 
 pub use spaceship::{
     SpaceshipCapture, SpaceshipCredential, SpaceshipCredentialPlan, SpaceshipError, SpaceshipGuard,

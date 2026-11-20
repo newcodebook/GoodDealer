@@ -1790,7 +1790,7 @@ fn map_database_error(error: BusinessDatabaseError) -> DesktopSyncError {
 
 /// The signed commercial contract is a canonical closed set, including a valid empty set.
 pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
-    values.len() <= 5
+    values.len() <= 6
         && values.iter().all(|value| {
             matches!(
                 value.as_str(),
@@ -1798,6 +1798,7 @@ pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
                     | "afternic:marketplace:write"
                     | "cloudflare:dns:observe"
                     | "cloudflare:registrar:observe"
+                    | "aliyun:registrar:observe"
                     | "spaceship:registrar:observe"
             )
         })

@@ -41,6 +41,8 @@ fn main() {
             "cloudflare_registrar_inventory_refresh",
             "spaceship_registrar_status",
             "spaceship_registrar_submit",
+            "aliyun_registrar_status",
+            "aliyun_registrar_submit",
             "local_business_status",
             "local_device_lease_read",
             "device_directory_read",

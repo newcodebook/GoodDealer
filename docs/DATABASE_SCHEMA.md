@@ -67,6 +67,7 @@ Desired State 与 Observed State 永远分离。Provider 观察不能直接覆�
 | `provider_observation_runs` | 一次本地 Provider 读取的状态、`observation_capability`、Connector 版本和错误。 | 否；含本地连接 FK |
 | `spaceship_registrar_connections` | 本地 Spaceship Registrar 连接 incarnation、随机托管见证、待扫描、撤销和清理状态。 | 否；凭据保存在 Native |
 | `spaceship_registrar_scans` | 同一连接完整扫描的导入数量、时间及本地观察运行引用。 | 否；新域名走通常的资产 Outbox |
+| `aliyun_registrar_connections` / `aliyun_registrar_scans` | 阿里云连接代次、托管见证、待扫描与撤销状态、已完成扫描的脱敏回执。注册事实沿用原注册商观察，新域名走原资产 Outbox。 | 否；AccessKey 只在 Native |
 | `provider_observation_targets` | 每次读取的逐资产 requested/succeeded/failed/missing 结果，用于部分失败和有界重试。 | 否；含本地运行 FK |
 | `registrar_observations` | Registrar、注册/到期、续费、锁定和置信状态。 | 仅显式脱敏字段 |
 | `dns_zone_observations` | Zone、NS、DNSSEC、Provider 修改时间和证据状态。 | 仅显式脱敏字段 |

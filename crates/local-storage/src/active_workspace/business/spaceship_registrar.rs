@@ -36,8 +36,8 @@ mod tests {
             domain: name.to_owned(),
             registered_on: "2025-04-01".to_owned(),
             expires_on: Some("2027-04-01".to_owned()),
-            auto_renew: true,
-            locked: false,
+            auto_renew: Some(true),
+            locked: Some(false),
             standing: DesktopRegistrationStanding::Active,
         }
     }

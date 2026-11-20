@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-import type { SpaceshipRegistrarStatus } from "@gooddealer/client-core";
+import type { AliyunRegistrarStatus, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
-import { SpaceshipRegistrarPanel } from "./spaceship-registrar-panel";
+import { AliyunRegistrarPanel, SpaceshipRegistrarPanel } from "./spaceship-registrar-panel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -56,5 +56,38 @@ it("connects once, reads the saved scan and preserves it after a later failed re
     await act(async () => root.unmount());
     container.remove();
     vi.useRealTimers();
+  }
+});
+
+
+it("uses the Aliyun port and customer copy with the same durable registrar panel", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const ready: AliyunRegistrarStatus = {
+    schemaVersion: 1, observeQualified: true, observeEntitled: true, capturable: true,
+    laneState: "ready", connections: [], lastOperation: null,
+  };
+  const saved: AliyunRegistrarStatus = {
+    ...ready,
+    connections: [{
+      connectionId: "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953", state: "active", scanPending: false,
+      lastScan: { observed: 2, imported: 2, skipped: 0, completedAt: "2026-11-20T00:00:00Z" },
+    }],
+    lastOperation: { kind: "aliyun_connect", outcome: "confirmed" },
+  };
+  const status = vi.fn<() => Promise<AliyunRegistrarStatus>>().mockResolvedValueOnce(ready).mockResolvedValue(saved);
+  try {
+    await act(async () => {
+      root.render(<AliyunRegistrarPanel locale="zh-CN" port={{ status, submit }} writable onChanged={() => {}} />);
+    });
+    const connect = [...container.querySelectorAll("button")].find((button) => button.textContent === "连接阿里云")!;
+    await act(async () => { connect.click(); });
+    expect(submit).toHaveBeenCalledWith({ schemaVersion: 1, action: "connect" });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("阿里云归集结果已保存");
+    expect(container.textContent).not.toContain("Spaceship");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
   }
 });

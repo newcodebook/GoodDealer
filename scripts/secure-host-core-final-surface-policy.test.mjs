@@ -18,6 +18,10 @@ const expectedSourceFiles = [
   "afternic_provider.rs",
   "afternic_provider_tests.rs",
   "afternic_wire.rs",
+  "aliyun.rs",
+  "aliyun/credentials.rs",
+  "aliyun/registrar_wire.rs",
+  "aliyun/signing.rs",
   "cloudflare_capture.rs",
   "cloudflare_keychain.rs",
   "cloudflare_provider.rs",
@@ -60,6 +64,11 @@ const expectedSpaceshipExports = [
   "SpaceshipCapture", "SpaceshipCredential", "SpaceshipCredentialPlan", "SpaceshipError", "SpaceshipGuard",
   "SpaceshipRegistrarClient", "SpaceshipRegistration", "SpaceshipRegistrationStanding",
   "load_spaceship_credential_guarded", "publish_spaceship_credential_guarded", "purge_spaceship_credential_guarded",
+];
+const expectedAliyunExports = [
+  "AliyunCapture", "AliyunCredential", "AliyunCredentialPlan", "AliyunError", "AliyunGuard",
+  "AliyunRegistrarClient", "AliyunRegistration",
+  "load_aliyun_credential_guarded", "publish_aliyun_credential_guarded", "purge_aliyun_credential_guarded",
 ];
 const expectedCloudflareCaptureExports = [
   "CloudflareCandidate",
@@ -254,6 +263,7 @@ const expectedLocalStorageExportModules = [
   "active_workspace::settings",
   "active_workspace::storage_repair",
   "desktop_local_host::afternic",
+  "desktop_local_host::aliyun_registrar",
   "desktop_local_host::spaceship_registrar",
   "portfolio_projection",
   "application_root",
@@ -368,9 +378,13 @@ const expectedLocalStoragePublicExports = [
   "DesktopRegistrationFact",
   "DesktopRegistrationStanding",
   "DesktopSpaceshipConnection",
+  "DesktopAliyunConnection",
   "DesktopSpaceshipConnectionState",
+  "DesktopAliyunConnectionState",
   "DesktopSpaceshipConnectionSummary",
+  "DesktopAliyunConnectionSummary",
   "DesktopSpaceshipRegistrarStatus",
+  "DesktopAliyunRegistrarStatus",
   "DesktopCloudflareResolution",
   "DesktopCloudflareRetirement",
   "DesktopCloudflareRetirementCandidate",
@@ -492,9 +506,10 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   if (pathState(libPath) !== "file") return errors;
   const libSource = readRegularFile(libPath, errors);
   if (libSource === null) return errors;
-  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory|native_power|native_continuous_clock|spaceship)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
+  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory|native_power|native_continuous_clock|aliyun|spaceship)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
   const exportMatches = [...libSource.matchAll(exportPattern)];
   const expectedExportModules = [
+    "aliyun",
     "spaceship",
     "afternic_credentials",
     "afternic_provider",    "cloudflare_capture",
@@ -522,6 +537,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     ...expectedNativeContinuousClockExports,
     ...expectedAfternicExports,
     ...expectedSpaceshipExports,
+    ...expectedAliyunExports,
     ...expectedCloudflareCaptureExports,
     ...expectedCloudflareKeychainExports,
     ...expectedCloudflareProviderExports,

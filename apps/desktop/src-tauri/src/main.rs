@@ -244,6 +244,8 @@ fn main() {
             command_handlers::afternic::afternic_inventory_refresh,
             command_handlers::spaceship_registrar::spaceship_registrar_status,
             command_handlers::spaceship_registrar::spaceship_registrar_submit,
+            command_handlers::aliyun_registrar::aliyun_registrar_status,
+            command_handlers::aliyun_registrar::aliyun_registrar_submit,
             command_handlers::cloudflare_connection_activate,
             command_handlers::cloudflare_connection_create,
             command_handlers::cloudflare_connection_revoke,

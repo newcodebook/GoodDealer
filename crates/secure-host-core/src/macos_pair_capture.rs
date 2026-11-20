@@ -4,6 +4,7 @@ use zeroize::Zeroizing;
 pub(super) enum Purpose {
     Afternic,
     Spaceship,
+    Aliyun,
 }
 
 pub(super) enum CaptureError {
@@ -30,6 +31,11 @@ return apiKey & linefeed & apiSecret"#
         Purpose::Spaceship => {
             r#"set apiKey to text returned of (display dialog "Spaceship API key" default answer "" with hidden answer)
 set apiSecret to text returned of (display dialog "Spaceship API secret" default answer "" with hidden answer)
+return apiKey & linefeed & apiSecret"#
+        }
+        Purpose::Aliyun => {
+            r#"set apiKey to text returned of (display dialog "Alibaba Cloud AccessKey ID" default answer "" with hidden answer)
+set apiSecret to text returned of (display dialog "Alibaba Cloud AccessKey secret" default answer "" with hidden answer)
 return apiKey & linefeed & apiSecret"#
         }
     };

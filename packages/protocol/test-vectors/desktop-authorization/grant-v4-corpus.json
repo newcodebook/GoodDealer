@@ -322,6 +322,59 @@
       "transcriptSha256": "cf80c0c4b4a8dc5fa7170474c03efdb1b39c72a2fc06c311c7eb39fcf4579811"
     },
     {
+      "name": "aliyun-registrar-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "aliyun:registrar:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "f70a02939f8d8dbf86cc2d3dbf607249145a19850871431845c1add30aa2a7b7"
+    },
+    {
       "name": "spaceship-registrar-only",
       "accepted": true,
       "grant": {
@@ -422,6 +475,7 @@
           "capabilities": [
             "afternic:marketplace:observe",
             "afternic:marketplace:write",
+            "aliyun:registrar:observe",
             "cloudflare:dns:observe",
             "cloudflare:registrar:observe",
             "spaceship:registrar:observe"
@@ -429,7 +483,7 @@
         },
         "signature": "fixture-grant-signature"
       },
-      "transcriptSha256": "6d227ec56ab83963ef496fa99544395fd72e2f4ab984c6b2cdb7b7167629bddf"
+      "transcriptSha256": "462311580a848dd76ab9ce6e31a6b8add8e34448e09bae190a3138cb3d4af950"
     },
     {
       "name": "unrecognized-spaceship-write",

@@ -19,6 +19,7 @@ export const DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID =
 export const DESKTOP_COMMERCIAL_CAPABILITIES = [
   "afternic:marketplace:observe",
   "afternic:marketplace:write",
+  "aliyun:registrar:observe",
   "cloudflare:dns:observe",
   "cloudflare:registrar:observe",
   "spaceship:registrar:observe",

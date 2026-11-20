@@ -474,3 +474,10 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 新增本地 `202611190010`，旧迁移保持原字节。Node/Renderer 只传短业务动作或读取脱敏回执。SQLCipher 在既有 writer 里原子提交资产、Outbox 与注册观察。重启重新读取已持久发起的扫描；部分结果不提交，已存回执保留。确认空准备槽可回收，撤销先持久拒绝再清除精确 Native 槽。
 - 根 `pnpm check`、Linux Desktop 构建、Windows GNU 目标严格 Clippy、本机 PostgreSQL 设备授权与执行证据 184/184、SQLCipher 专项 2/2、真实 GTK 与隔离 Secret Service 合成数据测试通过。源码与复审结果见 [审查记录](../reviews/2026-11-20-spaceship-registrar-review.md)。
 - 真实验收需要具名开发准入和签发 `spaceship:registrar:observe`、有 `domains:read` 的 Spaceship 凭据与已知域名。生产资格仍待取证；SellerHub、Windows/macOS 实机验证待推进。
+
+## 2026-11-20 阿里云 Registrar 账户归集
+
+- 阿里云中国站账户已组合设置页原生连接、刷新、持久结果和断开。只执行官方 `QueryDomainList`，使用 RAM action `domain:QueryCommonInfo` 和 ACS3。官方样例与 SDK 5.1.1 的状态码表示差异均有明确输入形态测试。匿名端点请求返回 `MissingTimestamp`。
+- 追加迁移 `202611190011`，沿原 SQLCipher writer 原子提交注册观察、资产、Outbox 与回执。重开从首面继续未完成扫描，确认空准备槽才撤销并清理。AccessKey、联系人相关字段、备注与标签保留在 Native，缺失的自动续费和锁信息写为未知。
+- 根 `pnpm check`、Linux Desktop 构建、Linux 与 Windows GNU 目标严格 Clippy、PostgreSQL 184 项及 Linux GTK 与隔离 Secret Service 测试通过。见 [独立审查记录](../reviews/2026-11-20-aliyun-registrar-review.md)。
+- 真实验证尚缺当前构建的具名开发准入及阿里云中国站 RAM AccessKey，需要包含 `domain:QueryCommonInfo` 与一项可核对的账户域名。所有凭据只通过原生窗口录入。卖家上下架和所有权验证继续按私有接口交付。

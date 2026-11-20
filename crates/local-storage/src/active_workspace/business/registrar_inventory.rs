@@ -13,8 +13,8 @@ pub struct DesktopRegistrationFact {
     pub domain: String,
     pub registered_on: String,
     pub expires_on: Option<String>,
-    pub auto_renew: bool,
-    pub locked: bool,
+    pub auto_renew: Option<bool>,
+    pub locked: Option<bool>,
     pub standing: DesktopRegistrationStanding,
 }
 
@@ -38,6 +38,7 @@ pub struct DesktopRegistrarScanReceipt {
 pub(super) enum RegistrarInventorySource {
     Cloudflare,
     Spaceship,
+    Aliyun,
 }
 
 impl RegistrarInventorySource {
@@ -45,6 +46,7 @@ impl RegistrarInventorySource {
         match self {
             Self::Cloudflare => "Cloudflare",
             Self::Spaceship => "Spaceship",
+            Self::Aliyun => "Aliyun",
         }
     }
 
@@ -52,6 +54,7 @@ impl RegistrarInventorySource {
         match self {
             Self::Cloudflare => "cloudflare-registrar-v4",
             Self::Spaceship => "spaceship-registrar-v1",
+            Self::Aliyun => "aliyun-registrar-v1",
         }
     }
 }

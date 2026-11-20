@@ -92,16 +92,22 @@ impl ProviderOperationRecord {
             Err(ProviderCredentialError::CredentialRejected) => "credential_rejected",
             Err(ProviderCredentialError::ProviderResponseRejected) => "provider_response_rejected",
             Err(ProviderCredentialError::Keychain)
-                if kind.starts_with("afternic_") || kind.starts_with("spaceship_") =>
+                if kind.starts_with("afternic_")
+                    || kind.starts_with("spaceship_")
+                    || kind.starts_with("aliyun_") =>
             {
                 "credential_store_unavailable"
             }
             Err(ProviderCredentialError::Host)
-                if kind.starts_with("afternic_") || kind.starts_with("spaceship_") =>
+                if kind.starts_with("afternic_")
+                    || kind.starts_with("spaceship_")
+                    || kind.starts_with("aliyun_") =>
             {
                 "local_operation_blocked"
             }
-            Err(ProviderCredentialError::Capture) if kind == "spaceship_connect" => {
+            Err(ProviderCredentialError::Capture)
+                if matches!(kind, "spaceship_connect" | "aliyun_connect") =>
+            {
                 "capture_incomplete"
             }
             Err(_) => "failed",
@@ -334,13 +340,19 @@ impl NativeCloudCoordinator {
                                 .is_ok();
                             let spaceship = Arc::new(
                                 crate::provider_credential_orchestrator::spaceship::Run::new(
+                                    Arc::clone(&host), Arc::clone(&cancel_fence), power.clone(), true,
+                                ),
+                            ).recover().await.is_ok();
+                            let aliyun = Arc::new(
+                                crate::provider_credential_orchestrator::aliyun::Run::new(
                                     host, cancel_fence, power, true,
                                 ),
                             ).recover().await.is_ok();
                             ProviderRecoveryOutcome {
-                                cloudflare,
-                                afternic,
-                                spaceship,
+                                cloudflare: cloudflare.into(),
+                                afternic: afternic.into(),
+                                spaceship: spaceship.into(),
+                                aliyun: aliyun.into(),
                             }
                         }
                     },
@@ -476,6 +488,10 @@ impl NativeCloudCoordinator {
         self.provider.spaceship_status()
     }
 
+    pub(crate) fn aliyun_provider_status(&self) -> ProviderStatus {
+        self.provider.aliyun_status()
+    }
+
     /// The latest Provider operation's closed outcome; none after the session is cancelled.
     ///
     /// It is read apart from `provider_status`, so while an operation runs it still names the
@@ -579,7 +595,7 @@ async fn run_provider_operation(
     operation: ProviderOperation,
     power: gooddealer_secure_host_core::NativePowerGate,
 ) {
-    use crate::provider_credential_orchestrator::{RevocationOutcome, afternic, spaceship};
+    use crate::provider_credential_orchestrator::{RevocationOutcome, afternic, aliyun, spaceship};
     // The outcome is recorded for the connection status as a closed value only. Every operation
     // may have committed before it ended, whatever it returned: activation imports the Zone and
     // records its prewrite state, revocation commits the denial when it is prepared, and a
@@ -632,6 +648,33 @@ async fn run_provider_operation(
             let run = Arc::new(spaceship::Run::new(host, cancel_fence, power, false));
             Some(ProviderOperationRecord::of(
                 "spaceship_revoke",
+                run.revoke(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::AliyunConnect => {
+            let run = Arc::new(aliyun::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "aliyun_connect",
+                run.connect().await.as_ref().map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::AliyunRefresh { connection_id } => {
+            let run = Arc::new(aliyun::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "aliyun_refresh",
+                run.refresh(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::AliyunRevoke { connection_id } => {
+            let run = Arc::new(aliyun::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "aliyun_revoke",
                 run.revoke(connection_id)
                     .await
                     .as_ref()

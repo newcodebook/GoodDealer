@@ -3,6 +3,7 @@ import {
   type DeviceDirectorySettingsPort,
   type AfternicConnectionPort,
   type SpaceshipRegistrarPort,
+  type AliyunRegistrarPort,
   type AfternicDelistPort,
   type AfternicListingPlanPort,
   type AfternicListingWritePort,
@@ -69,6 +70,7 @@ export interface AuthoritativeWorkspacePorts {
   readonly cloudflare: CloudflareConnectionPort;
   readonly afternic: AfternicConnectionPort;
   readonly spaceship?: SpaceshipRegistrarPort;
+  readonly aliyun?: AliyunRegistrarPort;
   readonly afternicDelist: AfternicDelistPort;
   readonly afternicListingPlan?: AfternicListingPlanPort;
   readonly afternicListingWrite: AfternicListingWritePort;

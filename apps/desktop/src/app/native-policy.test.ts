@@ -81,6 +81,8 @@ describe("Desktop native policy", () => {
       "allow-afternic-inventory-refresh",
       "allow-spaceship-registrar-status",
       "allow-spaceship-registrar-submit",
+      "allow-aliyun-registrar-status",
+      "allow-aliyun-registrar-submit",
       "allow-afternic-listing-plan-approve",
       "allow-afternic-listing-plan-preview",
       "allow-afternic-listing-plan-status",
