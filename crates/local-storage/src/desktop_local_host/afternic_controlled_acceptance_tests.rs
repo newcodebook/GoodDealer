@@ -238,6 +238,29 @@ fn controlled_acceptance_host_binds_once_keeps_qualification_false_and_exports_r
     }
 }
 #[test]
+fn controlled_acceptance_preparation_is_read_only_and_closes_once_bound() {
+    let (_tmp, _path, _store, _native, local, _wire) = fixture();
+    let admission = local.begin_native_cloud_run().unwrap();
+    // Losing or rejecting a candidate leaves the same pre-capture admission available.
+    for _ in 0..2 {
+        local
+            .recheck_afternic_connection_preparation(&admission)
+            .unwrap();
+        assert_eq!(count(&local, "local_provider_connections"), 0);
+        assert_eq!(count(&local, "afternic_controlled_acceptance_runs"), 0);
+    }
+    local
+        .prepare_afternic_connection(local.begin_native_cloud_run().unwrap(), "Acceptance")
+        .unwrap();
+    assert!(
+        local
+            .recheck_afternic_connection_preparation(&admission)
+            .is_err()
+    );
+    assert_eq!(count(&local, "afternic_controlled_acceptance_runs"), 1);
+}
+
+#[test]
 fn controlled_acceptance_host_closes_restart_to_get_and_requires_current_entitlement() {
     let (_tmp, path, store, _native, local, _wire) = fixture();
     let id = connect(&local);

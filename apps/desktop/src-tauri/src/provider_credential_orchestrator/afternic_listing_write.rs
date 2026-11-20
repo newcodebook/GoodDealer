@@ -309,13 +309,17 @@ async fn preflight_and_write(
     };
     if let Some(intent) = claim.intent() {
         let mut guard = || run.claim_guard(&claim);
-        // Every response, including a rejected/unknown write, becomes GET reconciliation. A power
-        // event may drop this HTTP future; the durable claim then survives for GET on resume.
-        let _outcome = tokio::select! {
+        // A power event may drop this HTTP future. The durable claim survives for GET on resume.
+        let outcome = tokio::select! {
             biased;
             _ = run.power.wait_for_epoch_change(run.epoch) => Err(AfternicError::AuthorityStale),
             result = provider.execute(credential, &intent, &mut guard) => result,
         };
+        if let Err(error @ AfternicError::RateLimited { .. }) = outcome {
+            // Honor the server's retry window before the first reconciliation GET. Deferring
+            // this read preserves the claim, so the next turn cannot send the write again.
+            return defer(run, claim.into_reconciliation(), error).await;
+        }
     }
     let work = claim.into_reconciliation();
     reconcile(run, work, provider, credential).await

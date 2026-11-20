@@ -429,6 +429,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "imported_count",
             "skipped_deleted_json",
             "completed_at",
+            "freshness_anchor_run_id",
         ],
     ),
     (

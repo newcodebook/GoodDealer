@@ -12,7 +12,9 @@ root 冻结；在持久上架/改价完整切片整合之后实施。用户已�
 
 local-storage拥有窄验收run与追加迁移 `202611190007`。编译固定run为 `afternic-wecin-linux-20261119`，固定截止 `2026-11-26T23:59:59Z`，scope固定Afternic和 `wecin.com` 的create/update/remove，inventory允许读取同一受限凭据账户完整portfolio。仅Linux debug构建准入，其余系统和release拒绝，不影响Windows/macOS后续完整目标。
 
-第一次prepare连接在同一业务事务原子绑定run、当前GoodDealer account/workspace/device/Lease epoch、唯一connection id/incarnation/generation/public proof；任何重开只恢复原绑定，不绑定第二连接、不自动换epoch/凭据。scope不含Provider账号或任何秘密。连接失败/撤销保留记录及已有审计，不删除证据来重新授scope。
+首次连接先用当前授权在原生窗口录入，再用仅在 Native 内存中的候选凭据读取完整库存。取消、凭据被拒或扫描未完成时保持未绑定，可从原入口再次录入。通过后，prepare 在同一事务绑定当前 GoodDealer 账号、工作区、设备、Lease epoch 与唯一连接及凭据槽。凭据保存并逐字节读回后才发布库存。任何重开只恢复原绑定，不绑定第二连接、不自动换 epoch 或凭据。已绑定连接的失败和撤销保留记录及已有审计。
+
+最新完整扫描没有出现的已知在售项在资产库与销售页降级为未知。同秒后抵达的精确观察仍可更新状态，分页缺失不解除原绑定。完整扫描变化后确认时重新核对目标的原始观察，目标缺失或变化须重新预览。写入响应中的限流等待适用于首次对账读取，重开仍沿用原执行记录及已保存的等待时间。
 
 每个入口仍检查当前真实Grant/Lease/capabilities、execution context、continuous time、连接/资产/绑定代次、power/取消与最终提交栅栏。验收截止使用已验签执行上下文的连续时间投影，不能取系统wall time延长。prepare/resume/recheck/scan/preview/approve/next/claim/reconcile/defer及最终提交均复核exact run；预览与claim逐项目核对domain/action，持久历史也不能越过scope。未知请求先GET，scope失效后拒绝网络/业务提交并保留unknown；不能重发。
 

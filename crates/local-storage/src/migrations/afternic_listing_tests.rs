@@ -381,7 +381,7 @@ fn empty_scan_is_durable_without_fake_targets_and_rejects_invalid_completion() {
     add_connection(&c, "af-1", "afternic", Some("af-1"));
     activate(&c, "af-1");
     let insert = |id: &str, generation: i64, skipped: &str| {
-        c.execute("INSERT INTO afternic_inventory_scans (workspace_id,scan_id,connection_id,credential_generation,observed_count,imported_count,skipped_deleted_json,completed_at) VALUES ('ws',?1,'af-1',?2,0,0,?3,?4)",params![id,generation,skipped,TIME])
+        c.execute("INSERT INTO afternic_inventory_scans (workspace_id,scan_id,connection_id,credential_generation,observed_count,imported_count,skipped_deleted_json,completed_at,freshness_anchor_run_id) VALUES ('ws',?1,'af-1',?2,0,0,?3,?4,'')",params![id,generation,skipped,TIME])
     };
     for skipped in [
         "{}",

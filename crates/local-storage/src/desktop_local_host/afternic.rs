@@ -89,7 +89,29 @@ pub(super) fn handle(
 }
 
 impl DesktopLocalHost {
-    /// Stages a fresh connection before Native capture. No account identity or credential enters IPC.
+    /// Admits an in-memory Native capture and read-only validation before reserving a slot.
+    /// # Errors
+    /// Rejects stale authority, unavailable permissions or a previously bound acceptance run.
+    pub fn recheck_afternic_connection_preparation(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+    ) -> Result<(), DesktopLocalHostError> {
+        self.with_sync_runtime(Some(&admission.inner), |sync, database, run| {
+            let run = run.ok_or(DesktopSyncError::StaleAuthority)?;
+            self.admit_afternic_access(sync, run, database, false, true)?;
+            if let Some(evidence) = self.afternic_acceptance_context(run, false)? {
+                let scope = database
+                    .afternic_controlled_acceptance(&evidence, true)
+                    .map_err(database_error)?;
+                if scope.connection_id.is_some() {
+                    return Err(DesktopSyncError::StaleAuthority);
+                }
+            }
+            Ok(())
+        })
+    }
+
+    /// Stages a fresh connection for Native credential publication.
     /// # Errors
     /// Refuses non-Active, unqualified, unentitled or stale authority and invalid labels.
     pub fn prepare_afternic_connection(

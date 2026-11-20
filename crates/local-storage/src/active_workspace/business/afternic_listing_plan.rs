@@ -356,7 +356,7 @@ fn standalone_review(
         String,
     );
     let mut i = review_from_parent(seed, domain, None, at)?;
-    let row:StandaloneObservation=c.query_row("SELECT a.entity_generation,m.listing_observation_id,m.provider_version_token,m.observed_at,m.binding_resource_digest,m.binding_generation,d.provider_status,d.buynow_price,d.floor_price,d.minbid_price,d.hidden,d.provider_created_at,d.provider_updated_at FROM domain_assets a JOIN afternic_inventory_scans s ON s.workspace_id=a.workspace_id AND s.connection_id=?2 AND s.credential_generation=?3 JOIN marketplace_listing_observations m ON m.workspace_id=s.workspace_id AND m.observation_run_id=s.observation_run_id AND m.entity_id=a.entity_id JOIN afternic_listing_details d USING(workspace_id,listing_observation_id) WHERE a.workspace_id=?1 AND a.entity_id=?4 AND a.lifecycle_status='active' AND s.scan_id=(SELECT latest.scan_id FROM afternic_inventory_scans latest WHERE latest.workspace_id=?1 AND latest.connection_id=?2 AND latest.credential_generation=?3 ORDER BY latest.completed_at DESC,latest.rowid DESC LIMIT 1) AND m.binding_connection_id=?2 AND m.confirmed=1 AND m.observation_availability='available' AND m.evidence_status='confirmed' ORDER BY s.completed_at DESC,s.rowid DESC LIMIT 1",params![workspace,seed.connection_id,integer(seed.credential_generation)?,domain],|r|Ok((write::unsigned(r,0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,write::unsigned(r,5)?,r.get(6)?,write::optional_unsigned(r,7)?,write::optional_unsigned(r,8)?,write::optional_unsigned(r,9)?,r.get(10)?,r.get(11)?,r.get(12)?))).map_err(storage)?;
+    let row:StandaloneObservation=c.query_row("SELECT a.entity_generation,m.listing_observation_id,m.provider_version_token,m.observed_at,m.binding_resource_digest,m.binding_generation,d.provider_status,d.buynow_price,d.floor_price,d.minbid_price,d.hidden,d.provider_created_at,d.provider_updated_at FROM domain_assets a JOIN afternic_inventory_scans s ON s.workspace_id=a.workspace_id AND s.connection_id=?2 AND s.credential_generation=?3 JOIN marketplace_listing_observations m ON m.workspace_id=s.workspace_id AND m.observation_run_id=s.observation_run_id AND m.entity_id=a.entity_id JOIN afternic_listing_details d USING(workspace_id,listing_observation_id) WHERE a.workspace_id=?1 AND a.entity_id=?4 AND a.lifecycle_status='active' AND s.scan_id=(SELECT latest.scan_id FROM afternic_inventory_scans latest WHERE latest.workspace_id=?1 AND latest.connection_id=?2 AND latest.credential_generation=?3 ORDER BY latest.rowid DESC LIMIT 1) AND m.binding_connection_id=?2 AND m.confirmed=1 AND m.observation_availability='available' AND m.evidence_status='confirmed' LIMIT 1",params![workspace,seed.connection_id,integer(seed.credential_generation)?,domain],|r|Ok((write::unsigned(r,0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,write::unsigned(r,5)?,r.get(6)?,write::optional_unsigned(r,7)?,write::optional_unsigned(r,8)?,write::optional_unsigned(r,9)?,r.get(10)?,r.get(11)?,r.get(12)?))).map_err(storage)?;
     i.entity_generation = row.0;
     i.observation_id = Some(row.1);
     i.observation_digest = Some(row.2);
@@ -483,6 +483,17 @@ fn require_not_controlled(
 fn locally_current(c: &Connection, workspace: &str, f: &Frozen) -> Result<bool> {
     match f {Frozen::Write(w)=>write::locally_current(c,workspace,w),Frozen::Review(r)=>c.query_row("SELECT EXISTS(SELECT 1 FROM domain_assets a JOIN local_provider_connections c ON c.workspace_id=a.workspace_id AND c.connection_id=?3 JOIN afternic_connection_publications p ON p.workspace_id=c.workspace_id AND p.connection_id=c.connection_id AND p.credential_generation=?5 WHERE a.workspace_id=?1 AND a.entity_id=?2 AND a.entity_generation=?7 AND a.lifecycle_status='active' AND c.connection_incarnation_id=?4 AND c.lifecycle_status='active' AND c.credential_use_state='active' AND c.validation_status='valid' AND c.deleted_at IS NULL AND c.revoked_at IS NULL AND p.connection_incarnation_id=?4 AND p.credential_public_proof=?6 AND p.publication_state='active' AND NOT EXISTS(SELECT 1 FROM sync_domain_asset_provisional_re_adds x WHERE x.workspace_id=a.workspace_id AND x.entity_id=a.entity_id) AND (?8 IS NULL OR EXISTS(SELECT 1 FROM domain_asset_provider_bindings b WHERE b.workspace_id=a.workspace_id AND b.entity_id=a.entity_id AND b.connection_id=c.connection_id AND b.resource_kind='listing' AND b.resource_binding_digest=?8 AND b.binding_generation=?5 AND b.validation_status IN ('verified','unverified'))))",params![workspace,r.domain,r.connection_id,r.connection_incarnation_id,integer(r.credential_generation)?,r.credential_public_proof,integer(r.entity_generation)?,r.binding_digest],|row|row.get(0)).map_err(storage)}
 }
+fn approval_inventory_is_current(c: &Connection, workspace: &str, f: &Frozen) -> Result<bool> {
+    let (connection, _, generation) = identity(f);
+    let digest = match f {
+        Frozen::Write(item) => item.observation_digest.as_deref(),
+        // The parent already validates the same inventory fact for a conditional review.
+        Frozen::Review(item) if item.parent_item_id.is_some() => return Ok(true),
+        Frozen::Review(item) => item.observation_digest.as_deref(),
+    };
+    afternic::inventory_still_matches(c, workspace, connection, generation, f.domain(), digest)
+}
+
 fn identity(f: &Frozen) -> (&str, &str, u64) {
     match f {
         Frozen::Write(w) => (
@@ -541,7 +552,9 @@ impl BusinessDatabase {
                 return Err(stale());
             }
             for i in &items {
-                if !locally_current(&tx, &self.workspace_id, &i.frozen)? {
+                if !locally_current(&tx, &self.workspace_id, &i.frozen)?
+                    || !approval_inventory_is_current(&tx, &self.workspace_id, &i.frozen)?
+                {
                     return Err(stale());
                 }
                 if let Frozen::Write(w) = &i.frozen

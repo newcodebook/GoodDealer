@@ -1,5 +1,5 @@
 //! Durable Afternic create/update plans. The sole business writer owns approval and reconciliation.
-use super::afternic::random_id;
+use super::afternic::{inventory_still_matches, latest_inventory_scan, random_id};
 use super::execution_evidence::{self, ApprovalTarget, EvidenceSigner, ExecutionEvidenceContext};
 use super::{
     AfternicConnectionSeed, BusinessDatabase, BusinessDatabaseError,
@@ -607,7 +607,12 @@ pub(super) fn freeze_items(
             return Err(BusinessDatabaseError::InvalidInput);
         }
     }
-    let scan:(String,Option<String>)=tx.query_row("SELECT scan_id,observation_run_id FROM afternic_inventory_scans WHERE workspace_id=?1 AND connection_id=?2 AND credential_generation=?3 ORDER BY completed_at DESC,rowid DESC LIMIT 1",params![workspace,seed.connection_id,sql_integer(seed.credential_generation)?],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|_|BusinessDatabaseError::MutationStale)?;
+    let scan = latest_inventory_scan(
+        tx,
+        workspace,
+        &seed.connection_id,
+        seed.credential_generation,
+    )?;
     let run = scan.1;
     let mut frozen = Vec::new();
     for domain in unique {
@@ -822,7 +827,14 @@ impl BusinessDatabase {
                 return Err(BusinessDatabaseError::MutationStale);
             }
             for item in &frozen {
-                if !locally_current(&tx, &self.workspace_id, &item.frozen)?
+                if !inventory_still_matches(
+                    &tx,
+                    &self.workspace_id,
+                    &item.frozen.connection_id,
+                    item.frozen.credential_generation,
+                    &item.frozen.domain,
+                    item.frozen.observation_digest.as_deref(),
+                )? || !locally_current(&tx, &self.workspace_id, &item.frozen)?
                     || other_execution(&tx, &self.workspace_id, &item.frozen, plan)?
                     || (item.frozen.action == DesktopAfternicListingWriteAction::Create
                         && !no_live_binding(&tx, &self.workspace_id, &item.frozen)?)

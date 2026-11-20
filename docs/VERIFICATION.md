@@ -218,6 +218,7 @@ macOS 官方签名、公证与官方渠道发行在 Apple Developer 账号具备
 - Native：旧 floor 映射历史 Cloudflare 单权限并保留所有防重放/未知 lastActive 语义；相同 revision 或 digest 禁止权限/期限变化；新 revision+digest 可撤权，旧 admission 在 await/最终提交处拒绝。现有三种签名用途继续隔离。
 - 存储：只追加 `202611180003`，保留已应用 SQL/历史绑定；完整扫描资产/Outbox/观察原子提交，多连接隔离，空库存/已删除全部跳过不伪造观察；prepared 新 Grant 与真实关闭重开后恢复原 proof；revoked handle 拒绝 Provider，撤权后仍可首次撤销与 purge；最终 epoch 变化回滚所有事实。
 - 生产组合：四个严格 raw IPC、固定 Provider 端点、Native-only 凭据、共享串行 lane 与两个具名恢复准入；refresh 仅加载既存 slot；lost response 仅读取状态，queued 不表示成功；Renderer role/permission/qualification/capture 条件分别约束入口。
+- 首次 Native 凭据完整只读预检发生在唯一连接槽的保留之前。迁移 `202611200001` 保留空扫描的观察顺序：缺席降为未知并使读缓存失效，原绑定不动。同秒随后收到的精确观察可以更新显示，旧预览须在批准时重新核对最新扫描中的同一事实。写入 429 沿原尝试持久保存首次 GET 的可执行时间，重开只读对账。
 - 检查结果与独立评估记录见 [Afternic 审查](reviews/2026-11-19-afternic-inventory-review.md)。测试 store、TLS fixture 与源代码组合不构成真实账户、Windows/macOS custody/capture、OpenBao 部署或发行资格。资格清单继续关闭；下架计划和上架/改价的本地验收见下文，私有验证及 DNS 客户闭环仍须实现；真实接口与目标系统另行验收。
 
 

@@ -11,11 +11,11 @@ use super::ProviderCredentialError;
 use crate::native_cloud_runtime::NativeCloudCancelFence;
 use gooddealer_local_storage::{
     DesktopAfternicConnection, DesktopAfternicListingObservation, DesktopLocalHost,
-    DesktopLocalHostError,
+    DesktopLocalHostError, DesktopNativeCloudAdmission,
 };
 use gooddealer_secure_host_core::{
-    AfternicCapture, AfternicCredential, AfternicCredentialPlan, AfternicError, AfternicListing,
-    AfternicListingStatus, AfternicProviderClient, NativePowerGate,
+    AfternicCapture, AfternicCredential, AfternicCredentialPlan, AfternicError, AfternicGuard,
+    AfternicListing, AfternicListingStatus, AfternicProviderClient, NativePowerGate,
     load_afternic_credential_guarded, publish_afternic_credential_guarded,
     purge_afternic_credential_guarded,
 };
@@ -58,6 +58,19 @@ impl Run {
             self.epoch,
             self.require_ready,
             || self.host.recheck_afternic_connection(connection),
+        )
+    }
+
+    fn preparation_guard(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+    ) -> Result<(), AfternicError> {
+        recheck_with_power(
+            &self.power,
+            &self.cancel,
+            self.epoch,
+            self.require_ready,
+            || self.host.recheck_afternic_connection_preparation(admission),
         )
     }
 
@@ -118,13 +131,26 @@ pub(crate) async fn connect(
         require_ready: true,
     });
     run.check()?;
+    let capture = Arc::clone(&run);
+    let (admission, credential) = tauri::async_runtime::spawn_blocking(move || {
+        let admission = capture.host.begin_native_cloud_run().map_err(host_error)?;
+        let credential =
+            AfternicCapture::capture_guarded(&mut || capture.preparation_guard(&admission))
+                .map_err(native_error)?;
+        Ok::<_, ProviderCredentialError>((admission, credential))
+    })
+    .await
+    .map_err(|_| ProviderCredentialError::Unavailable)??;
+    // The first authenticated read is read-only and keeps the candidate in Native memory.
+    // A cancellation, invalid key or incomplete scan cannot consume the one acceptance binding.
+    let listings =
+        scan_inventory(&run, &credential, &mut || run.preparation_guard(&admission)).await?;
     let prepare = Arc::clone(&run);
     let connection = tauri::async_runtime::spawn_blocking(move || {
         let _power = prepare.power_guard().map_err(native_error)?;
         prepare
             .cancel
             .commit(|| {
-                let admission = prepare.host.begin_native_cloud_run()?;
                 prepare
                     .host
                     .prepare_afternic_connection(admission, &display_label)
@@ -135,32 +161,23 @@ pub(crate) async fn connect(
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)??;
     run.guard(&connection).map_err(native_error)?;
-    let capture = Arc::clone(&run);
-    let (connection, credential) = tauri::async_runtime::spawn_blocking(move || {
-        let mut check = || capture.guard(&connection);
-        let result = (|| {
-            let captured = AfternicCapture::capture_guarded(&mut check)?;
-            check()?;
-            publish_afternic_credential_guarded(
-                &ConnectionPlan(&connection),
-                &captured,
-                &mut check,
-            )?;
-            check()?;
-            // Read back the exact persisted slot. A crash after publication leaves this
-            // generation available to recovery; capture is never an alternative HTTP source.
-            let credential =
-                load_afternic_credential_guarded(&ConnectionPlan(&connection), &mut check)?;
-            check()?;
-            Ok(credential)
-        })();
+    let publish = Arc::clone(&run);
+    let (connection, published) = tauri::async_runtime::spawn_blocking(move || {
+        let mut check = || publish.guard(&connection);
+        // Publication performs an exact byte readback. Only then can the authenticated
+        // snapshot from that same credential become visible as the first saved inventory.
+        let result = publish_afternic_credential_guarded(
+            &ConnectionPlan(&connection),
+            &credential,
+            &mut check,
+        );
         (connection, result)
     })
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)?;
     run.guard(&connection).map_err(native_error)?;
-    let credential = reconcile_load_result(&run, &connection, credential)?;
-    scan_and_commit(run, connection, credential).await
+    published.map_err(native_error)?;
+    commit_inventory(run, connection, listings).await
 }
 
 pub(crate) async fn refresh(
@@ -235,17 +252,31 @@ async fn scan_and_commit(
     connection: DesktopAfternicConnection,
     credential: AfternicCredential,
 ) -> Result<(), ProviderCredentialError> {
-    run.guard(&connection).map_err(native_error)?;
+    let listings = scan_inventory(&run, &credential, &mut || run.guard(&connection)).await?;
+    commit_inventory(run, connection, listings).await
+}
+
+async fn scan_inventory(
+    run: &Run,
+    credential: &AfternicCredential,
+    guard: &mut AfternicGuard<'_>,
+) -> Result<Vec<DesktopAfternicListingObservation>, ProviderCredentialError> {
     let mut provider = AfternicProviderClient::production().map_err(native_error)?;
-    let mut guard = || run.guard(&connection);
     let portfolio = tokio::select! {
         biased;
         _ = run.power.wait_for_epoch_change(run.epoch) => Err(AfternicError::AuthorityStale),
-        result = provider.scan(&credential, &mut guard) => result,
+        result = provider.scan(credential, guard) => result,
     }
     .map_err(native_error)?;
-    run.guard(&connection).map_err(native_error)?;
-    let listings: Vec<_> = portfolio.listings.into_iter().map(observation).collect();
+    guard().map_err(native_error)?;
+    Ok(portfolio.listings.into_iter().map(observation).collect())
+}
+
+async fn commit_inventory(
+    run: Arc<Run>,
+    connection: DesktopAfternicConnection,
+    listings: Vec<DesktopAfternicListingObservation>,
+) -> Result<(), ProviderCredentialError> {
     let commit = Arc::clone(&run);
     tauri::async_runtime::spawn_blocking(move || {
         // The final lock order is power -> cancellation -> Host publication -> SQLite.

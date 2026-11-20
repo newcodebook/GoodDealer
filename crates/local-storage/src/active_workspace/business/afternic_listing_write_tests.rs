@@ -88,6 +88,29 @@ fn approve(db: &mut BusinessDatabase, p: &DesktopAfternicListingWritePlan) {
     )
     .unwrap();
 }
+
+#[test]
+fn afternic_listing_write_cannot_approve_a_preview_from_a_superseded_scan() {
+    let (_tmp, mut db, seed) = fixture();
+    let plan = preview(&mut db, &seed, "update", "example.test");
+    db.import_afternic_inventory(&seed, &[], "device-local", 1, AT, || Ok(()))
+        .unwrap();
+    let (e, mut signer) = execution_evidence::test_context(&db.workspace_id, AT);
+    assert!(matches!(
+        db.approve_afternic_listing_write_with_evidence(
+            &plan.plan_ref,
+            &plan.plan_hash,
+            AT,
+            &e,
+            &mut signer,
+            || Ok(())
+        ),
+        Err(BusinessDatabaseError::MutationStale)
+    ));
+    assert_eq!(count(&db, "operation_attempts"), 0);
+    assert!(next(&mut db, AT).is_none());
+}
+
 fn next(db: &mut BusinessDatabase, at: &str) -> Option<AfternicListingWriteWorkSeed> {
     let (e, mut signer) = execution_evidence::test_context(&db.workspace_id, at);
     db.next_afternic_listing_write_work_with_evidence(at, true, &e, &mut signer, || Ok(()))
@@ -116,6 +139,39 @@ fn count(db: &BusinessDatabase, table: &str) -> i64 {
         .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
         .unwrap()
 }
+
+#[test]
+fn afternic_listing_write_retains_the_initial_reconciliation_delay_after_reopen() {
+    let (tmp, mut db, seed) = fixture();
+    let plan = preview(&mut db, &seed, "update", "example.test");
+    approve(&mut db, &plan);
+    let mut work = next(&mut db, AT).unwrap();
+    assert!(claim(&mut db, &work, Some(&listing("example.test"))).unwrap());
+    work.kind = DesktopAfternicListingWriteWorkKind::Reconcile;
+    let (e, mut signer) = execution_evidence::test_context(&db.workspace_id, AT);
+    db.defer_afternic_listing_write_read_with_evidence(
+        &work,
+        Some(7200),
+        AT,
+        &e,
+        &mut signer,
+        || Ok(()),
+    )
+    .unwrap();
+    drop(db);
+    let mut db = BusinessDatabase::open(
+        &tmp.path().join("workspace.db"),
+        &LocalDatabaseKey::from_bytes([0x77; 32]),
+        "workspace-local",
+    )
+    .unwrap();
+    assert!(next(&mut db, "2026-11-19T01:59:59Z").is_none());
+    let due = next(&mut db, "2026-11-19T02:00:00Z").unwrap();
+    assert_eq!(due.kind, DesktopAfternicListingWriteWorkKind::Reconcile);
+    assert_eq!(due.request_digest, work.request_digest);
+    assert_eq!(count(&db, "operation_attempts"), 1);
+}
+
 #[test]
 fn listing_write_patch_rejects_null_duplicates_unknown_and_invalid_money() {
     for wire in [

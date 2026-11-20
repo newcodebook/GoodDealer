@@ -3,7 +3,7 @@ use super::{
     BusinessDatabase, BusinessDatabaseError, assets::import_discovered_asset, hex_digest,
     is_uuid_v4, validate_domain_asset_id, validate_sha256_hex, validate_timestamp,
 };
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -360,7 +360,7 @@ impl BusinessDatabase {
         if run_inserted {
             tx.execute("UPDATE provider_observation_runs SET status='succeeded',completed_at=?1 WHERE workspace_id=?2 AND observation_run_id=?3",params![at,self.workspace_id,run]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
         }
-        tx.execute("INSERT INTO afternic_inventory_scans(workspace_id,scan_id,connection_id,credential_generation,observation_run_id,observed_count,imported_count,skipped_deleted_json,completed_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![self.workspace_id,run,seed.connection_id,sql_integer(seed.credential_generation)?,run_inserted.then_some(&run),receipt.observed,receipt.imported,serde_json::to_string(&receipt.skipped_deleted).map_err(|_| BusinessDatabaseError::InvalidInput)?,at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        tx.execute("INSERT INTO afternic_inventory_scans(workspace_id,scan_id,connection_id,credential_generation,observation_run_id,observed_count,imported_count,skipped_deleted_json,completed_at,freshness_anchor_run_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,coalesce((SELECT observation_run_id FROM provider_observation_runs WHERE workspace_id=?1 AND connection_id=?3 ORDER BY rowid DESC LIMIT 1),''))",params![self.workspace_id,run,seed.connection_id,sql_integer(seed.credential_generation)?,run_inserted.then_some(&run),receipt.observed,receipt.imported,serde_json::to_string(&receipt.skipped_deleted).map_err(|_| BusinessDatabaseError::InvalidInput)?,at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
         tx.execute("UPDATE active_workspace_metadata SET last_successful_provider_observation_at=?1,updated_at=?1 WHERE singleton=1", [at]).map_err(|_|BusinessDatabaseError::StorageRejected)?;
         let _guard = guard()?;
         tx.commit()
@@ -371,6 +371,49 @@ impl BusinessDatabase {
 
 fn sql_integer(value: u64) -> Result<i64, BusinessDatabaseError> {
     i64::try_from(value).map_err(|_| BusinessDatabaseError::InvalidInput)
+}
+
+pub(super) fn latest_inventory_scan(
+    c: &Connection,
+    workspace: &str,
+    connection: &str,
+    generation: u64,
+) -> Result<(String, Option<String>), BusinessDatabaseError> {
+    c.query_row(
+        "SELECT scan_id,observation_run_id FROM afternic_inventory_scans
+         WHERE workspace_id=?1 AND connection_id=?2 AND credential_generation=?3
+         ORDER BY rowid DESC LIMIT 1",
+        params![workspace, connection, sql_integer(generation)?],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .map_err(|_| BusinessDatabaseError::StorageRejected)?
+    .ok_or(BusinessDatabaseError::MutationStale)
+}
+
+/// Approval may use a refreshed portfolio only when it still reports the exact previewed fact.
+/// This check never gates reconciliation after dispatch, which uses an authenticated exact read.
+pub(super) fn inventory_still_matches(
+    c: &Connection,
+    workspace: &str,
+    connection: &str,
+    generation: u64,
+    domain: &str,
+    expected_digest: Option<&str>,
+) -> Result<bool, BusinessDatabaseError> {
+    let (_, run) = latest_inventory_scan(c, workspace, connection, generation)?;
+    let digest: Option<String> = c
+        .query_row(
+            "SELECT provider_version_token FROM marketplace_listing_observations
+             WHERE workspace_id=?1 AND observation_run_id=?2 AND entity_id=?3
+               AND binding_connection_id=?4 AND binding_generation=?5 AND confirmed=1
+               AND observation_availability='available' AND evidence_status='confirmed'",
+            params![workspace, run, domain, connection, sql_integer(generation)?],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    Ok(digest.as_deref() == expected_digest)
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -423,7 +466,7 @@ impl BusinessDatabase {
         }
         rows.into_iter().map(|(connection_id,display_label,state,purge_pending)| {
             if !is_uuid_v4(&connection_id) || !crate::portfolio_projection::valid_connection_label(&display_label) || !["prepared","active","remediation_required","revoked"].contains(&state.as_str()) { return Err(BusinessDatabaseError::StorageRejected); }
-            let last = c.query_row("SELECT observed_count,imported_count,skipped_deleted_json,completed_at FROM afternic_inventory_scans WHERE workspace_id=?1 AND connection_id=?2 ORDER BY completed_at DESC,rowid DESC LIMIT 1",params![self.workspace_id,connection_id],|row| Ok((row.get::<_,u32>(0)?,row.get::<_,u32>(1)?,row.get::<_,String>(2)?,row.get::<_,String>(3)?))).optional().map_err(|_|BusinessDatabaseError::StorageRejected)?;
+            let last = c.query_row("SELECT observed_count,imported_count,skipped_deleted_json,completed_at FROM afternic_inventory_scans WHERE workspace_id=?1 AND connection_id=?2 ORDER BY rowid DESC LIMIT 1",params![self.workspace_id,connection_id],|row| Ok((row.get::<_,u32>(0)?,row.get::<_,u32>(1)?,row.get::<_,String>(2)?,row.get::<_,String>(3)?))).optional().map_err(|_|BusinessDatabaseError::StorageRejected)?;
             let last_scan = last.map(|(observed,imported,skipped,completed_at)| {
                 let skipped_deleted: Vec<String> = serde_json::from_str(&skipped).map_err(|_|BusinessDatabaseError::StorageRejected)?;
                 if observed>10000 || imported>observed || skipped_deleted.len()>10000 || usize::try_from(observed).map_err(|_| BusinessDatabaseError::StorageRejected)? + skipped_deleted.len()>10000 { return Err(BusinessDatabaseError::StorageRejected); }
@@ -594,6 +637,70 @@ mod tests {
             .unwrap();
         assert_eq!(count(&db, "domain_asset_provider_bindings"), 2);
         assert_eq!(count(&db, "marketplace_listing_observations"), 4);
+    }
+
+    #[test]
+    fn empty_inventory_invalidates_old_facts_but_not_a_later_same_second_exact_read() {
+        for with_history in [false, true] {
+            let mut db = TestDatabase::open([0x60; 32]);
+            let seed = prepare(&mut db);
+            let rows = [listing("observed.test"), listing("missing.test")];
+            if with_history {
+                db.import_afternic_inventory(&seed, &rows, "device-local", 1, AT, || Ok(()))
+                    .unwrap();
+            } else {
+                db.upsert_domain_asset(
+                    "manual-asset",
+                    AT,
+                    &crate::DomainAssetWrite {
+                        entity_id: rows[0].domain.clone(),
+                        note: None,
+                        portfolio_id: None,
+                        tags: Vec::new(),
+                        target_price: None,
+                    },
+                )
+                .unwrap();
+                db.import_afternic_inventory(&seed, &[], "device-local", 1, AT, || Ok(()))
+                    .unwrap();
+            }
+            let seed = db.afternic_connection_seed(&seed.connection_id).unwrap();
+            let fresh = |db: &TestDatabase| {
+                db.store.raw_connection().query_row(
+                    "SELECT coalesce(sum(binding_fresh),0) FROM marketplace_listing_observations_read_facts WHERE connection_rank=1",
+                    [], |row| row.get::<_, i64>(0),
+                ).unwrap()
+            };
+            if with_history {
+                assert_eq!(fresh(&db), 2);
+                db.import_afternic_inventory(&seed, &[], "device-local", 1, AT, || Ok(()))
+                    .unwrap();
+            }
+            assert_eq!(fresh(&db), 0);
+            let workspace = db.workspace_id.clone();
+            let tx = db.store.fixture_connection().transaction().unwrap();
+            let run = random_id().unwrap();
+            tx.execute("INSERT INTO provider_observation_runs(workspace_id,observation_run_id,connection_id,observation_capability,started_at,status,connector_version) VALUES(?1,?2,?3,'marketplace',?4,'running','afternic-official-v3-listing-write-v1')",params![workspace,run,seed.connection_id,AT]).unwrap();
+            record_listing_observation(
+                &tx,
+                &workspace,
+                &seed.connection_id,
+                seed.credential_generation,
+                &rows[0],
+                &run,
+                0,
+                AT,
+            )
+            .unwrap();
+            tx.execute("UPDATE provider_observation_runs SET status='succeeded',completed_at=?1 WHERE workspace_id=?2 AND observation_run_id=?3", params![AT,workspace,run]).unwrap();
+            tx.commit().unwrap();
+            assert_eq!(fresh(&db), 1);
+            // The missing row remains attached; pagination cannot create an unlisted fact.
+            assert_eq!(
+                count(&db, "domain_asset_provider_bindings"),
+                if with_history { 2 } else { 1 }
+            );
+        }
     }
     #[test]
     fn afternic_inventory_rejects_duplicate_invalid_and_revoked_generations() {

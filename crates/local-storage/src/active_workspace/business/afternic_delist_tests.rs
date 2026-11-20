@@ -79,6 +79,36 @@ fn count(db: &BusinessDatabase, table: &str) -> i64 {
 }
 
 #[test]
+fn afternic_delist_superseded_inventory_requires_a_new_preview_before_approval() {
+    let (_tmp, mut db, seed) = fixture();
+    let plan = preview(&mut db, &seed, &["example.test"]);
+    db.import_afternic_inventory(&seed, &[], "device-local", 1, AT, || Ok(()))
+        .unwrap();
+    assert!(matches!(
+        db.approve_afternic_delist(&plan.plan_ref, &plan.plan_hash, AT, || Ok(())),
+        Err(BusinessDatabaseError::MutationStale)
+    ));
+    assert!(matches!(
+        db.preview_afternic_delist(&seed, &["example.test".into()], AT, || Ok(())),
+        Err(BusinessDatabaseError::MutationStale)
+    ));
+    assert_eq!(count(&db, "operation_attempts"), 0);
+    assert_eq!(count(&db, "domain_asset_provider_bindings"), 2);
+    db.import_afternic_inventory(
+        &seed,
+        &[listing("example.test")],
+        "device-local",
+        1,
+        AT,
+        || Ok(()),
+    )
+    .unwrap();
+    // A refreshed inventory containing the same approved fact does not change the scope.
+    approve(&mut db, &plan);
+    assert_eq!(count(&db, "operation_attempts"), 1);
+}
+
+#[test]
 fn afternic_delist_wire_rejects_unknown_and_missing_required_nullable() {
     assert!(
         serde_json::from_value::<DesktopAfternicDelistStatusRequest>(

@@ -208,14 +208,16 @@ async fn preflight_and_remove(
         domain: claim.domain().to_owned(),
     };
     let mut guard = || run.claim_guard(&claim);
-    // Every response, including a rejected/unknown write, becomes GET reconciliation. A power
-    // event may drop this HTTP future; the durable claim then survives for GET on resume.
-    let _outcome = tokio::select! {
+    // A power event may drop this HTTP future. The durable claim survives for GET on resume.
+    let outcome = tokio::select! {
         biased;
         _ = run.power.wait_for_epoch_change(run.epoch) => Err(AfternicError::AuthorityStale),
         result = provider.execute(credential, &intent, &mut guard) => result,
     };
     let work = claim.into_reconciliation();
+    if let Err(error @ AfternicError::RateLimited { .. }) = outcome {
+        return defer(run, work, error).await;
+    }
     reconcile(run, work, provider, credential).await
 }
 
