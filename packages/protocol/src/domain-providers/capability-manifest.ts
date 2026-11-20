@@ -36,13 +36,13 @@ export type DomainProviderUnavailableReason = z.infer<typeof domainProviderUnava
 export type DomainProviderManifestEntry = z.infer<typeof domainProviderManifestEntrySchema>;
 
 /**
- * Locally implemented capabilities, all of them awaiting qualification: Cloudflare's read-only
+ * Locally implemented capabilities awaiting qualification include Cloudflare's registration,
  * Zone and DNS record observation. docs/CONNECTORS.md records what the Host implements and must be
  * changed with this list; the Host qualification register, not this list, decides what may run.
  * Every other entry waits on its platform's facts.
  */
 const implemented: Readonly<Partial<Record<LaunchPlatformKind, readonly DomainProviderCapabilityId[]>>> = {
-  cloudflare: ["zone.observe", "dns.records.observe"],
+  cloudflare: ["registrar.domain.observe", "zone.observe", "dns.records.observe"],
 };
 
 export const domainProviderCapabilityManifest: readonly DomainProviderManifestEntry[] = Object.freeze(

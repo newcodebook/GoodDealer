@@ -551,6 +551,10 @@ fn publish_sync_cycle_observation(
     });
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the closed operation dispatch shares one result publication path"
+)]
 async fn run_provider_operation(
     host: Arc<DesktopLocalHost>,
     cancel_fence: Arc<NativeCloudCancelFence>,
@@ -588,6 +592,19 @@ async fn run_provider_operation(
             let result = afternic::revoke(host, connection_id, cancel_fence).await;
             Some(ProviderOperationRecord::of(
                 "afternic_revoke",
+                result.as_ref().map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::CloudflareRegistrarRefresh { connection_id } => {
+            let result = crate::provider_credential_orchestrator::refresh_registrar_inventory(
+                host,
+                connection_id,
+                cancel_fence,
+                power,
+            )
+            .await;
+            Some(ProviderOperationRecord::of(
+                "registrar_refresh",
                 result.as_ref().map(|()| "confirmed"),
             ))
         }

@@ -38,6 +38,9 @@ pub(crate) enum ProviderOperation {
         connection_id: String,
         entity_id: String,
     },
+    CloudflareRegistrarRefresh {
+        connection_id: String,
+    },
     /// Revokes the connection's credential. It shares the single in-flight slot so it never races
     /// a provision of the same custody, but it is never rate limited: withdrawing access must
     /// always be possible.
@@ -79,6 +82,7 @@ impl ProviderOperation {
                 connection_id
             }
             Self::Activate { connection_id }
+            | Self::CloudflareRegistrarRefresh { connection_id }
             | Self::Revoke { connection_id }
             | Self::Purge { connection_id, .. }
             | Self::Observe { connection_id, .. } => connection_id,
@@ -171,7 +175,9 @@ impl ProviderAdmissionState {
         if let Some(in_flight) = self.in_flight.as_ref() {
             return if matches!(
                 operation,
-                ProviderOperation::Observe { .. } | ProviderOperation::AfternicRefresh { .. }
+                ProviderOperation::Observe { .. }
+                    | ProviderOperation::CloudflareRegistrarRefresh { .. }
+                    | ProviderOperation::AfternicRefresh { .. }
             ) && in_flight == operation
             {
                 ProviderAdmission::Coalesced
@@ -200,7 +206,9 @@ impl ProviderAdmissionState {
                 }
                 rate.last_activation = Some(now);
             }
-            ProviderOperation::Observe { .. } | ProviderOperation::AfternicRefresh { .. } => {
+            ProviderOperation::Observe { .. }
+            | ProviderOperation::CloudflareRegistrarRefresh { .. }
+            | ProviderOperation::AfternicRefresh { .. } => {
                 while rate
                     .observations
                     .front()

@@ -839,8 +839,7 @@ fn cloudflare_credential_seed(
                             AND r.known_envelope_kind='active'
                             AND l.operation_kind='revoke' AND l.result='burned'
                             AND l.burn_reason='target_not_observed')))))
-                    AND json_array_length(capabilities_json)=1
-                    AND json_extract(capabilities_json,'$[0]')='dns'",
+                    AND json(capabilities_json) IN ('[\"dns\"]','[\"dns\",\"registrar\"]')",
                 params![workspace_id, connection_hint, revoke],
                 |row| {
                     Ok((

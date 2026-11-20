@@ -117,6 +117,7 @@ describe("Desktop authorization Grant issuer", () => {
     [[], []],
     [["feature:portfolio", "feature:provider-read"], []],
     [["cloudflare:dns:observe", "feature:portfolio"], ["cloudflare:dns:observe"]],
+    [["cloudflare:registrar:observe", "feature:portfolio"], ["cloudflare:registrar:observe"]],
     [["afternic:marketplace:observe"], ["afternic:marketplace:observe"]],
     [["afternic:marketplace:observe", "afternic:marketplace:write", "cloudflare:dns:observe"],
       ["afternic:marketplace:observe", "afternic:marketplace:write", "cloudflare:dns:observe"]],

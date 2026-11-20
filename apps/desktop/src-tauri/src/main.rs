@@ -250,6 +250,7 @@ fn main() {
             command_handlers::cloudflare_zone_observe,
             command_handlers::cloudflare_connection_status,
             command_handlers::cloudflare_observation_read,
+            command_handlers::cloudflare_registrar_inventory_refresh,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the GoodDealer desktop host");

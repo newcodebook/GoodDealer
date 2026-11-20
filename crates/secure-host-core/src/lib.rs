@@ -66,6 +66,7 @@ pub use cloudflare_provider::{
     CloudflareCredentialObservationPlan, CloudflareProviderClient, CloudflareProviderError,
     CloudflareProviderGuard, CloudflareProviderObservation, CloudflareProviderRecord,
     CloudflareProviderZone, CloudflareProviderZoneStatus, CloudflareRecordType,
+    CloudflareRegistration, CloudflareRegistrationInventory, CloudflareRegistrationStanding,
 };
 pub use desktop_authorization_verifier::{
     AuthorizationVerificationKeyError, DesktopAuthorizationCredentialPurpose,

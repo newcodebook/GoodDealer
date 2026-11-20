@@ -446,6 +446,56 @@ impl PreparedCloudflareObservation {
     }
 }
 
+/// Unserializable admission for one complete Cloudflare account inventory and its commit.
+pub struct PreparedCloudflareRegistrarInventory {
+    pub(crate) admission: DesktopNativeCloudAdmission,
+    pub(crate) data: crate::desktop_sync_runtime::PreparedCloudflareRegistrarData,
+}
+
+impl fmt::Debug for PreparedCloudflareRegistrarInventory {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("PreparedCloudflareRegistrarInventory([REDACTED])")
+    }
+}
+
+impl PreparedCloudflareRegistrarInventory {
+    #[must_use]
+    pub fn connection_incarnation_id(&self) -> &str {
+        &self.data.connection_incarnation_id
+    }
+    #[must_use]
+    pub fn connection_digest(&self) -> &str {
+        &self.data.connection_digest
+    }
+    #[must_use]
+    pub const fn generation(&self) -> u64 {
+        self.data.generation
+    }
+    #[must_use]
+    pub fn scope_digest(&self) -> &str {
+        &self.data.scope_digest
+    }
+    #[must_use]
+    pub fn zone_digest(&self) -> &str {
+        &self.data.zone_digest
+    }
+    #[must_use]
+    pub fn public_proof(&self) -> &str {
+        &self.data.public_proof
+    }
+    #[must_use]
+    pub fn expected_account_scope_digest(&self) -> Option<&str> {
+        self.data
+            .prior
+            .as_ref()
+            .map(|scan| scan.account_scope_digest.as_str())
+    }
+    #[must_use]
+    pub fn last_scan(&self) -> Option<&crate::DesktopCloudflareRegistrarScanReceipt> {
+        self.data.prior.as_ref().map(|scan| &scan.receipt)
+    }
+}
+
 impl fmt::Debug for MarkedCloudflareProvision {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("MarkedCloudflareProvision([REDACTED])")
@@ -2244,10 +2294,16 @@ mod tests {
     }
 
     use crate::active_workspace::capability_qualification::{
-        CLOUDFLARE_DNS_OBSERVE, test_qualification::qualify,
+        CLOUDFLARE_DNS_OBSERVE, CLOUDFLARE_REGISTRAR_OBSERVE, test_qualification::qualify,
     };
 
     fn credential_host() -> (tempfile::TempDir, DesktopLocalHost) {
+        credential_host_with_capabilities(&[CLOUDFLARE_DNS_OBSERVE])
+    }
+
+    fn credential_host_with_capabilities(
+        capabilities: &[&str],
+    ) -> (tempfile::TempDir, DesktopLocalHost) {
         let directory = crate::test_tempdir::tempdir().expect("temporary Host directory");
         let mut database = BusinessDatabase::open(
             &directory.path().join("business.db"),
@@ -2269,7 +2325,15 @@ mod tests {
             )
             .expect("seed asset");
         database.seed_verified_cloudflare_binding_for_test("revoke.test");
-        let local_host = host(database, &directory);
+        let local_host = DesktopLocalHost::development_with_provider_capabilities(
+            database,
+            directory.path().join("native-backup"),
+            "account-local",
+            WORKSPACE_ID,
+            "device-local",
+            capabilities,
+        )
+        .expect("construct development Host");
         (directory, local_host)
     }
 
@@ -2807,6 +2871,176 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(host.recheck_cloudflare_observation(&prepared).is_err());
+    }
+
+    fn registrar_fact(domain: &str) -> crate::DesktopCloudflareRegistrationFact {
+        crate::DesktopCloudflareRegistrationFact {
+            domain: domain.to_owned(),
+            registered_on: "2025-10-02".to_owned(),
+            expires_on: Some("2027-10-02".to_owned()),
+            auto_renew: true,
+            locked: true,
+            standing: crate::DesktopCloudflareRegistrationStanding::Active,
+        }
+    }
+
+    fn prepare_registrar(
+        host: &DesktopLocalHost,
+        connection: &str,
+    ) -> Result<PreparedCloudflareRegistrarInventory, DesktopLocalHostError> {
+        host.prepare_cloudflare_registrar_inventory(host.begin_native_cloud_run()?, connection)
+    }
+
+    #[test]
+    fn cloudflare_registrar_import_is_atomic_and_scan_scope_survives_reopen() {
+        let _qualified = qualify(CLOUDFLARE_REGISTRAR_OBSERVE);
+        let _dns = qualify(CLOUDFLARE_DNS_OBSERVE);
+        let (directory, local) = credential_host_with_capabilities(&[
+            CLOUDFLARE_DNS_OBSERVE,
+            CLOUDFLARE_REGISTRAR_OBSERVE,
+        ]);
+        let connection = local
+            .read_cloudflare_connection()
+            .unwrap()
+            .connection_ref
+            .unwrap();
+        let digest = "ab".repeat(32);
+        let rows = [
+            registrar_fact("existing-inventory.test"),
+            registrar_fact("revoke.test"),
+        ];
+        let before = business_generation(&local);
+        let stale = prepare_registrar(&local, &connection).unwrap();
+        let initial = prepare_registrar(&local, &connection).unwrap();
+        assert_eq!(initial.expected_account_scope_digest(), None);
+        let receipt = local
+            .commit_cloudflare_registrar_inventory(initial, &digest, &rows)
+            .unwrap();
+        assert_eq!(
+            (receipt.observed, receipt.imported, receipt.skipped),
+            (2, 1, 0)
+        );
+        assert_eq!(business_generation(&local), before + 1);
+        assert!(detail_exists(&local, "existing-inventory.test"));
+        let dns = local
+            .prepare_cloudflare_observation(
+                local.begin_native_cloud_run().unwrap(),
+                &connection,
+                "revoke.test",
+            )
+            .unwrap();
+        assert!(local.recheck_cloudflare_observation(&dns).is_ok());
+        assert!(
+            local
+                .commit_cloudflare_registrar_inventory(
+                    stale,
+                    &digest,
+                    &[registrar_fact("late.test")]
+                )
+                .is_err()
+        );
+        let changed = prepare_registrar(&local, &connection).unwrap();
+        assert!(
+            local
+                .commit_cloudflare_registrar_inventory(
+                    changed,
+                    &"cd".repeat(32),
+                    &[registrar_fact("wrong-account.test")]
+                )
+                .is_err()
+        );
+        assert!(!detail_exists(&local, "late.test"));
+        assert!(!detail_exists(&local, "wrong-account.test"));
+        assert_eq!(business_generation(&local), before + 1);
+        drop(local);
+
+        let database = BusinessDatabase::open(
+            &directory.path().join("business.db"),
+            &LocalDatabaseKey::from_bytes([0x6d; 32]),
+            WORKSPACE_ID,
+        )
+        .unwrap();
+        let local = DesktopLocalHost::development_with_provider_capabilities(
+            database,
+            directory.path().join("native-backup"),
+            "account-local",
+            WORKSPACE_ID,
+            "device-local",
+            &[CLOUDFLARE_REGISTRAR_OBSERVE],
+        )
+        .unwrap();
+        let prepared = prepare_registrar(&local, &connection).unwrap();
+        assert_eq!(prepared.last_scan(), Some(&receipt));
+        assert_eq!(
+            prepared.expected_account_scope_digest(),
+            Some(digest.as_str())
+        );
+        let repeat = local
+            .commit_cloudflare_registrar_inventory(prepared, &digest, &rows)
+            .unwrap();
+        assert_eq!((repeat.observed, repeat.imported), (2, 0));
+        let empty = prepare_registrar(&local, &connection).unwrap();
+        assert_eq!(
+            local
+                .commit_cloudflare_registrar_inventory(empty, &digest, &[])
+                .unwrap()
+                .observed,
+            0
+        );
+        assert!(detail_exists(&local, "existing-inventory.test"));
+    }
+
+    #[test]
+    fn cloudflare_registrar_denies_dns_only_and_rechecks_authority_and_revocation() {
+        let qualified = qualify(CLOUDFLARE_REGISTRAR_OBSERVE);
+        let (_dir, dns_only) = credential_host();
+        let connection = dns_only
+            .read_cloudflare_connection()
+            .unwrap()
+            .connection_ref
+            .unwrap();
+        assert!(prepare_registrar(&dns_only, &connection).is_err());
+
+        let (_dir, local) = credential_host_with_capabilities(&[CLOUDFLARE_REGISTRAR_OBSERVE]);
+        let connection = local
+            .read_cloudflare_connection()
+            .unwrap()
+            .connection_ref
+            .unwrap();
+        let wrong = dns_only.begin_native_cloud_run().unwrap();
+        assert!(
+            local
+                .prepare_cloudflare_registrar_inventory(wrong, &connection)
+                .is_err()
+        );
+        let previous_epoch = prepare_registrar(&local, &connection).unwrap();
+        local.renew_business_authority_for_test(2).unwrap();
+        assert!(
+            local
+                .recheck_cloudflare_registrar_inventory(&previous_epoch)
+                .is_err()
+        );
+        let pending = prepare_registrar(&local, &connection).unwrap();
+        drop(qualified);
+        assert_eq!(
+            local.recheck_cloudflare_registrar_inventory(&pending),
+            Err(DesktopLocalHostError::CapabilityUnqualified)
+        );
+        let _qualified = qualify(CLOUDFLARE_REGISTRAR_OBSERVE);
+        local
+            .prepare_cloudflare_revocation(local.begin_native_cloud_run().unwrap(), &connection)
+            .unwrap()
+            .unwrap();
+        assert!(
+            local
+                .commit_cloudflare_registrar_inventory(
+                    pending,
+                    &"ab".repeat(32),
+                    &[registrar_fact("revoked.test")]
+                )
+                .is_err()
+        );
+        assert!(!detail_exists(&local, "revoked.test"));
     }
 
     #[test]

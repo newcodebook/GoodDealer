@@ -17,7 +17,12 @@ use crate::active_workspace::business::{
     CloudMutationReceipt, CloudflareRetirementSeed, DrainMutationProgress, DrainProofSchemaVersion,
     HandoffDrainProofClaims, SyncProjectionEffect, SyncRejectionKind,
 };
-use crate::active_workspace::capability_qualification::CLOUDFLARE_DNS_OBSERVE;
+use crate::active_workspace::business::{
+    CloudflareRegistrarInventoryCommit, CloudflareRegistrarScanHead,
+};
+use crate::active_workspace::capability_qualification::{
+    CLOUDFLARE_DNS_OBSERVE, CLOUDFLARE_REGISTRAR_OBSERVE,
+};
 use crate::{
     BusinessDatabase, BusinessDatabaseError, ClaimedCloudflareDnsProjection, ClaimedSyncMutation,
     CloudflareCredentialEnvelopeKind, CloudflareCredentialOperationKind,
@@ -104,6 +109,18 @@ pub(crate) struct PreparedCloudflareObservationData {
     pub(crate) scope_digest: String,
     pub(crate) zone_digest: String,
     pub(crate) public_proof: String,
+}
+
+#[derive(PartialEq, Eq)]
+pub(crate) struct PreparedCloudflareRegistrarData {
+    pub(crate) connection_id: String,
+    pub(crate) connection_incarnation_id: String,
+    pub(crate) connection_digest: String,
+    pub(crate) generation: u64,
+    pub(crate) scope_digest: String,
+    pub(crate) zone_digest: String,
+    pub(crate) public_proof: String,
+    pub(crate) prior: Option<CloudflareRegistrarScanHead>,
 }
 
 pub(crate) struct PreparedCloudflareRecoveryData {
@@ -520,33 +537,77 @@ impl DesktopSyncRuntime {
         self.recheck_sync_run(database, admission)?;
         self.require_provider_capability(admission, CLOUDFLARE_DNS_OBSERVE)?;
         require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
-        let credential = database
-            .cloudflare_connection_observation_admission(connection_hint)
-            .map_err(map_database_error)?;
-        let seed = database
-            .cloudflare_provision_seed(connection_hint)
-            .map_err(map_database_error)?;
-        if seed.expected_base.kind != CloudflareCredentialEnvelopeKind::Active
-            || seed.expected_base.generation != Some(credential.generation)
-            || seed.expected_base.scope_digest.as_deref() != Some(&credential.scope_digest)
-            || seed.expected_base.zone_digest.as_deref() != Some(&credential.zone_digest)
-            || seed.expected_base.public_proof.as_deref() != Some(&credential.public_proof)
-        {
-            return Err(DesktopSyncError::StorageRejected);
-        }
+        let (incarnation, credential) = cloudflare_stored_credential(database, connection_hint)?;
         Ok(PreparedCloudflareObservationData {
             connection_id: connection_hint.to_owned(),
             entity_id: entity_hint.to_owned(),
-            connection_digest: cloudflare_connection_digest(
-                &admission.workspace_id,
-                &seed.connection_incarnation_id,
-            ),
-            connection_incarnation_id: seed.connection_incarnation_id,
+            connection_digest: cloudflare_connection_digest(&admission.workspace_id, &incarnation),
+            connection_incarnation_id: incarnation,
             generation: credential.generation,
             scope_digest: credential.scope_digest,
             zone_digest: credential.zone_digest,
             public_proof: credential.public_proof,
         })
+    }
+
+    pub(crate) fn prepare_cloudflare_registrar_inventory(
+        &self,
+        database: &BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        connection_id: &str,
+    ) -> Result<PreparedCloudflareRegistrarData, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        self.require_provider_capability(admission, CLOUDFLARE_REGISTRAR_OBSERVE)?;
+        require_qualified(CLOUDFLARE_REGISTRAR_OBSERVE)?;
+        let (incarnation, credential) = cloudflare_stored_credential(database, connection_id)?;
+        let prior = database
+            .cloudflare_registrar_scan_head(&incarnation, credential.generation)
+            .map_err(map_database_error)?;
+        Ok(PreparedCloudflareRegistrarData {
+            connection_id: connection_id.to_owned(),
+            connection_digest: cloudflare_connection_digest(&admission.workspace_id, &incarnation),
+            connection_incarnation_id: incarnation,
+            generation: credential.generation,
+            scope_digest: credential.scope_digest,
+            zone_digest: credential.zone_digest,
+            public_proof: credential.public_proof,
+            prior,
+        })
+    }
+
+    pub(crate) fn commit_cloudflare_registrar_inventory(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        prepared: &PreparedCloudflareRegistrarData,
+        account_scope_digest: &str,
+        registrations: &[crate::DesktopCloudflareRegistrationFact],
+        guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<crate::DesktopCloudflareRegistrarScanReceipt, DesktopSyncError> {
+        let current = self.prepare_cloudflare_registrar_inventory(
+            database,
+            admission,
+            &prepared.connection_id,
+        )?;
+        if current != *prepared {
+            return Err(DesktopSyncError::StaleAuthority);
+        }
+        database
+            .import_cloudflare_registrar_inventory(
+                &CloudflareRegistrarInventoryCommit {
+                    connection_id: &prepared.connection_id,
+                    connection_incarnation_id: &prepared.connection_incarnation_id,
+                    credential_generation: prepared.generation,
+                    prior: prepared.prior.as_ref(),
+                    account_scope_digest,
+                    registrations,
+                    device_id: &admission.device_id,
+                    lease_epoch: admission.lease_epoch,
+                    at: &timestamp(trusted_now()?)?,
+                },
+                || guard.verify(self, admission),
+            )
+            .map_err(map_database_error)
     }
 
     pub(crate) fn commit_checked_cloudflare_observation(
@@ -1676,6 +1737,33 @@ fn encode_hex(bytes: impl AsRef<[u8]>) -> String {
     encoded
 }
 
+fn cloudflare_stored_credential(
+    database: &BusinessDatabase,
+    connection_id: &str,
+) -> Result<
+    (
+        String,
+        crate::active_workspace::business::CloudflareConnectionObservationAdmission,
+    ),
+    DesktopSyncError,
+> {
+    let credential = database
+        .cloudflare_connection_observation_admission(connection_id)
+        .map_err(map_database_error)?;
+    let seed = database
+        .cloudflare_provision_seed(connection_id)
+        .map_err(map_database_error)?;
+    if seed.expected_base.kind != CloudflareCredentialEnvelopeKind::Active
+        || seed.expected_base.generation != Some(credential.generation)
+        || seed.expected_base.scope_digest.as_deref() != Some(&credential.scope_digest)
+        || seed.expected_base.zone_digest.as_deref() != Some(&credential.zone_digest)
+        || seed.expected_base.public_proof.as_deref() != Some(&credential.public_proof)
+    {
+        return Err(DesktopSyncError::StorageRejected);
+    }
+    Ok((seed.connection_incarnation_id, credential))
+}
+
 fn map_database_error(error: BusinessDatabaseError) -> DesktopSyncError {
     match error {
         BusinessDatabaseError::MutationConflict => DesktopSyncError::AcknowledgementMismatch,
@@ -1702,13 +1790,14 @@ fn map_database_error(error: BusinessDatabaseError) -> DesktopSyncError {
 
 /// The signed commercial contract is a canonical closed set, including a valid empty set.
 pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
-    values.len() <= 3
+    values.len() <= 4
         && values.iter().all(|value| {
             matches!(
                 value.as_str(),
                 "afternic:marketplace:observe"
                     | "afternic:marketplace:write"
                     | "cloudflare:dns:observe"
+                    | "cloudflare:registrar:observe"
             )
         })
         && values.windows(2).all(|pair| pair[0] < pair[1])

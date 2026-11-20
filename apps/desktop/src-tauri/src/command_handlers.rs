@@ -47,14 +47,7 @@ pub(crate) struct CloudflareConnectionPurgeRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct CloudflareConnectionActivateRequest {
-    schema_version: u8,
-    connection_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct CloudflareConnectionRevokeRequest {
+pub(crate) struct CloudflareConnectionRefRequest {
     schema_version: u8,
     connection_id: String,
 }
@@ -512,7 +505,7 @@ pub(crate) async fn cloudflare_connection_activate(
     request: tauri::ipc::Request<'_>,
     cloud: State<'_, Arc<NativeCloudCoordinator>>,
 ) -> Result<(), String> {
-    let request: CloudflareConnectionActivateRequest = decode_provider_request(&request, 512)?;
+    let request: CloudflareConnectionRefRequest = decode_provider_request(&request, 512)?;
     validate_provider_schema_version(request.schema_version)?;
     validate_cloudflare_connection_id(&request.connection_id)?;
     map_provider_submission(cloud.submit_provider(&ProviderOperation::Activate {
@@ -527,7 +520,7 @@ pub(crate) async fn cloudflare_connection_revoke(
     request: tauri::ipc::Request<'_>,
     cloud: State<'_, Arc<NativeCloudCoordinator>>,
 ) -> Result<(), String> {
-    let request: CloudflareConnectionRevokeRequest = decode_provider_request(&request, 512)?;
+    let request: CloudflareConnectionRefRequest = decode_provider_request(&request, 512)?;
     validate_provider_schema_version(request.schema_version)?;
     validate_cloudflare_connection_id(&request.connection_id)?;
     map_provider_submission(cloud.submit_provider(&ProviderOperation::Revoke {
@@ -576,6 +569,21 @@ pub(crate) async fn cloudflare_zone_observe(
 }
 
 #[tauri::command]
+pub(crate) async fn cloudflare_registrar_inventory_refresh(
+    request: tauri::ipc::Request<'_>,
+    cloud: State<'_, Arc<NativeCloudCoordinator>>,
+) -> Result<(), String> {
+    let request: CloudflareConnectionRefRequest = decode_provider_request(&request, 512)?;
+    validate_provider_schema_version(request.schema_version)?;
+    validate_cloudflare_connection_id(&request.connection_id)?;
+    map_provider_submission(
+        cloud.submit_provider(&ProviderOperation::CloudflareRegistrarRefresh {
+            connection_id: request.connection_id,
+        }),
+    )
+}
+
+#[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn cloudflare_connection_status(
     host: State<'_, Arc<DesktopLocalHost>>,
@@ -591,15 +599,28 @@ pub(crate) fn cloudflare_connection_status(
         ProviderStatus::Ready if local.connection_ref.is_none() => "not-configured",
         ProviderStatus::Ready => "ready",
     };
-    let last_operation = cloud
-        .last_provider_operation(
-            host.authority_identity().as_ref(),
-            host.provider_connection_generation(),
-        )
-        .filter(|record| !record.kind.starts_with("afternic_"))
+    let last_operation = cloud.last_provider_operation(
+        host.authority_identity().as_ref(),
+        host.provider_connection_generation(),
+    );
+    let registrar = local.connection_ref.as_deref().and_then(|connection_id| {
+        let admission = host.begin_native_cloud_run().ok()?;
+        let prepared = host
+            .prepare_cloudflare_registrar_inventory(admission, connection_id)
+            .ok()?;
+        let outcome = last_operation
+            .as_ref()
+            .filter(|record| record.kind == "registrar_refresh")
+            .map(|record| record.outcome);
+        Some(serde_json::json!({"lastScan": prepared.last_scan(), "lastOutcome": outcome}))
+    });
+    let last_operation = last_operation
+        .filter(|record| {
+            !record.kind.starts_with("afternic_") && record.kind != "registrar_refresh"
+        })
         .map(|record| serde_json::json!({ "kind": record.kind, "outcome": record.outcome }));
     Ok(
-        serde_json::json!({ "schemaVersion": 1, "state": state, "connectionRef": local.connection_ref, "displayLabel": local.display_label, "qualified": local.qualified, "capturable": gooddealer_secure_host_core::CloudflareCapture::supported(), "lastOperation": last_operation, "readGeneration": local.read_generation }),
+        serde_json::json!({ "schemaVersion": 1, "state": state, "connectionRef": local.connection_ref, "displayLabel": local.display_label, "qualified": local.qualified, "capturable": gooddealer_secure_host_core::CloudflareCapture::supported(), "lastOperation": last_operation, "readGeneration": local.read_generation, "registrar": registrar }),
     )
 }
 

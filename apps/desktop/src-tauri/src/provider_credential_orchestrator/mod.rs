@@ -7,5 +7,6 @@ pub(crate) mod afternic_listing_write;
 mod cloudflare;
 
 pub(crate) use cloudflare::{
-    ProviderCredentialError, RevocationOutcome, activate, observe, purge, recover, revoke,
+    ProviderCredentialError, RevocationOutcome, activate, observe, purge, recover,
+    refresh_registrar_inventory, revoke,
 };

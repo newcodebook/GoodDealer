@@ -54,7 +54,7 @@ const sync: SyncSnapshotViewModel = {
   appliedThroughServerRevision: 8, lastReplicationActivityAt: null, transportObservedAt: "2026-09-20T00:00:00Z",
 };
 
-const cloudflareStatus: CloudflareConnectionStatus = { schemaVersion: 1, state: "ready", connectionRef: "opaque", displayLabel: "Cloudflare", qualified: false, capturable: true, lastOperation: null, readGeneration: generation };
+const cloudflareStatus: CloudflareConnectionStatus = { schemaVersion: 1, state: "ready", connectionRef: "opaque", displayLabel: "Cloudflare", qualified: false, capturable: true, lastOperation: null, registrar: null, readGeneration: generation };
 const settingsRead = parseSettingsRead({
   schemaVersion: 2, kind: "settings", readGeneration: generation, freshness,
   connections: [{ providerKind: "cloudflare", connectionLabel: "Cloudflare", lifecycleStatus: "active", validationStatus: "valid", credentialUseState: "active", lastValidatedAt: null, roles: [{ role: "dns", availability: "unavailable", unavailableReason: "qualification_pending" }] }],
@@ -88,7 +88,7 @@ function ports(cloudflare: () => Promise<CloudflareConnectionStatus> = async () 
     afternicDelist: { status: vi.fn(async () => ({ schemaVersion: 1 as const, controlledAcceptance: null, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null })), preview: vi.fn(), approve: vi.fn() },
     afternicListingWrite: { status: vi.fn(async () => ({ schemaVersion: 1 as const, controlledAcceptance: null, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null })), preview: vi.fn(), approve: vi.fn() },
     afternic: { status: vi.fn(async () => ({ schemaVersion: 1 as const, connections: [], controlledAcceptance: null, observeQualified: false, observeEntitled: false, capturable: false, laneState: "ready" as const, lastOperation: null })), connect: vi.fn(), refresh: vi.fn(), revoke: vi.fn() },
-    cloudflare: { status: vi.fn(cloudflare), create: vi.fn(), activate: vi.fn(), retirementCandidates: vi.fn(async () => []), purge: vi.fn(), revoke: vi.fn() },
+    cloudflare: { status: vi.fn(cloudflare), create: vi.fn(), activate: vi.fn(), refreshRegistrar: vi.fn(), retirementCandidates: vi.fn(async () => []), purge: vi.fn(), revoke: vi.fn() },
   } as unknown as AuthoritativeWorkspacePorts;
 }
 

@@ -11,7 +11,7 @@ import { AfternicDelistPanel, AfternicListingWritePanel, BatchList } from "../fe
 import { ManualTaskInbox } from "../features/operations/manual-tasks";
 import { OperationHistory } from "../features/operations/operation-history";
 import { RenewalDesk, type RenewalListView } from "../features/registration";
-import { AfternicPanel, CloudflareRetirementPanel, cloudflareNoticeCopyKey, readCloudflareNotice } from "../features/connections";
+import { AfternicPanel, CloudflareRegistrarPanel, CloudflareRetirementPanel, cloudflareNoticeCopyKey, readCloudflareNotice } from "../features/connections";
 import { DeviceDirectoryPanel, SettingsPanel } from "../features/settings";
 import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
@@ -293,7 +293,11 @@ function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepai
       locale={locale}
       initialSection="connections"
       connections={state.connections}
-      connectionMaintenance={<><AfternicPanel locale={locale} port={ports.afternic} readOnly={!writable} onChanged={() => setAttempt((current) => current + 1)} />{writable ? <CloudflareRetirementPanel locale={locale} port={ports.cloudflare} onChanged={() => setAttempt((current) => current + 1)} /> : null}</>}
+      connectionMaintenance={<>
+        <AfternicPanel locale={locale} port={ports.afternic} readOnly={!writable} onChanged={() => setAttempt((current) => current + 1)} />
+        <CloudflareRegistrarPanel locale={locale} port={ports.cloudflare} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />
+        {writable ? <CloudflareRetirementPanel locale={locale} port={ports.cloudflare} onChanged={() => setAttempt((current) => current + 1)} /> : null}
+      </>}
       devices={null}
       {...(ports.devices === undefined ? {} : { deviceManagement: <DeviceDirectoryPanel locale={locale} port={ports.devices} readOnly={standby} {...(ports.deviceSwitch === undefined ? {} : { switchPort: ports.deviceSwitch })} {...(ports.targetBootstrap === undefined ? {} : { bootstrapPort: ports.targetBootstrap })} {...(ports.targetInstallation === undefined ? {} : { installationPort: ports.targetInstallation })} {...(ports.forcedTakeover === undefined ? {} : { forcedTakeoverPort: ports.forcedTakeover })} /> })}
       license="unavailable"

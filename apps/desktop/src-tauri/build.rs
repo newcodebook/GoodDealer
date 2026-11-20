@@ -38,6 +38,7 @@ fn main() {
             "cloudflare_zone_observe",
             "cloudflare_connection_status",
             "cloudflare_observation_read",
+            "cloudflare_registrar_inventory_refresh",
             "local_business_status",
             "local_device_lease_read",
             "device_directory_read",

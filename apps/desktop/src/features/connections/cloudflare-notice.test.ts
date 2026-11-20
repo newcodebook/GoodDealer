@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CloudflareConnectionStatus } from "../../adapters/tauri";
 import { cloudflareNotice, readCloudflareNotice, settleCloudflareNotice } from "./cloudflare-notice";
 
-const base: CloudflareConnectionStatus = { schemaVersion: 1, state: "ready", connectionRef: "opaque", displayLabel: "Cloudflare", qualified: true, capturable: true, lastOperation: null, readGeneration: 1 };
+const base: CloudflareConnectionStatus = { schemaVersion: 1, state: "ready", connectionRef: "opaque", displayLabel: "Cloudflare", qualified: true, capturable: true, lastOperation: null, registrar: null, readGeneration: 1 };
 
 describe("Cloudflare notice", () => {
   it.each([

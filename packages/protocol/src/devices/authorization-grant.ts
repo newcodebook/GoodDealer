@@ -20,6 +20,7 @@ export const DESKTOP_COMMERCIAL_CAPABILITIES = [
   "afternic:marketplace:observe",
   "afternic:marketplace:write",
   "cloudflare:dns:observe",
+  "cloudflare:registrar:observe",
 ] as const;
 export const desktopCommercialCapabilitySchema = z.enum(DESKTOP_COMMERCIAL_CAPABILITIES);
 export const desktopCommercialCapabilitiesSchema = z.array(desktopCommercialCapabilitySchema)

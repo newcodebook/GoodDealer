@@ -23,7 +23,7 @@ export interface CloudflareStatusPort {
 }
 
 /** The Cloudflare calls a production surface may make: the status, and connecting or revoking. */
-export type CloudflareConnectionPort = CloudflareStatusPort & Pick<CloudflarePort, "create" | "activate" | "revoke" | "retirementCandidates" | "purge">;
+export type CloudflareConnectionPort = CloudflareStatusPort & Pick<CloudflarePort, "create" | "activate" | "revoke" | "retirementCandidates" | "purge" | "refreshRegistrar">;
 
 /**
  * Precedence, highest first:

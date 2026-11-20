@@ -34,6 +34,7 @@ function createFixture() {
     "cloudflare_connection_revoke",
     "cloudflare_connection_status",
     "cloudflare_observation_read",
+    "cloudflare_registrar_inventory_refresh",
     "cloudflare_retirement_candidates",
     "cloudflare_zone_observe",
     "desktop_authentication_begin",

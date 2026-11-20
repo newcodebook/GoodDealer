@@ -28,6 +28,8 @@ const QUALIFIED_CAPABILITIES: &[Qualification] = &[];
 /// Cloudflare Zone/DNS read-only observation, including the credential activation it needs.
 pub(crate) const CLOUDFLARE_DNS_OBSERVE: &str = "cloudflare:dns:observe";
 
+pub(crate) const CLOUDFLARE_REGISTRAR_OBSERVE: &str = "cloudflare:registrar:observe";
+
 /// Separately reviewed technical admission; the commercial Grant still uses observe/write.
 pub(crate) const AFTERNIC_OWNERSHIP_REVIEW: &str = "afternic:marketplace:ownership-review";
 

@@ -459,6 +459,12 @@
           "markdownDescription": "Enables the cloudflare_observation_read command without any pre-configured scope."
         },
         {
+          "description": "Enables the cloudflare_registrar_inventory_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloudflare-registrar-inventory-refresh",
+          "markdownDescription": "Enables the cloudflare_registrar_inventory_refresh command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cloudflare_retirement_candidates command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cloudflare-retirement-candidates",
@@ -829,6 +835,12 @@
           "type": "string",
           "const": "deny-cloudflare-observation-read",
           "markdownDescription": "Denies the cloudflare_observation_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloudflare_registrar_inventory_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloudflare-registrar-inventory-refresh",
+          "markdownDescription": "Denies the cloudflare_registrar_inventory_refresh command without any pre-configured scope."
         },
         {
           "description": "Denies the cloudflare_retirement_candidates command without any pre-configured scope.",

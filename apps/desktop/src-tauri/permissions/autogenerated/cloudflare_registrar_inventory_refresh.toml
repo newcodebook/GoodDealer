@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cloudflare-registrar-inventory-refresh"
+description = "Enables the cloudflare_registrar_inventory_refresh command without any pre-configured scope."
+commands.allow = ["cloudflare_registrar_inventory_refresh"]
+
+[[permission]]
+identifier = "deny-cloudflare-registrar-inventory-refresh"
+description = "Denies the cloudflare_registrar_inventory_refresh command without any pre-configured scope."
+commands.deny = ["cloudflare_registrar_inventory_refresh"]

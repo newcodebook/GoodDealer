@@ -1,7 +1,7 @@
 //! Afternic connection publication and complete inventory transactions; no credential is stored here.
 use super::{
-    BusinessDatabase, BusinessDatabaseError, assets::import_market_asset, hex_digest, is_uuid_v4,
-    validate_domain_asset_id, validate_sha256_hex, validate_timestamp,
+    BusinessDatabase, BusinessDatabaseError, assets::import_discovered_asset, hex_digest,
+    is_uuid_v4, validate_domain_asset_id, validate_sha256_hex, validate_timestamp,
 };
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -327,7 +327,7 @@ impl BusinessDatabase {
             skipped_deleted: Vec::new(),
         };
         for (ordinal, listing) in listings.iter().enumerate() {
-            let imported = import_market_asset(
+            let imported = import_discovered_asset(
                 &tx,
                 &self.workspace_id,
                 &random_id()?,

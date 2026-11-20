@@ -70,7 +70,9 @@ describe("domain Provider coverage and financial confirmation", () => {
     }
     // Only Cloudflare's implemented read-only observation awaits qualification; everything else waits on facts.
     expect(domainProviderCapabilityManifest.filter(({ reason }) => reason === "qualification_pending")
-      .map(({ platform, capabilityId }) => `${platform}:${capabilityId}`)).toEqual(["cloudflare:zone.observe", "cloudflare:dns.records.observe"]);
+      .map(({ platform, capabilityId }) => `${platform}:${capabilityId}`)).toEqual([
+        "cloudflare:registrar.domain.observe", "cloudflare:zone.observe", "cloudflare:dns.records.observe",
+      ]);
     expect(Object.isFrozen(domainProviderCapabilityManifest)).toBe(true);
     expect(domainProviderCapabilityManifest.every((entry) => Object.isFrozen(entry))).toBe(true);
     // The schema has no executable state and no field a Renderer could read as a permission.

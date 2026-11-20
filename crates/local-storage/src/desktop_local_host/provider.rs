@@ -404,6 +404,78 @@ impl DesktopLocalHost {
         )
     }
 
+    /// Admits account inventory for an exact existing Cloudflare credential. Registrar access
+    /// requires its own current signed entitlement and qualification.
+    ///
+    /// # Errors
+    /// Rejects stale authority or an unavailable or mismatched credential.
+    pub fn prepare_cloudflare_registrar_inventory(
+        &self,
+        admission: crate::DesktopNativeCloudAdmission,
+        connection_id: &str,
+    ) -> Result<crate::PreparedCloudflareRegistrarInventory, DesktopLocalHostError> {
+        let data = self.with_sync_runtime(Some(&admission.inner), |sync, database, admitted| {
+            sync.prepare_cloudflare_registrar_inventory(
+                database,
+                admitted.ok_or(DesktopSyncError::StaleAuthority)?,
+                connection_id,
+            )
+        })?;
+        Ok(crate::PreparedCloudflareRegistrarInventory { admission, data })
+    }
+
+    /// Revalidates the exact inventory admission across Native awaits.
+    ///
+    /// # Errors
+    /// Rejects authority, credential, or previously published scan changes.
+    pub fn recheck_cloudflare_registrar_inventory(
+        &self,
+        prepared: &crate::PreparedCloudflareRegistrarInventory,
+    ) -> Result<(), DesktopLocalHostError> {
+        self.with_sync_runtime(
+            Some(&prepared.admission.inner),
+            |sync, database, admitted| {
+                let current = sync.prepare_cloudflare_registrar_inventory(
+                    database,
+                    admitted.ok_or(DesktopSyncError::StaleAuthority)?,
+                    &prepared.data.connection_id,
+                )?;
+                if current != prepared.data {
+                    return Err(DesktopSyncError::StaleAuthority);
+                }
+                Ok(())
+            },
+        )
+    }
+
+    /// Publishes checked inventory and ordinary asset creations in the same fenced transaction.
+    ///
+    /// # Errors
+    /// Rejects a stale or replayed admission, changed account scope or invalid observations.
+    pub fn commit_cloudflare_registrar_inventory(
+        &self,
+        prepared: crate::PreparedCloudflareRegistrarInventory,
+        account_scope_digest: &str,
+        registrations: &[crate::DesktopCloudflareRegistrationFact],
+    ) -> Result<crate::DesktopCloudflareRegistrarScanReceipt, DesktopLocalHostError> {
+        let crate::PreparedCloudflareRegistrarInventory { admission, data } = prepared;
+        self.with_sync_business_write(&admission.inner, |sync, business, admitted, guard| {
+            if !business.has_read_generation_capacity() {
+                return Err(DesktopSyncError::StorageRejected);
+            }
+            let receipt = sync.commit_cloudflare_registrar_inventory(
+                business.database_for_backup_mut(),
+                admitted,
+                &data,
+                account_scope_digest,
+                registrations,
+                guard,
+            )?;
+            business.advance_read_generation_after_sync_commit();
+            Ok(receipt)
+        })
+    }
+
     /// Commits checked Provider facts under the exact credential identity in the opaque handle.
     ///
     /// # Errors

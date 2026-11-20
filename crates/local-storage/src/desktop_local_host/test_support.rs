@@ -2,16 +2,35 @@ use super::*;
 
 impl DesktopLocalHost {
     #[cfg(test)]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the development fixture composes one complete and reviewable authority state"
-    )]
     pub(crate) fn development(
         database: BusinessDatabase,
         native_root: std::path::PathBuf,
         account_id: &str,
         workspace_id: &str,
         device_id: &str,
+    ) -> Result<Self, DesktopBackupError> {
+        Self::development_with_provider_capabilities(
+            database,
+            native_root,
+            account_id,
+            workspace_id,
+            device_id,
+            &["cloudflare:dns:observe"],
+        )
+    }
+
+    #[cfg(test)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the development fixture composes one complete and reviewable authority state"
+    )]
+    pub(crate) fn development_with_provider_capabilities(
+        database: BusinessDatabase,
+        native_root: std::path::PathBuf,
+        account_id: &str,
+        workspace_id: &str,
+        device_id: &str,
+        capabilities: &[&str],
     ) -> Result<Self, DesktopBackupError> {
         #[cfg(not(unix))]
         drop(native_root);
@@ -34,7 +53,10 @@ impl DesktopLocalHost {
             entitlement_revision: 1,
             entitlement_projection_digest: "11".repeat(32),
             commercial_expires_at: "9999-12-31T23:59:59Z".to_owned(),
-            capabilities: vec!["cloudflare:dns:observe".to_owned()],
+            capabilities: capabilities
+                .iter()
+                .map(|capability| (*capability).to_owned())
+                .collect(),
             generation,
             trusted_time_floor: now,
             execute_before: i64::MAX,

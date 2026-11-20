@@ -9,11 +9,11 @@ import { CloudflareRetirementPanel } from "./cloudflare-retirement-panel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const candidate = { connectionRef: "opaque", displayLabel: "Cloudflare DNS", action: "retire" as const };
-const status: CloudflareConnectionStatus = { schemaVersion: 1 as const, state: "ready" as const, connectionRef: "opaque", displayLabel: "Cloudflare DNS", qualified: false, capturable: true, lastOperation: null, readGeneration: 1 };
+const status: CloudflareConnectionStatus = { schemaVersion: 1 as const, state: "ready" as const, connectionRef: "opaque", displayLabel: "Cloudflare DNS", qualified: false, capturable: true, lastOperation: null, registrar: null, readGeneration: 1 };
 function port(): CloudflareConnectionPort {
   return {
     status: vi.fn(async () => status),
-    retirementCandidates: vi.fn(async () => [candidate]),
+    refreshRegistrar: vi.fn(), retirementCandidates: vi.fn(async () => [candidate]),
     purge: vi.fn(async () => undefined), create: vi.fn(), activate: vi.fn(), revoke: vi.fn(),
   };
 }

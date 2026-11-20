@@ -226,6 +226,12 @@ export interface CloudflareConnectionStatus {
   /** The latest Provider operation's closed outcome, or null when none ran this session. */
   readonly lastOperation: CloudflareProviderOperation | null;
   readonly readGeneration: number;
+  readonly registrar: CloudflareRegistrarStatus | null;
+}
+
+export interface CloudflareRegistrarStatus {
+  readonly lastScan: { readonly observed: number; readonly imported: number; readonly skipped: number; readonly completedAt: string } | null;
+  readonly lastOutcome: "confirmed" | "unqualified" | "unreachable" | "retry_later" | "credential_rejected" | "provider_response_rejected" | "failed" | null;
 }
 
 export interface CloudflareProviderOperation {
@@ -285,6 +291,7 @@ export interface CloudflarePort {
   retirementCandidates(): Promise<readonly CloudflareRetirementCandidate[]>;
   purge(connectionRef: string, action: "confirm_retirement" | "retry_pending"): Promise<void>;
   observe(connectionRef: string, entityId: string): Promise<void>;
+  refreshRegistrar(connectionRef: string): Promise<void>;
   readObservation(entityId: string): Promise<CloudflareObservation>;
 }
 
@@ -320,9 +327,11 @@ const commands = {
   cloudflareRetirementCandidates: "cloudflare_retirement_candidates",
   cloudflareObserve: "cloudflare_zone_observe",
   cloudflareObservationRead: "cloudflare_observation_read",
+  cloudflareRegistrarRefresh: "cloudflare_registrar_inventory_refresh",
 } as const;
 
 export function createCloudflarePort(): CloudflarePort {
+  const wire = (intent: object) => new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, ...intent }));
   return {
     async status() {
       return parseCloudflareStatus(await invoke(commands.cloudflareStatus));
@@ -333,27 +342,26 @@ export function createCloudflarePort(): CloudflarePort {
       return parseCloudflareConnectionCreated(await invoke(commands.cloudflareCreate, { request: { schemaVersion: 1, displayLabel } }));
     },
     async activate(connectionRef) {
-      await invoke(commands.cloudflareActivate, { request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef) } });
+      await invoke(commands.cloudflareActivate, wire({ connectionId: boundedOpaqueRef(connectionRef) }));
     },
     async revoke(connectionRef) {
-      await invoke(commands.cloudflareRevoke, { request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef) } });
+      await invoke(commands.cloudflareRevoke, wire({ connectionId: boundedOpaqueRef(connectionRef) }));
     },
     async retirementCandidates() {
       return parseCloudflareRetirementCandidates(await invoke(commands.cloudflareRetirementCandidates));
     },
+    async refreshRegistrar(connectionRef) {
+      await invoke(commands.cloudflareRegistrarRefresh, wire({ connectionId: boundedOpaqueRef(connectionRef) }));
+    },
     async purge(connectionRef, action) {
       if (action !== "confirm_retirement" && action !== "retry_pending") throw new TypeError("invalid retirement action");
-      await invoke(commands.cloudflarePurge, { request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef), action } });
+      await invoke(commands.cloudflarePurge, wire({ connectionId: boundedOpaqueRef(connectionRef), action }));
     },
     async observe(connectionRef, entityId) {
-      await invoke(commands.cloudflareObserve, {
-        request: { schemaVersion: 1, connectionId: boundedOpaqueRef(connectionRef), entityId: boundedEntityId(entityId) },
-      });
+      await invoke(commands.cloudflareObserve, wire({ connectionId: boundedOpaqueRef(connectionRef), entityId: boundedEntityId(entityId) }));
     },
     async readObservation(entityId) {
-      return parseCloudflareObservation(await invoke(commands.cloudflareObservationRead, {
-        request: { schemaVersion: 1, entityId: boundedEntityId(entityId) },
-      }));
+      return parseCloudflareObservation(await invoke(commands.cloudflareObservationRead, wire({ entityId: boundedEntityId(entityId) })));
     },
   };
 }
@@ -904,7 +912,7 @@ function parseProviderOperation(value: unknown): CloudflareProviderOperation | n
 }
 
 function parseCloudflareStatus(value: unknown): CloudflareConnectionStatus {
-  const record = exactRecord(copyPlainData(value), ["schemaVersion", "state", "connectionRef", "displayLabel", "qualified", "capturable", "lastOperation", "readGeneration"]);
+  const record = exactRecord(copyPlainData(value), ["schemaVersion", "state", "connectionRef", "displayLabel", "qualified", "capturable", "lastOperation", "readGeneration", "registrar"]);
   const states: readonly CloudflareConnectionStatusState[] = ["not-configured", "recovering", "ready", "busy", "blocked"];
   const bounded = (field: unknown): string | null => field === null ? null
     : typeof field === "string" && field.length > 0 && field.length <= 256 && [...field].every((char) => {
@@ -916,16 +924,39 @@ function parseCloudflareStatus(value: unknown): CloudflareConnectionStatus {
     || !Number.isSafeInteger(record.readGeneration) || (record.readGeneration as number) < 0) {
     throw new TypeError("invalid Cloudflare status");
   }
+  const connectionRef = bounded(record.connectionRef);
+  const registrar = parseCloudflareRegistrarStatus(record.registrar);
+  if (registrar !== null && (connectionRef === null || record.state === "not-configured")) {
+    throw new TypeError("invalid Cloudflare Registrar connection");
+  }
   return Object.freeze({
     schemaVersion: 1,
     state: record.state as CloudflareConnectionStatusState,
-    connectionRef: bounded(record.connectionRef),
+    connectionRef,
     displayLabel: connectionLabel(record.displayLabel),
     qualified: record.qualified,
     capturable: record.capturable,
     lastOperation: parseProviderOperation(record.lastOperation),
     readGeneration: record.readGeneration as number,
+    registrar,
   });
+}
+
+function parseCloudflareRegistrarStatus(value: unknown): CloudflareRegistrarStatus | null {
+  if (value === null) return null;
+  const { lastScan, lastOutcome } = exactRecord(value, ["lastScan", "lastOutcome"]);
+  const outcomes: readonly unknown[] = [null, "confirmed", "unqualified", "unreachable", "retry_later", "credential_rejected", "provider_response_rejected", "failed"];
+  if (!outcomes.includes(lastOutcome)) throw new TypeError("invalid Cloudflare Registrar outcome");
+  const outcome = lastOutcome as CloudflareRegistrarStatus["lastOutcome"];
+  if (lastScan === null) return Object.freeze({ lastScan: null, lastOutcome: outcome });
+  const { observed, imported, skipped, completedAt } = exactRecord(lastScan, ["observed", "imported", "skipped", "completedAt"]);
+  const count = (field: unknown): field is number => typeof field === "number" && Number.isSafeInteger(field) && field >= 0 && field <= 10_000;
+  if (!count(observed) || !count(imported) || !count(skipped) || imported + skipped > observed
+    || typeof completedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u.test(completedAt)
+    || !Number.isFinite(Date.parse(completedAt)) || new Date(completedAt).toISOString() !== completedAt.replace(/Z$/u, ".000Z")) {
+    throw new TypeError("invalid Cloudflare Registrar scan");
+  }
+  return Object.freeze({ lastScan: Object.freeze({ observed, imported, skipped, completedAt }), lastOutcome: outcome });
 }
 
 function parseCloudflareObservation(value: unknown): CloudflareObservation {

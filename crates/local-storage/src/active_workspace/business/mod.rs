@@ -98,7 +98,15 @@ pub use wire::verify_rebootstrap_page_digest;
 pub use wire::verify_rebootstrap_plan_digest;
 
 mod cloudflare_credential;
+mod cloudflare_registrar;
 mod cloudflare_retirement;
+pub(crate) use cloudflare_registrar::{
+    CloudflareRegistrarInventoryCommit, CloudflareRegistrarScanHead,
+};
+pub use cloudflare_registrar::{
+    DesktopCloudflareRegistrarScanReceipt, DesktopCloudflareRegistrationFact,
+    DesktopCloudflareRegistrationStanding,
+};
 mod drain_claims;
 mod normal_handoff;
 pub(crate) use cloudflare_credential::{

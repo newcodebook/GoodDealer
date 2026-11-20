@@ -255,7 +255,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [ ] 对账任务模型（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
 - [ ] 逐笔资金确认组件（含出价）（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
 - [ ] 负向测试：越权、跨租户、伪造 grant/bid、角色串用凭据、批量部分失败（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
-- [ ] Cloudflare Registrar 能力（待实现；按当前策略的能力依赖推进）
+- [ ] Cloudflare Registrar 能力（账户级只读归集已接入原生设置和持久资产库；专用账户连接、真实资格、续费与其他写能力继续实施）
 - [ ] 第一个写入 `domain_assets.expires_on` 的注册商观察必须写入注册局到期时刻的 UTC 日期，不能用本地日期或注册商显示日期（到期窗口按 UTC 日计算的前提；当前只有测试种子写入该列），并补写入侧测试（待实现；按当前策略的能力依赖推进）
 - [ ] Cloudflare DNS 写入与 DNSSEC（待实现；按当前策略的能力依赖推进）
 - [ ] Cloudflare 监控（待实现；按当前策略的能力依赖推进）
@@ -452,3 +452,10 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 首次完整提交观察 188 个域名、新增 188 个本地资产。退出重开又读到 188 个，新增 0，跳过曾删除 0。用户已在桌面界面确认数据正确。记录中仅包含阶段和汇总数量。临时诊断代码已移除。
 - Core Afternic 专项 22 项通过，严格 Clippy 及独立审查通过。最终 Linux 构件已按相同工作区重新打开。
 - `wecin.com` 的真实上架、改价与下架，开发 Cloud 证据迁移，认证私有协议及 DNS，Windows/macOS 实机与发行资格尚待验证。
+
+## Cloudflare Registrar 账户库存归集
+
+- 设置中对有资格且已授权的 Cloudflare 连接选择「归集注册域名」，Native 使用当前 Zone 的账户身份按游标逐页读取官方 Registrar 列表。平台账户 ID、Token 与 cursor 留在 Native。使用连接和令牌绑定的账户范围承诺，阻止同一凭据代次在账户变化后向新账户发请求。
+- 追加迁移 `202611190009`。完整结果在原 SQLCipher writer 原子保存注册商观察、扫描回执及新资产 Outbox。既有备注等用户字段保留，删除墓碑不会复活，空结果不删除资产。结果对 `cloudflare:registrar:observe` 独立验签准入，DNS 权限不能授权此扫描。休眠或退出中断读取时保留上一份完整结果；下一次从头读取。注册日期和到期日期已保存于注册商观察，续费提醒仍待接入。
+- 本地验收覆盖状态失败后只重读、完整分页、空清单、墓碑、重复归集、最后提交栅栏、错账户、授权更替、并发旧读取及 SQLCipher 重开。Zone 激活与其余 Cloudflare 操作已统一发送给现有严格原生解码器的原始字节。
+- 已组合的路径需要账户下可读的 Zone、能读 Registrar 列表的原生托管令牌、真实开发授权及资格。尚未对 Cloudflare 真实账户执行。无可用 Zone 的账户连接、Linux 的 Cloudflare 原生录入和托管仍待实现。Windows/macOS 实机待验证。

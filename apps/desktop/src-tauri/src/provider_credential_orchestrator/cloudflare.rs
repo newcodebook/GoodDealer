@@ -6,9 +6,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use gooddealer_local_storage::{
     DesktopCloudflareCheckedObservation, DesktopCloudflareCustodyComparison,
     DesktopCloudflareEnvelopeKind, DesktopCloudflareKeychainPlan, DesktopCloudflarePrewriteFailure,
-    DesktopCloudflarePurgeOutcome, DesktopCloudflareRecoveryPlan, DesktopCloudflareResolution,
-    DesktopCloudflareRetirement, DesktopCloudflareRetirementPlan, DesktopLocalHost,
-    DesktopLocalHostError, InspectingCloudflareProvision, InspectingCloudflareRevocation,
+    DesktopCloudflarePurgeOutcome, DesktopCloudflareRecoveryPlan,
+    DesktopCloudflareRegistrationFact, DesktopCloudflareRegistrationStanding,
+    DesktopCloudflareResolution, DesktopCloudflareRetirement, DesktopCloudflareRetirementPlan,
+    DesktopLocalHost, DesktopLocalHostError, InspectingCloudflareProvision,
+    InspectingCloudflareRevocation, PreparedCloudflareRegistrarInventory,
 };
 use gooddealer_secure_host_core::{
     CloudflareCapture, CloudflareCaptureError, CloudflareCredentialObservationPlan,
@@ -17,7 +19,7 @@ use gooddealer_secure_host_core::{
     CloudflareCustodyComparison, CloudflareKeychainError, CloudflarePrewriteFailure,
     CloudflarePrewriteInspection, CloudflareProviderClient, CloudflareProviderError,
     CloudflareProviderObservation, CloudflareProviderZoneStatus, CloudflarePurgeOutcome,
-    CloudflareRecordType, inspect_cloudflare_recovery_guarded,
+    CloudflareRecordType, NativePowerGate, inspect_cloudflare_recovery_guarded,
     publish_cloudflare_candidate_guarded, publish_cloudflare_tombstone_guarded,
     purge_retired_cloudflare_slot,
 };
@@ -219,6 +221,110 @@ pub(crate) async fn observe(
     .map_err(|_| ProviderCredentialError::Unavailable)?
     .map(|_| true)
     .map_err(host_error)
+}
+
+pub(crate) async fn refresh_registrar_inventory(
+    host: Arc<DesktopLocalHost>,
+    connection_id: String,
+    cancel: Arc<crate::native_cloud_runtime::NativeCloudCancelFence>,
+    power: NativePowerGate,
+) -> Result<(), ProviderCredentialError> {
+    if provider_custody_quarantined(&connection_id) {
+        return Err(ProviderCredentialError::Host);
+    }
+    let epoch = power.snapshot().epoch;
+    let prepare_host = Arc::clone(&host);
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        let admission = prepare_host.begin_native_cloud_run()?;
+        prepare_host.prepare_cloudflare_registrar_inventory(admission, &connection_id)
+    })
+    .await
+    .map_err(|_| ProviderCredentialError::Unavailable)?
+    .map_err(host_error)?;
+    let plan = ForwardedRegistrarPlan(&prepared);
+    let mut provider = CloudflareProviderClient::production();
+    let mut provider_guard = || {
+        host.recheck_cloudflare_registrar_inventory(&prepared)
+            .map_err(|_| CloudflareProviderError::AuthorityStale)?;
+        let _power = power
+            .hold_write_epoch(epoch)
+            .map_err(|_| CloudflareProviderError::AuthorityStale)?;
+        if cancel.is_cancelled() {
+            return Err(CloudflareProviderError::AuthorityStale);
+        }
+        Ok(())
+    };
+    let scanned = tokio::select! {
+        biased;
+        _ = power.wait_for_epoch_change(epoch) => Err(CloudflareProviderError::AuthorityStale),
+        result = provider.scan_registrations_guarded(&plan, prepared.expected_account_scope_digest(), &mut provider_guard) => result,
+    }.map_err(|error| match error {
+        CloudflareProviderError::InvalidResponse | CloudflareProviderError::ResponseLimit => ProviderCredentialError::ProviderResponseRejected,
+        other => provider_error(other),
+    })?;
+    let facts: Vec<_> = scanned
+        .registrations
+        .into_iter()
+        .map(|row| DesktopCloudflareRegistrationFact {
+            domain: row.domain,
+            registered_on: row.registered_on,
+            expires_on: row.expires_on,
+            auto_renew: row.auto_renew,
+            locked: row.locked,
+            standing: match row.standing {
+                gooddealer_secure_host_core::CloudflareRegistrationStanding::Active => {
+                    DesktopCloudflareRegistrationStanding::Active
+                }
+                gooddealer_secure_host_core::CloudflareRegistrationStanding::Pending => {
+                    DesktopCloudflareRegistrationStanding::Pending
+                }
+                gooddealer_secure_host_core::CloudflareRegistrationStanding::Inactive => {
+                    DesktopCloudflareRegistrationStanding::Inactive
+                }
+            },
+        })
+        .collect();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _power = power
+            .hold_write_epoch(epoch)
+            .map_err(|_| ProviderCredentialError::Host)?;
+        cancel
+            .commit(|| {
+                host.commit_cloudflare_registrar_inventory(
+                    prepared,
+                    &scanned.account_digest,
+                    &facts,
+                )
+            })
+            .ok_or(ProviderCredentialError::Host)?
+            .map(|_| ())
+            .map_err(host_error)
+    })
+    .await
+    .map_err(|_| ProviderCredentialError::Unavailable)?
+}
+
+struct ForwardedRegistrarPlan<'a>(&'a PreparedCloudflareRegistrarInventory);
+
+impl CloudflareCredentialObservationPlan for ForwardedRegistrarPlan<'_> {
+    fn connection_incarnation(&self) -> &str {
+        self.0.connection_incarnation_id()
+    }
+    fn connection_digest(&self) -> &str {
+        self.0.connection_digest()
+    }
+    fn generation(&self) -> u64 {
+        self.0.generation()
+    }
+    fn scope_digest(&self) -> &str {
+        self.0.scope_digest()
+    }
+    fn zone_digest(&self) -> &str {
+        self.0.zone_digest()
+    }
+    fn public_proof(&self) -> &str {
+        self.0.public_proof()
+    }
 }
 
 /// What one revocation did. Every outcome but `NothingToRevoke` left credential use denied in

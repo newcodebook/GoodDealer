@@ -93,6 +93,7 @@ describe("Desktop native policy", () => {
       "allow-cloudflare-connection-status",
       "allow-cloudflare-observation-read",
       "allow-cloudflare-zone-observe",
+      "allow-cloudflare-registrar-inventory-refresh",
       "allow-local-backup-restore-status",
       "allow-local-backup-export",
       "allow-local-backup-artifact-select",

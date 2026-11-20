@@ -43,7 +43,7 @@ describe("Desktop Tauri local-business adapter", () => {
   });
 
   it("reads the Host status with qualification and only closed operation outcomes", async () => {
-    const status = { schemaVersion: 1, state: "ready", connectionRef: "opaque", displayLabel: "Cloudflare DNS", qualified: false, capturable: true, lastOperation: { kind: "observe", outcome: "unqualified" }, readGeneration: 2 };
+    const status = { schemaVersion: 1, state: "ready", connectionRef: "opaque", displayLabel: "Cloudflare DNS", qualified: false, capturable: true, lastOperation: { kind: "observe", outcome: "unqualified" }, registrar: null, readGeneration: 2 };
     invokeMock.mockResolvedValueOnce(status);
     await expect(createCloudflarePort().status()).resolves.toEqual(status);
     invokeMock.mockResolvedValueOnce({ ...status, lastOperation: { kind: "revoke", outcome: "nothing_to_revoke" } });
@@ -78,6 +78,37 @@ describe("Desktop Tauri local-business adapter", () => {
     }
   });
 
+  it("sends only the opaque connection reference and parses a closed registrar receipt", async () => {
+    const port = createCloudflarePort();
+    await port.refreshRegistrar("connection-123");
+    expect(invokeMock).toHaveBeenCalledWith("cloudflare_registrar_inventory_refresh",
+      new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, connectionId: "connection-123" })));
+    const lastScan = { observed: 20, imported: 10, skipped: 1, completedAt: "2026-11-19T00:00:00Z" };
+    const status = { schemaVersion: 1, state: "ready", connectionRef: "connection-123", displayLabel: "Cloudflare",
+      qualified: true, capturable: true, lastOperation: null, readGeneration: 2,
+      registrar: { lastScan, lastOutcome: "confirmed" } };
+    invokeMock.mockResolvedValueOnce(status);
+    await expect(port.status()).resolves.toEqual(status);
+    for (const hostile of [
+      { ...lastScan, imported: 21 },
+      { ...lastScan, completedAt: "2026-02-30T00:00:00Z" },
+      { ...lastScan, accountScopeDigest: "unexpected" },
+    ]) {
+      invokeMock.mockResolvedValueOnce({ ...status, registrar: { ...status.registrar, lastScan: hostile } });
+      await expect(port.status()).rejects.toThrow(TypeError);
+    }
+  });
+
+  it("uses the Native raw decoder for the Zone connection required by Registrar inventory", async () => {
+    const port = createCloudflarePort();
+    await port.activate("cloudflare-opaque");
+    expect(invokeMock).toHaveBeenCalledWith("cloudflare_connection_activate",
+      new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, connectionId: "cloudflare-opaque" })));
+    await port.observe("cloudflare-opaque", "example.test");
+    expect(invokeMock).toHaveBeenCalledWith("cloudflare_zone_observe",
+      new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, connectionId: "cloudflare-opaque", entityId: "example.test" })));
+  });
+
   it("validates cleanup targets and sends only closed first-confirmed or pending-retry actions", async () => {
     const candidate = { connectionRef: "opaque", displayLabel: "Cloudflare DNS", action: "retry_revoke" };
     invokeMock.mockResolvedValueOnce({ schemaVersion: 1, candidates: [candidate] });
@@ -89,7 +120,8 @@ describe("Desktop Tauri local-business adapter", () => {
     invokeMock.mockClear();
     for (const action of ["confirm_retirement", "retry_pending"] as const) {
       await createCloudflarePort().purge("opaque", action);
-      expect(invokeMock).toHaveBeenLastCalledWith("cloudflare_connection_purge", { request: { schemaVersion: 1, connectionId: "opaque", action } });
+      expect(invokeMock).toHaveBeenLastCalledWith("cloudflare_connection_purge",
+        new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, connectionId: "opaque", action })));
     }
     await expect(createCloudflarePort().purge("with space", "retry_pending")).rejects.toThrow(TypeError);
     // @ts-expect-error Exercise the untrusted runtime boundary.
@@ -100,7 +132,8 @@ describe("Desktop Tauri local-business adapter", () => {
   it("revokes through its own command with only a bounded connection reference", async () => {
     invokeMock.mockResolvedValueOnce(undefined);
     await createCloudflarePort().revoke("connection-opaque");
-    expect(invokeMock).toHaveBeenCalledWith("cloudflare_connection_revoke", { request: { schemaVersion: 1, connectionId: "connection-opaque" } });
+    expect(invokeMock).toHaveBeenCalledWith("cloudflare_connection_revoke",
+      new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, connectionId: "connection-opaque" })));
     for (const hostile of ["", "with space", "x".repeat(257), "token\u0000"]) {
       await expect(createCloudflarePort().revoke(hostile)).rejects.toThrow(TypeError);
     }

@@ -82,7 +82,7 @@ function receipt(entityId: string, readGeneration: number): LocalDomainAssetMuta
   } as LocalDomainAssetMutationReceipt;
 }
 
-const unqualified: CloudflareConnectionStatus = { schemaVersion: 1, state: "not-configured", connectionRef: "opaque", displayLabel: "Cloudflare", qualified: false, capturable: true, lastOperation: null, readGeneration: 1 };
+const unqualified: CloudflareConnectionStatus = { schemaVersion: 1, state: "not-configured", connectionRef: "opaque", displayLabel: "Cloudflare", qualified: false, capturable: true, lastOperation: null, registrar: null, readGeneration: 1 };
 
 /** A Host with one generation counter: each committed add advances it and adds a row. */
 function host(cloudflare: CloudflareConnectionStatus = unqualified) {

@@ -10,7 +10,7 @@
 
 | 平台 | 适配源码 | 当前生产客户流程 | 真实账号验收 |
 | --- | --- | --- | --- |
-| Cloudflare | Zone/DNS 只读 Service | 单 Zone 连接/导入及维护已组合；资格尚未取得 | 未取得 |
+| Cloudflare | 官方 Zone/DNS 读取及 Registrar 账户库存 | 单 Zone 连接与维护，设置页账户库存扫描、原子归集和最近结果已组合。当前从有效 Zone 连接查得所属账户；Registrar 需要独立授权与资格 | 未取得 |
 | Afternic | 官方库存/GET/Create/Update/Remove/Relist | 设置连接、完整市场库存归集、持久整批上架/改价/下架及重开只读对账已组合。源码支持批次内或独立的 `OWNERSHIP_REVIEW` 官方复核。Linux debug 受控范围只包括库存与 `wecin.com` 的三项 Listing 变更 | Linux 受控真实库存读取通过，挂牌写入与目标平台资格待验收 |
 | Spaceship | 未实现实际 Service | 账户归集及 SellerHub 旅程未实现 | 未取得 |
 | Atom | 未实现实际 Service | Listing 旅程未实现 | 未取得 |
@@ -23,7 +23,7 @@
 | 阿里云 | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 | 22.cn | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 
-六个资产来源尚无已交付的账户级归集旅程。Cloudflare 当前路径为单 Zone 导入，Afternic 的归集对象为市场库存。Linux 受控验收使用 Native 托管的真实 Afternic 凭据，读入 188 个库存域名并新增 188 个本地资产，重开复读仍为 188 个且新增 0。真实 Listing 写入待验收。Afternic 官方复核已进入源码组合，资格清单未开放。`OWNERSHIP_UNVERIFIED` 的私有会话、DNS 与自动验证闭环仍在实施。[所有权复核工作包](phase0/AFTERNIC_OWNERSHIP_REVIEW_TASK_FRAME.md)
+六个资产来源尚无已通过真实账户验收的账户级归集。Cloudflare 已组合完整注册列表扫描、设置入口及持久导入，当前需要账户下一个有效 Zone 作为连接锚点。Registrar 独立凭据录入、Linux 受控账户入口及真实资格仍待推进。Afternic 的归集对象为市场库存。Linux 受控验收使用 Native 托管的真实 Afternic 凭据，读入 188 个库存域名并新增 188 个本地资产，重开复读仍为 188 个且新增 0。真实 Listing 写入待验收。Afternic 官方复核已进入源码组合，资格清单未开放。`OWNERSHIP_UNVERIFIED` 的私有会话、DNS 与自动验证闭环仍在实施。[所有权复核工作包](phase0/AFTERNIC_OWNERSHIP_REVIEW_TASK_FRAME.md)
 
 ## 丢机强制接管与首次云恢复
 

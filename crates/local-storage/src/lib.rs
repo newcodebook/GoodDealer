@@ -170,6 +170,8 @@ pub(crate) use active_workspace::business::{
 pub use active_workspace::business::{
     DesktopAfternicConnectionSummary, DesktopAfternicConnectionsRead,
     DesktopAfternicInventoryReceipt, DesktopAfternicListingObservation, DesktopAfternicScanSummary,
+    DesktopCloudflareRegistrarScanReceipt, DesktopCloudflareRegistrationFact,
+    DesktopCloudflareRegistrationStanding,
 };
 #[cfg(all(test, unix))]
 pub(crate) use active_workspace::business::{
@@ -249,7 +251,7 @@ pub use desktop_native_cloud::{
     DesktopSyncPullExchange, DesktopSyncPushClaim, DesktopSyncPushDisposition, DesktopSyncPushWork,
     InspectingCloudflareProvision, InspectingCloudflareRevocation, MarkedCloudflareProvision,
     MarkedCloudflareRevocation, PreparedCloudflareObservation, PreparedCloudflareProvision,
-    PreparedCloudflareRevocation,
+    PreparedCloudflareRegistrarInventory, PreparedCloudflareRevocation,
 };
 pub use desktop_sync_runtime::DesktopNativeCloudAdmission;
 

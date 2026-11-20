@@ -21,6 +21,7 @@ const expectedSourceFiles = [
   "cloudflare_capture.rs",
   "cloudflare_keychain.rs",
   "cloudflare_provider.rs",
+  "cloudflare_registrar.rs",
   "desktop_authorization_verifier.rs",
   "desktop_device_identity.rs",
   "desktop_device_identity/execution_evidence.rs",
@@ -82,6 +83,9 @@ const expectedCloudflareProviderExports = [
   "CloudflareProviderZone",
   "CloudflareProviderZoneStatus",
   "CloudflareRecordType",
+  "CloudflareRegistration",
+  "CloudflareRegistrationInventory",
+  "CloudflareRegistrationStanding",
 ];
 const expectedNativePowerExports = [
   "NativePowerMonitor", "NativePowerGate", "NativePowerSnapshot",
@@ -346,6 +350,9 @@ const expectedLocalStoragePublicExports = [
   "DesktopCloudflareRecoveryHandle",
   "DesktopCloudflareRecoveryPlan",
   "DesktopCloudflareRecoveryScan",
+  "DesktopCloudflareRegistrarScanReceipt",
+  "DesktopCloudflareRegistrationFact",
+  "DesktopCloudflareRegistrationStanding",
   "DesktopCloudflareResolution",
   "DesktopCloudflareRetirement",
   "DesktopCloudflareRetirementCandidate",
@@ -427,6 +434,7 @@ const expectedLocalStoragePublicExports = [
   "MarkedCloudflareProvision",
   "MarkedCloudflareRevocation",
   "PreparedCloudflareObservation",
+  "PreparedCloudflareRegistrarInventory",
   "PreparedCloudflareProvision",
   "PreparedCloudflareRevocation",
   "RenewalRow",
@@ -741,8 +749,8 @@ test("rejects extra source files and public exports", (t) => {
   writeFileSync(
     rawProviderExportPath,
     readFileSync(rawProviderExportPath, "utf8").replace(
-      "    CloudflareProviderZone, CloudflareProviderZoneStatus, CloudflareRecordType,\n};",
-      "    CloudflareProviderZone, CloudflareProviderZoneStatus, CloudflareRecordType, CloudflareProviderTransport,\n};",
+      "    CloudflareRegistration, CloudflareRegistrationInventory, CloudflareRegistrationStanding,\n};",
+      "    CloudflareRegistration, CloudflareRegistrationInventory, CloudflareRegistrationStanding, CloudflareProviderTransport,\n};",
     ),
   );
   assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: rawProviderExportFixture }).some(

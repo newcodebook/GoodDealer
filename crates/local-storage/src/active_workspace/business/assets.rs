@@ -1392,7 +1392,7 @@ fn mutate_domain_asset_in_transaction(
 
 /// Portfolio discovery never resurrects a tombstone or changes a user's existing fields.
 /// `None` means the caller must report the skipped domain without publishing a new binding.
-pub(super) fn import_market_asset(
+pub(super) fn import_discovered_asset(
     transaction: &rusqlite::Transaction<'_>,
     workspace_id: &str,
     mutation_id: &str,

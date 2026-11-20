@@ -22,6 +22,12 @@ use crate::{
     cloudflare_capture::CloudflareCandidate, cloudflare_keychain::CloudflareCredentialState,
 };
 
+#[path = "cloudflare_registrar.rs"]
+mod registrar;
+pub use registrar::{
+    CloudflareRegistration, CloudflareRegistrationInventory, CloudflareRegistrationStanding,
+};
+
 const API_PREFIX: &str = "/client/v4";
 const ORIGIN: &str = "https://api.cloudflare.com";
 const MAX_RESPONSE_BYTES: usize = 16 * 1024;
@@ -68,6 +74,9 @@ pub(crate) struct CloudflareProviderRequest {
 
 impl fmt::Debug for CloudflareProviderRequest {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.path.ends_with("/registrar/registrations") {
+            return formatter.write_str("CloudflareRegistrarRequest([REDACTED])");
+        }
         formatter
             .debug_struct("CloudflareProviderRequest")
             .field("origin", &self.origin)
@@ -272,26 +281,11 @@ impl CloudflareProviderClient {
     where
         Plan: CloudflareCredentialObservationPlan + ?Sized,
     {
-        guard()?;
-        let credential = crate::cloudflare_keychain::load(plan.connection_digest())
-            .map_err(|_| CloudflareProviderError::InvalidInput)?
-            .ok_or(CloudflareProviderError::InvalidInput)?;
-        if credential.state() != CloudflareCredentialState::Active
-            || credential.connection_incarnation() != plan.connection_incarnation()
-            || credential.connection_digest() != plan.connection_digest()
-            || credential.generation() != plan.generation()
-            || credential.scope_digest() != plan.scope_digest()
-            || credential.zone_digest() != plan.zone_digest()
-            || credential.public_proof() != plan.public_proof()
-        {
-            return Err(CloudflareProviderError::InvalidInput);
-        }
-        let zone_id = credential.zone_id();
+        let credential = load_observation_credential(plan, guard)?;
         let token = credential
             .token()
             .ok_or(CloudflareProviderError::InvalidInput)?;
-        guard()?;
-        self.observe(zone_id, token, guard).await
+        self.observe(credential.zone_id(), token, guard).await
     }
 
     async fn request_zone(
@@ -300,12 +294,22 @@ impl CloudflareProviderClient {
         token: &str,
         guard: &mut CloudflareProviderGuard<'_>,
     ) -> Result<CloudflareProviderZone, CloudflareProviderError> {
+        let zone = self.request_raw_zone(zone_id, token, guard).await?;
+        project_zone(zone)
+    }
+
+    async fn request_raw_zone<Account: for<'de> Deserialize<'de>>(
+        &mut self,
+        zone_id: &str,
+        token: &str,
+        guard: &mut CloudflareProviderGuard<'_>,
+    ) -> Result<RawZone<Account>, CloudflareProviderError> {
         guard()?;
         let body = self
             .request(CloudflareEndpoint::ZoneDetails, zone_id, token, guard)
             .await?;
         guard()?;
-        let envelope: ZoneEnvelope = parse_bounded_json(&body)?;
+        let envelope: ZoneEnvelope<Account> = parse_bounded_json(&body)?;
         if !envelope.success
             || !envelope.errors.is_empty()
             || !envelope.messages.is_empty()
@@ -313,34 +317,7 @@ impl CloudflareProviderClient {
         {
             return Err(CloudflareProviderError::InvalidResponse);
         }
-        if envelope.result.name.is_empty()
-            || envelope.result.name.len() > 253
-            || envelope.result.name.ends_with('.')
-            || envelope.result.name.bytes().any(|b| b.is_ascii_uppercase())
-        {
-            return Err(CloudflareProviderError::InvalidResponse);
-        }
-        let status = match envelope.result.status.as_str() {
-            "active" => CloudflareProviderZoneStatus::Active,
-            "pending" => CloudflareProviderZoneStatus::Pending,
-            _ => return Err(CloudflareProviderError::InvalidResponse),
-        };
-        let mut authoritative_nameservers = envelope.result.name_servers.unwrap_or_default();
-        if authoritative_nameservers.len() > 32
-            || authoritative_nameservers
-                .iter()
-                .any(|value| normalize_fqdn(value).as_deref() != Some(value.as_str()))
-        {
-            return Err(CloudflareProviderError::InvalidResponse);
-        }
-        authoritative_nameservers.sort();
-        authoritative_nameservers.dedup();
-        Ok(CloudflareProviderZone {
-            id: envelope.result.id,
-            name: envelope.result.name,
-            status,
-            authoritative_nameservers,
-        })
+        Ok(envelope.result)
     }
 
     async fn request_records(
@@ -371,11 +348,21 @@ impl CloudflareProviderClient {
         token: &str,
         guard: &mut CloudflareProviderGuard<'_>,
     ) -> Result<Vec<u8>, CloudflareProviderError> {
-        guard()?;
         let path_and_query = endpoint.path_and_query(zone_id);
         let (path, query) = path_and_query
             .split_once('?')
             .map_or((path_and_query.as_str(), ""), |(p, q)| (p, q));
+        self.request_at_provider(path, query, token, guard).await
+    }
+
+    async fn request_at_provider(
+        &mut self,
+        path: &str,
+        query: &str,
+        token: &str,
+        guard: &mut CloudflareProviderGuard<'_>,
+    ) -> Result<Vec<u8>, CloudflareProviderError> {
+        guard()?;
         let response = self
             .transport
             .execute(
@@ -391,32 +378,91 @@ impl CloudflareProviderClient {
             )
             .await?;
         guard()?;
-        if response.body.len() > MAX_RESPONSE_BYTES {
-            return Err(CloudflareProviderError::ResponseLimit);
+        checked_response(response)
+    }
+}
+
+fn load_observation_credential(
+    plan: &(impl CloudflareCredentialObservationPlan + ?Sized),
+    guard: &mut CloudflareProviderGuard<'_>,
+) -> Result<crate::cloudflare_keychain::CloudflareCredentialEnvelope, CloudflareProviderError> {
+    guard()?;
+    let credential = crate::cloudflare_keychain::load(plan.connection_digest())
+        .map_err(|_| CloudflareProviderError::InvalidInput)?
+        .ok_or(CloudflareProviderError::InvalidInput)?;
+    if credential.state() != CloudflareCredentialState::Active
+        || credential.connection_incarnation() != plan.connection_incarnation()
+        || credential.connection_digest() != plan.connection_digest()
+        || credential.generation() != plan.generation()
+        || credential.scope_digest() != plan.scope_digest()
+        || credential.zone_digest() != plan.zone_digest()
+        || credential.public_proof() != plan.public_proof()
+    {
+        return Err(CloudflareProviderError::InvalidInput);
+    }
+    guard()?;
+    Ok(credential)
+}
+
+fn project_zone(zone: RawZone) -> Result<CloudflareProviderZone, CloudflareProviderError> {
+    if zone.name.is_empty()
+        || zone.name.len() > 253
+        || zone.name.ends_with('.')
+        || zone.name.bytes().any(|b| b.is_ascii_uppercase())
+    {
+        return Err(CloudflareProviderError::InvalidResponse);
+    }
+    let status = match zone.status.as_str() {
+        "active" => CloudflareProviderZoneStatus::Active,
+        "pending" => CloudflareProviderZoneStatus::Pending,
+        _ => return Err(CloudflareProviderError::InvalidResponse),
+    };
+    let mut authoritative_nameservers = zone.name_servers.unwrap_or_default();
+    if authoritative_nameservers.len() > 32
+        || authoritative_nameservers
+            .iter()
+            .any(|value| normalize_fqdn(value).as_deref() != Some(value.as_str()))
+    {
+        return Err(CloudflareProviderError::InvalidResponse);
+    }
+    authoritative_nameservers.sort();
+    authoritative_nameservers.dedup();
+    Ok(CloudflareProviderZone {
+        id: zone.id,
+        name: zone.name,
+        status,
+        authoritative_nameservers,
+    })
+}
+
+fn checked_response(
+    response: CloudflareProviderResponse,
+) -> Result<Vec<u8>, CloudflareProviderError> {
+    if response.body.len() > MAX_RESPONSE_BYTES {
+        return Err(CloudflareProviderError::ResponseLimit);
+    }
+    match StatusCode::from_u16(response.status) {
+        Ok(StatusCode::OK)
+            if response
+                .content_type
+                .as_deref()
+                .is_some_and(is_json_content_type) =>
+        {
+            Ok(response.body)
         }
-        match StatusCode::from_u16(response.status) {
-            Ok(StatusCode::OK)
-                if response
-                    .content_type
-                    .as_deref()
-                    .is_some_and(is_json_content_type) =>
-            {
-                Ok(response.body)
-            }
-            Ok(StatusCode::OK) => Err(CloudflareProviderError::Deterministic),
-            // RFC 9110 defines these two as authentication and authorization refusals. Cloudflare's
-            // documentation does not say which one an invalid token and which a missing
-            // permission produces (ADR-0027 fact snapshot), so they stay one credential refusal.
-            Ok(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) => {
-                Err(CloudflareProviderError::CredentialRefused)
-            }
-            Ok(
-                StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_EARLY | StatusCode::TOO_MANY_REQUESTS,
-            ) => Err(CloudflareProviderError::Retryable),
-            Ok(status) if status.is_server_error() => Err(CloudflareProviderError::Retryable),
-            Ok(_) => Err(CloudflareProviderError::Deterministic),
-            Err(_) => Err(CloudflareProviderError::InvalidResponse),
+        Ok(StatusCode::OK) => Err(CloudflareProviderError::Deterministic),
+        // RFC 9110 defines these two as authentication and authorization refusals. Cloudflare's
+        // documentation does not say which one an invalid token and which a missing
+        // permission produces (ADR-0027 fact snapshot), so they stay one credential refusal.
+        Ok(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) => {
+            Err(CloudflareProviderError::CredentialRefused)
         }
+        Ok(StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_EARLY | StatusCode::TOO_MANY_REQUESTS) => {
+            Err(CloudflareProviderError::Retryable)
+        }
+        Ok(status) if status.is_server_error() => Err(CloudflareProviderError::Retryable),
+        Ok(_) => Err(CloudflareProviderError::Deterministic),
+        Err(_) => Err(CloudflareProviderError::InvalidResponse),
     }
 }
 
@@ -661,7 +707,8 @@ fn parse_bounded_json<T: for<'de> Deserialize<'de>>(
             _ => {}
         }
     }
-    serde_json::from_value(value).map_err(|_| CloudflareProviderError::InvalidResponse)
+    // Deserialize the original bytes so duplicate fields cannot select a different scope.
+    serde_json::from_slice(body).map_err(|_| CloudflareProviderError::InvalidResponse)
 }
 
 fn is_lower_hex_id(value: &str) -> bool {
@@ -841,9 +888,9 @@ impl CloudflareProviderTransport for CloudflareProductionTransport {
 /// Strict `GoodDealer` projection of Cloudflare's success envelope.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct ZoneEnvelope {
+pub(crate) struct ZoneEnvelope<Account = Value> {
     pub(crate) success: bool,
-    pub(crate) result: RawZone,
+    pub(crate) result: RawZone<Account>,
     #[serde(default)]
     pub(crate) errors: Vec<Value>,
     #[serde(default)]
@@ -854,12 +901,11 @@ pub(crate) struct ZoneEnvelope {
 /// Non-domain fields are bounded by the caller and discarded without crossing the Host boundary.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct RawZone {
+pub(crate) struct RawZone<Account = Value> {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) status: String,
-    #[serde(default, rename = "account")]
-    _account: Option<Value>,
+    account: Option<Account>,
     #[serde(default, rename = "activated_on")]
     _activated_on: Option<Value>,
     #[serde(default, rename = "betas")]
@@ -1020,6 +1066,198 @@ mod tests {
 
     fn zone_body() -> Vec<u8> {
         br#"{"success":true,"result":{"id":"0123456789abcdef0123456789abcdef","name":"example.com","status":"active"},"errors":[],"messages":[]}"#.to_vec()
+    }
+
+    const ZONE_ID: &str = "0123456789abcdef0123456789abcdef";
+    const ACCOUNT_ID: &str = "fedcba9876543210fedcba9876543210";
+    const REGISTRAR_CONNECTION: &str = "fixture-registrar-connection";
+
+    fn registrar_zone_body(account: &str) -> Vec<u8> {
+        format!(r#"{{"success":true,"result":{{"id":"{ZONE_ID}","name":"example.com","status":"active","account":{account}}},"errors":[],"messages":[]}}"#).into_bytes()
+    }
+
+    fn registrar_registration(domain: &str) -> Value {
+        serde_json::json!({
+            "domain_name": domain,
+            "created_at": "2025-07-02T00:00:00Z",
+            "expires_at": "2026-07-02T00:00:00Z",
+            "auto_renew": true,
+            "locked": false,
+            "privacy_mode": "redaction",
+            "status": "active",
+        })
+    }
+
+    fn registrar_page(registrations: &[Value], cursor: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "success": true,
+            "result": registrations,
+            "errors": [],
+            "messages": [],
+            "result_info": {"count": registrations.len(), "cursor": cursor, "per_page": 25},
+        }))
+        .expect("page JSON")
+    }
+
+    fn registrar_client(
+        account: &str,
+        pages: Vec<Vec<u8>>,
+    ) -> (
+        CloudflareProviderClient,
+        Arc<Mutex<Vec<CloudflareProviderRequest>>>,
+    ) {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let responses = std::iter::once(registrar_zone_body(account))
+            .chain(pages)
+            .map(|body| CloudflareProviderResponse {
+                status: 200,
+                content_type: Some("application/json".to_owned()),
+                body,
+            })
+            .collect();
+        let client = CloudflareProviderClient::with_transport(ScriptTransport {
+            requests: Arc::clone(&requests),
+            responses,
+        });
+        (client, requests)
+    }
+
+    #[test]
+    fn registrar_reads_the_exact_zone_account_to_the_terminal_cursor() {
+        let account = format!(r#"{{"id":"{ACCOUNT_ID}","name":"private account"}}"#);
+        let cursor = "private=/+&per_page=50#";
+        let mut pending = registrar_registration("example.net");
+        pending["status"] = "transfer_pending".into();
+        pending["expires_at"] = Value::Null;
+        let pages = vec![
+            registrar_page(&[registrar_registration("example.com")], cursor),
+            registrar_page(&[pending], ""),
+        ];
+        let (mut client, requests) = registrar_client(&account, pages);
+        let inventory = runtime()
+            .block_on(client.scan_registrations(
+                ZONE_ID,
+                "private-token",
+                REGISTRAR_CONNECTION,
+                None,
+                &mut || Ok(()),
+            ))
+            .expect("complete inventory");
+        assert_eq!(inventory.account_digest.len(), 64);
+        assert_eq!(inventory.registrations.len(), 2);
+        assert!(inventory.registrations[0].auto_renew);
+        assert!(inventory.registrations[0].standing == CloudflareRegistrationStanding::Active);
+        assert!(inventory.registrations[1].standing == CloudflareRegistrationStanding::Pending);
+        assert!(inventory.registrations[1].expires_on.is_none());
+        assert_eq!(
+            inventory.registrations[0].expires_on.as_deref(),
+            Some("2026-07-02")
+        );
+        assert_eq!(
+            format!("{inventory:?}"),
+            "CloudflareRegistrationInventory([REDACTED])"
+        );
+        let requests = requests.lock().expect("requests");
+        assert_eq!(requests.len(), 3);
+        let path = format!("/client/v4/accounts/{ACCOUNT_ID}/registrar/registrations");
+        for request in &requests[1..] {
+            assert_eq!(request.origin(), ORIGIN);
+            assert_eq!(request.method(), CloudflareProviderMethod::Get);
+            assert_eq!(request.path(), path);
+            assert_eq!(
+                format!("{request:?}"),
+                "CloudflareRegistrarRequest([REDACTED])"
+            );
+        }
+        let pairs = url::form_urlencoded::parse(requests[2].query.as_bytes())
+            .into_owned()
+            .collect::<Vec<_>>();
+        assert_eq!(pairs.len(), 4);
+        assert_eq!(pairs[0], ("per_page".to_owned(), "25".to_owned()));
+        assert_eq!(pairs[3], ("cursor".to_owned(), cursor.to_owned()));
+    }
+
+    #[test]
+    fn registrar_rejects_account_change_and_duplicate_account_keys_before_inventory() {
+        let zero_digest = "0".repeat(64);
+        let account = format!(r#"{{"id":"{ACCOUNT_ID}"}}"#);
+        let duplicate = format!(r#"{{"id":"{ZONE_ID}","id":"{ACCOUNT_ID}"}}"#);
+        for (zone_account, expected) in [(account, Some(zero_digest.as_str())), (duplicate, None)] {
+            let (mut client, requests) = registrar_client(&zone_account, vec![]);
+            let result = runtime().block_on(client.scan_registrations(
+                ZONE_ID,
+                "private-token",
+                REGISTRAR_CONNECTION,
+                expected,
+                &mut || Ok(()),
+            ));
+            assert_eq!(
+                result.unwrap_err(),
+                CloudflareProviderError::InvalidResponse
+            );
+            assert_eq!(requests.lock().expect("requests").len(), 1);
+        }
+    }
+
+    #[test]
+    fn registrar_rejects_incomplete_inconsistent_or_untrusted_inventory() {
+        let account = format!(r#"{{"id":"{ACCOUNT_ID}"}}"#);
+        let item = registrar_registration("example.com");
+        let next = registrar_page(std::slice::from_ref(&item), "next");
+        let other = registrar_registration("example.net");
+        let mut bad_status = item.clone();
+        bad_status["status"] = "unknown".into();
+        let mut null_expiry = item.clone();
+        null_expiry["expires_at"] = Value::Null;
+        let mut missing_expiry = item.clone();
+        missing_expiry["status"] = "registration_pending".into();
+        missing_expiry.as_object_mut().unwrap().remove("expires_at");
+        let oversized: Vec<_> = (0..26)
+            .map(|index| registrar_registration(&format!("{index}.example.com")))
+            .collect();
+        for pages in [
+            vec![registrar_page(&[], "next")],
+            vec![registrar_page(&[bad_status], "")],
+            vec![registrar_page(&[null_expiry], "")],
+            vec![registrar_page(&[missing_expiry], "")],
+            vec![registrar_page(&oversized, "")],
+            vec![next.clone(), registrar_page(&[item], "")],
+            vec![next, registrar_page(&[other], "next")],
+        ] {
+            let (mut client, _) = registrar_client(&account, pages);
+            let result = runtime().block_on(client.scan_registrations(
+                ZONE_ID,
+                "private-token",
+                REGISTRAR_CONNECTION,
+                None,
+                &mut || Ok(()),
+            ));
+            assert_eq!(
+                result.unwrap_err(),
+                CloudflareProviderError::InvalidResponse
+            );
+        }
+    }
+
+    #[test]
+    fn registrar_checks_admission_after_the_last_response_before_returning_inventory() {
+        let account = format!(r#"{{"id":"{ACCOUNT_ID}"}}"#);
+        let (mut client, requests) = registrar_client(&account, vec![registrar_page(&[], "")]);
+        let mut guard = || {
+            if requests.lock().expect("requests").len() < 2 {
+                Ok(())
+            } else {
+                Err(CloudflareProviderError::AuthorityStale)
+            }
+        };
+        let result = runtime().block_on(client.scan_registrations(
+            ZONE_ID,
+            "private-token",
+            REGISTRAR_CONNECTION,
+            None,
+            &mut guard,
+        ));
+        assert_eq!(result.unwrap_err(), CloudflareProviderError::AuthorityStale);
     }
 
     fn records_body(record_type: &str, page: u16) -> Vec<u8> {
