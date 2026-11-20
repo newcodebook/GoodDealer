@@ -21,6 +21,7 @@ pub(crate) struct CloudflareRegistrarScanHead {
 }
 
 pub(crate) struct CloudflareRegistrarInventoryCommit<'a> {
+    pub request_id: &'a str,
     pub connection_id: &'a str,
     pub connection_incarnation_id: &'a str,
     pub credential_generation: u64,
@@ -30,6 +31,38 @@ pub(crate) struct CloudflareRegistrarInventoryCommit<'a> {
     pub device_id: &'a str,
     pub lease_epoch: u64,
     pub at: &'a str,
+}
+
+pub(crate) struct CloudflareRegistrarScanScope<'a> {
+    pub connection_id: &'a str,
+    pub connection_incarnation_id: &'a str,
+    pub credential_generation: i64,
+    pub device_id: &'a str,
+    pub lease_epoch: i64,
+}
+
+fn pending_request(
+    connection: &rusqlite::Connection,
+    workspace: &str,
+    scope: &CloudflareRegistrarScanScope<'_>,
+) -> Result<Option<String>, BusinessDatabaseError> {
+    connection
+        .query_row(
+            "SELECT request_id FROM cloudflare_registrar_pending_scans
+         WHERE workspace_id=?1 AND connection_id=?2 AND connection_incarnation_id=?3
+           AND credential_generation=?4 AND device_id=?5 AND lease_epoch=?6",
+            params![
+                workspace,
+                scope.connection_id,
+                scope.connection_incarnation_id,
+                scope.credential_generation,
+                scope.device_id,
+                scope.lease_epoch
+            ],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage)
 }
 
 fn storage(_: rusqlite::Error) -> BusinessDatabaseError {
@@ -60,6 +93,43 @@ fn current_head(
 }
 
 impl BusinessDatabase {
+    pub(crate) fn cloudflare_registrar_pending_request(
+        &self,
+        scope: &CloudflareRegistrarScanScope<'_>,
+    ) -> Result<Option<String>, BusinessDatabaseError> {
+        pending_request(self.store.raw_connection(), &self.workspace_id, scope)
+    }
+
+    pub(crate) fn queue_cloudflare_registrar_scan(
+        &mut self,
+        scope: &CloudflareRegistrarScanScope<'_>,
+        final_guard: impl FnOnce() -> Result<(), BusinessDatabaseError>,
+    ) -> Result<(), BusinessDatabaseError> {
+        let workspace = &self.workspace_id;
+        let tx = self
+            .store
+            .fixture_connection()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        if pending_request(&tx, workspace, scope)?.is_none() {
+            // A fresh explicit refresh can replace a request from an earlier lease. Startup
+            // recovery only reads exact pending work and can never adopt that earlier request.
+            tx.execute(
+                "DELETE FROM cloudflare_registrar_pending_scans WHERE workspace_id=?1 AND connection_id=?2",
+                params![workspace, scope.connection_id],
+            ).map_err(storage)?;
+            tx.execute(
+                "INSERT INTO cloudflare_registrar_pending_scans
+                   (workspace_id,connection_id,connection_incarnation_id,credential_generation,device_id,lease_epoch,request_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                params![workspace, scope.connection_id, scope.connection_incarnation_id,
+                    scope.credential_generation, scope.device_id, scope.lease_epoch, random_id()?],
+            ).map_err(storage)?;
+        }
+        final_guard()?;
+        tx.commit().map_err(storage)
+    }
+
     pub(crate) fn cloudflare_registrar_scan_head(
         &self,
         incarnation: &str,
@@ -93,6 +163,8 @@ impl BusinessDatabase {
         inventory.validate()?;
         let generation = i64::try_from(input.credential_generation)
             .map_err(|_| BusinessDatabaseError::InvalidInput)?;
+        let lease_epoch =
+            i64::try_from(input.lease_epoch).map_err(|_| BusinessDatabaseError::InvalidInput)?;
         let tx = self
             .store
             .fixture_connection()
@@ -111,8 +183,21 @@ impl BusinessDatabase {
         {
             return Err(BusinessDatabaseError::MutationStale);
         }
-        let run = random_id()?;
         let workspace = &self.workspace_id;
+        let cleared = tx.execute(
+            "DELETE FROM cloudflare_registrar_pending_scans WHERE workspace_id=?1 AND connection_id=?2
+               AND connection_incarnation_id=?3 AND credential_generation=?4
+               AND device_id=?5 AND lease_epoch=?6 AND request_id=?7
+               AND NOT EXISTS (SELECT 1 FROM device_handoff_barriers WHERE workspace_id=?1)",
+            params![workspace, input.connection_id, input.connection_incarnation_id, generation,
+                input.device_id, lease_epoch, input.request_id],
+        ).map_err(storage)?;
+        if cleared != 1 {
+            return Err(BusinessDatabaseError::MutationStale);
+        }
+        // Using the durable request identifier for the completed scan permits exact history
+        // correlation while the transaction consumes the work only with its observations.
+        let run = input.request_id;
         let qualified_role = tx
             .execute(
                 "UPDATE local_provider_connections SET capabilities_json='[\"dns\",\"registrar\"]'
@@ -124,7 +209,7 @@ impl BusinessDatabase {
         if qualified_role != 1 {
             return Err(BusinessDatabaseError::MutationStale);
         }
-        let (observation_run, receipt) = inventory.write(&tx, &run)?;
+        let (observation_run, receipt) = inventory.write(&tx, run)?;
         tx.execute(
             "INSERT INTO cloudflare_registrar_inventory_scans (workspace_id,scan_id,observation_run_id,connection_id,connection_incarnation_id,
                     credential_generation,account_scope_digest,observed_count,imported_count,skipped_count,completed_at)
@@ -208,7 +293,39 @@ mod tests {
             locked: Some(false),
             standing: DesktopCloudflareRegistrationStanding::Pending,
         }];
+        let scope = CloudflareRegistrarScanScope {
+            connection_id: &connection,
+            connection_incarnation_id: &incarnation,
+            credential_generation: generation,
+            device_id: "device-local",
+            lease_epoch: 1,
+        };
+        assert_eq!(
+            db.queue_cloudflare_registrar_scan(&scope, || Err(
+                BusinessDatabaseError::MutationStale
+            )),
+            Err(BusinessDatabaseError::MutationStale)
+        );
+        assert_eq!(
+            db.cloudflare_registrar_pending_request(&scope).unwrap(),
+            None
+        );
+        db.queue_cloudflare_registrar_scan(&scope, || Ok(()))
+            .unwrap();
+        let request = db
+            .cloudflare_registrar_pending_request(&scope)
+            .unwrap()
+            .unwrap();
+        db.queue_cloudflare_registrar_scan(&scope, || Ok(()))
+            .unwrap();
+        assert_eq!(
+            db.cloudflare_registrar_pending_request(&scope)
+                .unwrap()
+                .as_deref(),
+            Some(request.as_str())
+        );
         let input = CloudflareRegistrarInventoryCommit {
+            request_id: &request,
             connection_id: &connection,
             connection_incarnation_id: &incarnation,
             credential_generation: u64::try_from(generation).unwrap(),
@@ -227,10 +344,20 @@ mod tests {
             Err(BusinessDatabaseError::MutationStale)
         );
         assert_eq!(snapshot(&db), before);
+        assert_eq!(
+            db.cloudflare_registrar_pending_request(&scope)
+                .unwrap()
+                .as_deref(),
+            Some(request.as_str())
+        );
         let successful = db
             .import_cloudflare_registrar_inventory(&input, || Ok(()))
             .unwrap();
         assert_eq!(successful.imported, 1);
+        assert_eq!(
+            db.cloudflare_registrar_pending_request(&scope).unwrap(),
+            None
+        );
         let evidence: String = db
             .store
             .raw_connection()
@@ -265,9 +392,16 @@ mod tests {
         let head = db
             .cloudflare_registrar_scan_head(&incarnation, input.credential_generation)
             .unwrap();
+        db.queue_cloudflare_registrar_scan(&scope, || Ok(()))
+            .unwrap();
+        let next = db
+            .cloudflare_registrar_pending_request(&scope)
+            .unwrap()
+            .unwrap();
         let skipped = db
             .import_cloudflare_registrar_inventory(
                 &CloudflareRegistrarInventoryCommit {
+                    request_id: &next,
                     prior: head.as_ref(),
                     ..input
                 },

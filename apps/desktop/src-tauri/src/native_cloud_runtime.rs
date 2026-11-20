@@ -332,6 +332,7 @@ impl NativeCloudCoordinator {
                             let cloudflare = crate::provider_credential_orchestrator::recover(
                                 Arc::clone(&host),
                                 Arc::clone(&cancel_fence),
+                                power.clone(),
                             )
                             .await
                             .is_ok();
@@ -487,6 +488,30 @@ impl NativeCloudCoordinator {
             return ProviderSubmission::Unavailable;
         }
         self.provider.submit(operation)
+    }
+
+    pub(crate) fn submit_cloudflare_registrar_refresh(
+        &self,
+        host: &DesktopLocalHost,
+        connection_id: &str,
+    ) -> ProviderSubmission {
+        if self.cancel_fence.is_cancelled() {
+            return ProviderSubmission::Unavailable;
+        }
+        let epoch = self.power.snapshot().epoch;
+        self.provider
+            .submit_registrar_after(connection_id.to_owned(), || {
+                let Ok(_power) = self.power.hold_write_epoch(epoch) else {
+                    return false;
+                };
+                self.cancel_fence
+                    .commit(|| {
+                        host.begin_native_cloud_run().and_then(|admission| {
+                            host.queue_cloudflare_registrar_inventory(&admission, connection_id)
+                        })
+                    })
+                    .is_some_and(|result| result.is_ok())
+            })
     }
 
     pub(crate) fn provider_status(&self) -> ProviderStatus {
@@ -731,6 +756,7 @@ async fn run_provider_operation(
                 connection_id,
                 cancel_fence,
                 power,
+                false,
             )
             .await;
             Some(ProviderOperationRecord::of(

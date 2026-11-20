@@ -404,7 +404,7 @@ impl DesktopLocalHost {
         )
     }
 
-    /// Admits account inventory for an exact existing Cloudflare credential. Registrar access
+    /// Reads the latest receipt and pending inventory for an exact existing Cloudflare credential. Registrar access
     /// requires its own current signed entitlement and qualification.
     ///
     /// # Errors
@@ -424,6 +424,25 @@ impl DesktopLocalHost {
         Ok(crate::PreparedCloudflareRegistrarInventory { admission, data })
     }
 
+    /// Durably accepts a refresh for the same device, lease and credential generation.
+    ///
+    /// # Errors
+    /// Rejects stale authority, credentials or a refused final commit fence.
+    pub fn queue_cloudflare_registrar_inventory(
+        &self,
+        admission: &crate::DesktopNativeCloudAdmission,
+        connection_id: &str,
+    ) -> Result<(), DesktopLocalHostError> {
+        self.with_sync_business_write(&admission.inner, |sync, business, admitted, guard| {
+            sync.queue_cloudflare_registrar_inventory(
+                business.database_for_backup_mut(),
+                admitted,
+                connection_id,
+                guard,
+            )
+        })
+    }
+
     /// Revalidates the exact inventory admission across Native awaits.
     ///
     /// # Errors
@@ -435,15 +454,11 @@ impl DesktopLocalHost {
         self.with_sync_runtime(
             Some(&prepared.admission.inner),
             |sync, database, admitted| {
-                let current = sync.prepare_cloudflare_registrar_inventory(
+                sync.recheck_cloudflare_registrar_inventory(
                     database,
                     admitted.ok_or(DesktopSyncError::StaleAuthority)?,
-                    &prepared.data.connection_id,
-                )?;
-                if current != prepared.data {
-                    return Err(DesktopSyncError::StaleAuthority);
-                }
-                Ok(())
+                    &prepared.data,
+                )
             },
         )
     }

@@ -18,7 +18,7 @@ use crate::active_workspace::business::{
     HandoffDrainProofClaims, SyncProjectionEffect, SyncRejectionKind,
 };
 use crate::active_workspace::business::{
-    CloudflareRegistrarInventoryCommit, CloudflareRegistrarScanHead,
+    CloudflareRegistrarInventoryCommit, CloudflareRegistrarScanHead, CloudflareRegistrarScanScope,
 };
 use crate::active_workspace::capability_qualification::{
     CLOUDFLARE_DNS_OBSERVE, CLOUDFLARE_REGISTRAR_OBSERVE,
@@ -121,6 +121,26 @@ pub(crate) struct PreparedCloudflareRegistrarData {
     pub(crate) zone_digest: String,
     pub(crate) public_proof: String,
     pub(crate) prior: Option<CloudflareRegistrarScanHead>,
+    pub(crate) request_id: Option<String>,
+}
+
+impl PreparedCloudflareRegistrarData {
+    fn scan_scope<'a>(
+        &'a self,
+        admission: &'a DesktopSyncRunAdmission,
+    ) -> Result<CloudflareRegistrarScanScope<'a>, DesktopSyncError> {
+        let credential_generation =
+            i64::try_from(self.generation).map_err(|_| DesktopSyncError::StorageRejected)?;
+        let lease_epoch =
+            i64::try_from(admission.lease_epoch()).map_err(|_| DesktopSyncError::StaleAuthority)?;
+        Ok(CloudflareRegistrarScanScope {
+            connection_id: &self.connection_id,
+            connection_incarnation_id: &self.connection_incarnation_id,
+            credential_generation,
+            device_id: admission.device_id(),
+            lease_epoch,
+        })
+    }
 }
 
 pub(crate) struct PreparedCloudflareRecoveryData {
@@ -563,7 +583,7 @@ impl DesktopSyncRuntime {
         let prior = database
             .cloudflare_registrar_scan_head(&incarnation, credential.generation)
             .map_err(map_database_error)?;
-        Ok(PreparedCloudflareRegistrarData {
+        let mut prepared = PreparedCloudflareRegistrarData {
             connection_id: connection_id.to_owned(),
             connection_digest: cloudflare_connection_digest(&admission.workspace_id, &incarnation),
             connection_incarnation_id: incarnation,
@@ -572,7 +592,47 @@ impl DesktopSyncRuntime {
             zone_digest: credential.zone_digest,
             public_proof: credential.public_proof,
             prior,
-        })
+            request_id: None,
+        };
+        prepared.request_id = database
+            .cloudflare_registrar_pending_request(&prepared.scan_scope(admission)?)
+            .map_err(map_database_error)?;
+        Ok(prepared)
+    }
+
+    pub(crate) fn queue_cloudflare_registrar_inventory(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        connection_id: &str,
+        guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<(), DesktopSyncError> {
+        require_registrar_dispatch(database)?;
+        let prepared =
+            self.prepare_cloudflare_registrar_inventory(database, admission, connection_id)?;
+        database
+            .queue_cloudflare_registrar_scan(&prepared.scan_scope(admission)?, || {
+                guard.verify(self, admission)
+            })
+            .map_err(map_database_error)
+    }
+
+    pub(crate) fn recheck_cloudflare_registrar_inventory(
+        &self,
+        database: &BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        prepared: &PreparedCloudflareRegistrarData,
+    ) -> Result<(), DesktopSyncError> {
+        require_registrar_dispatch(database)?;
+        let current = self.prepare_cloudflare_registrar_inventory(
+            database,
+            admission,
+            &prepared.connection_id,
+        )?;
+        if current.request_id.is_none() || current != *prepared {
+            return Err(DesktopSyncError::StaleAuthority);
+        }
+        Ok(())
     }
 
     pub(crate) fn commit_cloudflare_registrar_inventory(
@@ -584,17 +644,14 @@ impl DesktopSyncRuntime {
         registrations: &[crate::DesktopCloudflareRegistrationFact],
         guard: DesktopSyncCommitGuard<'_>,
     ) -> Result<crate::DesktopCloudflareRegistrarScanReceipt, DesktopSyncError> {
-        let current = self.prepare_cloudflare_registrar_inventory(
-            database,
-            admission,
-            &prepared.connection_id,
-        )?;
-        if current != *prepared {
-            return Err(DesktopSyncError::StaleAuthority);
-        }
+        self.recheck_cloudflare_registrar_inventory(database, admission, prepared)?;
         database
             .import_cloudflare_registrar_inventory(
                 &CloudflareRegistrarInventoryCommit {
+                    request_id: prepared
+                        .request_id
+                        .as_deref()
+                        .ok_or(DesktopSyncError::StaleAuthority)?,
                     connection_id: &prepared.connection_id,
                     connection_incarnation_id: &prepared.connection_incarnation_id,
                     credential_generation: prepared.generation,
@@ -1762,6 +1819,17 @@ fn cloudflare_stored_credential(
         return Err(DesktopSyncError::StorageRejected);
     }
     Ok((seed.connection_incarnation_id, credential))
+}
+
+fn require_registrar_dispatch(database: &BusinessDatabase) -> Result<(), DesktopSyncError> {
+    if database
+        .device_handoff_barrier()
+        .map_err(map_database_error)?
+        .is_some()
+    {
+        return Err(DesktopSyncError::Blocked);
+    }
+    Ok(())
 }
 
 fn map_database_error(error: BusinessDatabaseError) -> DesktopSyncError {

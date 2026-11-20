@@ -402,6 +402,18 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "cloudflare_registrar_pending_scans",
+        &[
+            "workspace_id",
+            "connection_id",
+            "connection_incarnation_id",
+            "credential_generation",
+            "device_id",
+            "lease_epoch",
+            "request_id",
+        ],
+    ),
+    (
         "cloudflare_registrar_inventory_scans",
         &[
             "workspace_id",

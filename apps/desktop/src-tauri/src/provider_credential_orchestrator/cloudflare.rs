@@ -19,16 +19,21 @@ use gooddealer_secure_host_core::{
     CloudflareCustodyComparison, CloudflareKeychainError, CloudflarePrewriteFailure,
     CloudflarePrewriteInspection, CloudflareProviderClient, CloudflareProviderError,
     CloudflareProviderObservation, CloudflareProviderZoneStatus, CloudflarePurgeOutcome,
-    CloudflareRecordType, NativePowerGate, inspect_cloudflare_recovery_guarded,
-    publish_cloudflare_candidate_guarded, publish_cloudflare_tombstone_guarded,
-    purge_retired_cloudflare_slot,
+    CloudflareRecordType, NativePowerCommitGuard, NativePowerGate,
+    inspect_cloudflare_recovery_guarded, publish_cloudflare_candidate_guarded,
+    publish_cloudflare_tombstone_guarded, purge_retired_cloudflare_slot,
 };
 
 pub(crate) async fn recover(
     host: Arc<DesktopLocalHost>,
     cancel_fence: Arc<crate::native_cloud_runtime::NativeCloudCancelFence>,
+    power: NativePowerGate,
 ) -> Result<(), ProviderCredentialError> {
+    let custody_host = Arc::clone(&host);
+    let custody_cancel = Arc::clone(&cancel_fence);
     tauri::async_runtime::spawn_blocking(move || {
+        let host = custody_host;
+        let cancel_fence = custody_cancel;
         let admission = host.begin_native_cloud_run().map_err(host_error)?;
         host.recover_cloudflare_credential_orphans(&admission)
             .map_err(host_error)?;
@@ -62,7 +67,21 @@ pub(crate) async fn recover(
         }
     })
     .await
+    .map_err(|_| ProviderCredentialError::Unavailable)??;
+    let selection_host = Arc::clone(&host);
+    let connection = tauri::async_runtime::spawn_blocking(move || {
+        selection_host
+            .read_cloudflare_connection()
+            .map(|status| status.connection_ref)
+    })
+    .await
     .map_err(|_| ProviderCredentialError::Unavailable)?
+    .map_err(host_error)?;
+    if let Some(connection) = connection {
+        // A read may fail without blocking custody, DNS or a later explicit retry.
+        let _ = refresh_registrar_inventory(host, connection, cancel_fence, power, true).await;
+    }
+    Ok(())
 }
 
 pub(crate) async fn activate(
@@ -274,6 +293,7 @@ pub(crate) async fn refresh_registrar_inventory(
     connection_id: String,
     cancel: Arc<crate::native_cloud_runtime::NativeCloudCancelFence>,
     power: NativePowerGate,
+    recovering: bool,
 ) -> Result<(), ProviderCredentialError> {
     if provider_custody_quarantined(&connection_id) {
         return Err(ProviderCredentialError::Host);
@@ -287,14 +307,19 @@ pub(crate) async fn refresh_registrar_inventory(
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)?
     .map_err(host_error)?;
+    if !prepared.has_pending_scan() {
+        return if recovering {
+            Ok(())
+        } else {
+            Err(ProviderCredentialError::Host)
+        };
+    }
     let plan = ForwardedRegistrarPlan(&prepared);
     let mut provider = CloudflareProviderClient::production();
     let mut provider_guard = || {
         host.recheck_cloudflare_registrar_inventory(&prepared)
             .map_err(|_| CloudflareProviderError::AuthorityStale)?;
-        let _power = power
-            .hold_write_epoch(epoch)
-            .map_err(|_| CloudflareProviderError::AuthorityStale)?;
+        let _power = hold_registrar_power(&power, epoch, recovering)?;
         if cancel.is_cancelled() {
             return Err(CloudflareProviderError::AuthorityStale);
         }
@@ -331,9 +356,7 @@ pub(crate) async fn refresh_registrar_inventory(
         })
         .collect();
     tauri::async_runtime::spawn_blocking(move || {
-        let _power = power
-            .hold_write_epoch(epoch)
-            .map_err(|_| ProviderCredentialError::Host)?;
+        let _power = hold_registrar_power(&power, epoch, recovering).map_err(provider_error)?;
         cancel
             .commit(|| {
                 host.commit_cloudflare_registrar_inventory(
@@ -348,6 +371,19 @@ pub(crate) async fn refresh_registrar_inventory(
     })
     .await
     .map_err(|_| ProviderCredentialError::Unavailable)?
+}
+
+fn hold_registrar_power(
+    power: &NativePowerGate,
+    epoch: u64,
+    recovering: bool,
+) -> Result<NativePowerCommitGuard<'_>, CloudflareProviderError> {
+    if recovering {
+        power.hold_reconciliation_epoch(epoch)
+    } else {
+        power.hold_write_epoch(epoch)
+    }
+    .map_err(|_| CloudflareProviderError::AuthorityStale)
 }
 
 struct ForwardedRegistrarPlan<'a>(&'a PreparedCloudflareRegistrarInventory);

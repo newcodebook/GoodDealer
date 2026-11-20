@@ -593,16 +593,20 @@ pub(crate) async fn cloudflare_zone_observe(
 #[tauri::command]
 pub(crate) async fn cloudflare_registrar_inventory_refresh(
     request: tauri::ipc::Request<'_>,
+    host: State<'_, Arc<DesktopLocalHost>>,
     cloud: State<'_, Arc<NativeCloudCoordinator>>,
 ) -> Result<(), String> {
     let request: CloudflareConnectionRefRequest = decode_provider_request(&request, 512)?;
     validate_provider_schema_version(request.schema_version)?;
     validate_cloudflare_connection_id(&request.connection_id)?;
-    map_provider_submission(
-        cloud.submit_provider(&ProviderOperation::CloudflareRegistrarRefresh {
-            connection_id: request.connection_id,
-        }),
-    )
+    let host = Arc::clone(&host);
+    let cloud = Arc::clone(&cloud);
+    let submission = tauri::async_runtime::spawn_blocking(move || {
+        cloud.submit_cloudflare_registrar_refresh(&host, &request.connection_id)
+    })
+    .await
+    .map_err(|_| "CLOUDFLARE_UNAVAILABLE".to_owned())?;
+    map_provider_submission(submission)
 }
 
 #[tauri::command]
@@ -630,10 +634,11 @@ pub(crate) fn cloudflare_connection_status(
         let prepared = host
             .prepare_cloudflare_registrar_inventory(admission, connection_id)
             .ok()?;
-        let outcome = last_operation
+        let recent = last_operation
             .as_ref()
             .filter(|record| record.kind == "registrar_refresh")
             .map(|record| record.outcome);
+        let outcome = cloudflare_registrar_outcome(state, prepared.has_pending_scan(), recent);
         Some(serde_json::json!({"lastScan": prepared.last_scan(), "lastOutcome": outcome}))
     });
     let last_operation = last_operation
@@ -642,6 +647,44 @@ pub(crate) fn cloudflare_connection_status(
     Ok(
         serde_json::json!({ "schemaVersion": 1, "state": state, "connectionRef": local.connection_ref, "displayLabel": local.display_label, "qualified": local.qualified, "capturable": gooddealer_secure_host_core::CloudflareCapture::supported(), "lastOperation": last_operation, "readGeneration": local.read_generation, "registrar": registrar }),
     )
+}
+
+fn cloudflare_registrar_outcome(
+    state: &str,
+    pending: bool,
+    recent: Option<&'static str>,
+) -> Option<&'static str> {
+    // Recovery consumes the durable request and publishes its receipt atomically. A retained
+    // manual outcome belongs to an earlier attempt and cannot override that receipt.
+    if state != "ready" || !pending {
+        return None;
+    }
+    Some(
+        recent
+            .filter(|outcome| *outcome != "confirmed")
+            .unwrap_or("failed"),
+    )
+}
+
+#[cfg(test)]
+#[test]
+fn cloudflare_registrar_receipt_supersedes_old_failure_after_recovery() {
+    assert_eq!(
+        cloudflare_registrar_outcome("ready", false, Some("unreachable")),
+        None
+    );
+    assert_eq!(
+        cloudflare_registrar_outcome("recovering", true, Some("failed")),
+        None
+    );
+    assert_eq!(
+        cloudflare_registrar_outcome("ready", true, Some("confirmed")),
+        Some("failed")
+    );
+    assert_eq!(
+        cloudflare_registrar_outcome("ready", true, Some("unreachable")),
+        Some("unreachable")
+    );
 }
 
 fn is_cloudflare_connection_operation(kind: &str) -> bool {

@@ -494,6 +494,10 @@ impl PreparedCloudflareRegistrarInventory {
     pub fn last_scan(&self) -> Option<&crate::DesktopCloudflareRegistrarScanReceipt> {
         self.data.prior.as_ref().map(|scan| &scan.receipt)
     }
+    #[must_use]
+    pub const fn has_pending_scan(&self) -> bool {
+        self.data.request_id.is_some()
+    }
 }
 
 impl fmt::Debug for MarkedCloudflareProvision {
@@ -2888,10 +2892,15 @@ mod tests {
         host: &DesktopLocalHost,
         connection: &str,
     ) -> Result<PreparedCloudflareRegistrarInventory, DesktopLocalHostError> {
+        host.queue_cloudflare_registrar_inventory(&host.begin_native_cloud_run()?, connection)?;
         host.prepare_cloudflare_registrar_inventory(host.begin_native_cloud_run()?, connection)
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one credential, scan history and SQLite reopen prove the same durable request is resumed"
+    )]
     fn cloudflare_registrar_import_is_atomic_and_scan_scope_survives_reopen() {
         let _qualified = qualify(CLOUDFLARE_REGISTRAR_OBSERVE);
         let _dns = qualify(CLOUDFLARE_DNS_OBSERVE);
@@ -2910,6 +2919,23 @@ mod tests {
             registrar_fact("revoke.test"),
         ];
         let before = business_generation(&local);
+        let unqueued = local
+            .prepare_cloudflare_registrar_inventory(
+                local.begin_native_cloud_run().unwrap(),
+                &connection,
+            )
+            .unwrap();
+        assert!(!unqueued.has_pending_scan());
+        assert!(
+            local
+                .recheck_cloudflare_registrar_inventory(&unqueued)
+                .is_err()
+        );
+        assert!(
+            local
+                .commit_cloudflare_registrar_inventory(unqueued, &digest, &rows)
+                .is_err()
+        );
         let stale = prepare_registrar(&local, &connection).unwrap();
         let initial = prepare_registrar(&local, &connection).unwrap();
         assert_eq!(initial.expected_account_scope_digest(), None);
@@ -2940,6 +2966,7 @@ mod tests {
                 .is_err()
         );
         let changed = prepare_registrar(&local, &connection).unwrap();
+        let pending_request_id = changed.data.request_id.clone();
         assert!(
             local
                 .commit_cloudflare_registrar_inventory(
@@ -2969,7 +2996,14 @@ mod tests {
             &[CLOUDFLARE_REGISTRAR_OBSERVE],
         )
         .unwrap();
-        let prepared = prepare_registrar(&local, &connection).unwrap();
+        let prepared = local
+            .prepare_cloudflare_registrar_inventory(
+                local.begin_native_cloud_run().unwrap(),
+                &connection,
+            )
+            .unwrap();
+        assert_eq!(prepared.data.request_id, pending_request_id);
+        assert!(prepared.has_pending_scan());
         assert_eq!(prepared.last_scan(), Some(&receipt));
         assert_eq!(
             prepared.expected_account_scope_digest(),
@@ -2991,6 +3025,49 @@ mod tests {
     }
 
     #[test]
+    fn cloudflare_registrar_handoff_retains_pending_and_refuses_a_late_result() {
+        let _qualified = qualify(CLOUDFLARE_REGISTRAR_OBSERVE);
+        let (_directory, local) =
+            credential_host_with_capabilities(&[CLOUDFLARE_REGISTRAR_OBSERVE]);
+        let connection = local
+            .read_cloudflare_connection()
+            .unwrap()
+            .connection_ref
+            .unwrap();
+        let pending = prepare_registrar(&local, &connection).unwrap();
+        let request_id = pending.data.request_id.clone();
+        let admission = local.begin_native_cloud_run().unwrap();
+        local
+            .begin_native_device_switch_drain(&admission, "registrar-handoff")
+            .unwrap();
+        assert!(
+            local
+                .queue_cloudflare_registrar_inventory(&admission, &connection)
+                .is_err()
+        );
+        assert!(
+            local
+                .recheck_cloudflare_registrar_inventory(&pending)
+                .is_err()
+        );
+        assert!(
+            local
+                .commit_cloudflare_registrar_inventory(
+                    pending,
+                    &"ab".repeat(32),
+                    &[registrar_fact("late-during-handoff.test")],
+                )
+                .is_err()
+        );
+        let retained = local
+            .prepare_cloudflare_registrar_inventory(admission, &connection)
+            .unwrap();
+        assert_eq!(retained.data.request_id, request_id);
+        assert!(retained.last_scan().is_none());
+        assert!(!detail_exists(&local, "late-during-handoff.test"));
+    }
+
+    #[test]
     fn cloudflare_registrar_denies_dns_only_and_rechecks_authority_and_revocation() {
         let qualified = qualify(CLOUDFLARE_REGISTRAR_OBSERVE);
         let (_dir, dns_only) = credential_host();
@@ -3001,7 +3078,7 @@ mod tests {
             .unwrap();
         assert!(prepare_registrar(&dns_only, &connection).is_err());
 
-        let (_dir, local) = credential_host_with_capabilities(&[CLOUDFLARE_REGISTRAR_OBSERVE]);
+        let (directory, local) = credential_host_with_capabilities(&[CLOUDFLARE_REGISTRAR_OBSERVE]);
         let connection = local
             .read_cloudflare_connection()
             .unwrap()
@@ -3020,7 +3097,15 @@ mod tests {
                 .recheck_cloudflare_registrar_inventory(&previous_epoch)
                 .is_err()
         );
+        let after_lease_change = local
+            .prepare_cloudflare_registrar_inventory(
+                local.begin_native_cloud_run().unwrap(),
+                &connection,
+            )
+            .unwrap();
+        assert!(!after_lease_change.has_pending_scan());
         let pending = prepare_registrar(&local, &connection).unwrap();
+        assert_ne!(pending.data.request_id, previous_epoch.data.request_id);
         drop(qualified);
         assert_eq!(
             local.recheck_cloudflare_registrar_inventory(&pending),
@@ -3041,6 +3126,22 @@ mod tests {
                 .is_err()
         );
         assert!(!detail_exists(&local, "revoked.test"));
+        drop(local);
+        let mut database = BusinessDatabase::open(
+            &directory.path().join("business.db"),
+            &LocalDatabaseKey::from_bytes([0x6d; 32]),
+            WORKSPACE_ID,
+        )
+        .unwrap();
+        let pending: i64 = database
+            .backup_connection_mut()
+            .query_row(
+                "SELECT count(*) FROM cloudflare_registrar_pending_scans WHERE connection_id=?1",
+                [&connection],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(pending, 0);
     }
 
     #[test]

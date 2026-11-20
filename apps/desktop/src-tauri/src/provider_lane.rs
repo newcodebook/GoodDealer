@@ -390,6 +390,27 @@ impl ProviderLaneHandle {
     }
 
     fn submit_at(&self, operation: &ProviderOperation, now: Instant) -> ProviderSubmission {
+        self.submit_at_after(operation, now, || true)
+    }
+
+    pub(crate) fn submit_registrar_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::CloudflareRegistrarRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    fn submit_at_after(
+        &self,
+        operation: &ProviderOperation,
+        now: Instant,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
         let Ok(mut admission) = self.admission.lock() else {
             return ProviderSubmission::Unavailable;
         };
@@ -399,7 +420,9 @@ impl ProviderLaneHandle {
             ProviderAdmission::RateLimited => return ProviderSubmission::RateLimited,
             ProviderAdmission::Enqueue => {}
         }
-        if self.commands.try_send(operation.clone()).is_err() {
+        // The reservation keeps another caller from observing Accepted before durable work
+        // exists. An interrupted send can be recovered from that work at startup.
+        if !persist() || self.commands.try_send(operation.clone()).is_err() {
             admission.complete(operation);
             return ProviderSubmission::Unavailable;
         }
@@ -631,6 +654,39 @@ mod tests {
             connection_id: connection.to_owned(),
             entity_id: entity.to_owned(),
         }
+    }
+
+    #[test]
+    fn cloudflare_registrar_acceptance_follows_persistence_and_coalesces() {
+        let (handle, mut lane) = ProviderLane::new();
+        lane.finish_recovery(Some(0), true);
+        assert_eq!(
+            handle.submit_registrar_after("rejected".into(), || false),
+            ProviderSubmission::Unavailable
+        );
+        assert!(lane.commands.try_recv().is_err());
+        assert_eq!(handle.status(), ProviderStatus::Ready);
+
+        let mut commits = 0;
+        assert_eq!(
+            handle.submit_registrar_after("current".into(), || {
+                commits += 1;
+                true
+            }),
+            ProviderSubmission::Accepted
+        );
+        assert_eq!(commits, 1);
+        assert_eq!(
+            handle.submit_registrar_after("current".into(), || panic!("duplicate must coalesce")),
+            ProviderSubmission::Accepted
+        );
+        assert_eq!(
+            lane.commands.try_recv().unwrap(),
+            ProviderOperation::CloudflareRegistrarRefresh {
+                connection_id: "current".into()
+            }
+        );
+        assert!(lane.commands.try_recv().is_err());
     }
 
     #[tokio::test]

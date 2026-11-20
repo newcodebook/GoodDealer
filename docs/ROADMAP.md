@@ -41,7 +41,7 @@ S0 --> L1 --> D1 --> V1
 
 Afternic 设置已组合连接、完整市场库存扫描、原子资产归集和按连接代次的 Listing 观察。Linux debug 使用 Native 托管的真实账号凭据首次导入 188 个域名，重开后再次读取 188 个，新增 0，用户已在界面确认数据正确。上架、改价、下架及官方 `OWNERSHIP_REVIEW` 复核共用原 ProviderLane，整批预览批准一次，持久记录唯一尝试并以精确 GET 对账。`wecin.com` 三项 Listing 变更的真实验收仍需共享开发 Cloud 接收对应签名执行证据；私有验证、DNS、换机后的复核、双系统实机及发行资格继续实施。
 
-Cloudflare Registrar 已接通账户注册列表、设置页归集、SQLCipher 原子提交和重开读回。真实接口验收需要 Native 凭据中可读的 Zone、账户注册列表权限及受控 GoodDealer 授权。无可用 Zone 的独立账户接入和续费信息展示继续实施。
+Cloudflare Registrar 已接通账户注册列表、设置页持久刷新、SQLCipher 原子提交和重开续读。真实接口验收需要 Native 凭据中可读的 Zone、账户注册列表权限及受控 GoodDealer 授权。无可用 Zone 的独立账户接入和续费信息展示继续实施。
 
 Spaceship 的 Registrar 已接通独立原生凭据、账户完整读取、持久资产归集和重开续读。具名开发验收与真实只读账户仍待落实。SellerHub 按市场实施顺序推进。
 

@@ -113,7 +113,7 @@ pub use atom_marketplace::{
     DesktopAtomListingFact, DesktopAtomListingState,
 };
 pub(crate) use cloudflare_registrar::{
-    CloudflareRegistrarInventoryCommit, CloudflareRegistrarScanHead,
+    CloudflareRegistrarInventoryCommit, CloudflareRegistrarScanHead, CloudflareRegistrarScanScope,
 };
 pub use cloudflare_registrar::{
     DesktopCloudflareRegistrarScanReceipt, DesktopCloudflareRegistrationFact,
