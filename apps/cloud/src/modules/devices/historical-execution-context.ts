@@ -19,6 +19,8 @@ import type { AccountTransaction } from "../../db/index";
 
 const executionEvidenceCapabilities = [
   "afternic:marketplace:write",
+  "atom:marketplace:write",
+  "atom:marketplace:observe",
   "spaceship:marketplace:write",
   "spaceship:marketplace:observe",
 ] as const;

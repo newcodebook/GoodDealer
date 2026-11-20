@@ -13,7 +13,7 @@
 | Cloudflare | 官方 Zone/DNS 读取及 Registrar 账户库存 | 单 Zone 连接与维护；设置页账户扫描在确认受理前入库，原子归集并在重开后从首面续读。资产详情和续费台读取完整扫描中的有效注册资料。可以从有效 Zone 读取其账户，或在设置直接连接 Registrar 账户；两条路径均须独立 Registrar 授权与资格 | 未取得 |
 | Afternic | 官方库存/GET/Create/Update/Remove/Relist | 设置连接、完整市场库存归集、持久整批上架/改价/下架及重开只读对账已组合。源码支持批次内或独立的 `OWNERSHIP_REVIEW` 官方复核。Linux debug 受控范围只包括库存与 `wecin.com` 的三项 Listing 变更 | Linux 受控真实库存读取通过，挂牌写入与目标平台资格待验收 |
 | Spaceship | 官方 Registrar 账户列表、SellerHub 账户列表与精确 GET/PATCH | 设置页提供独立的注册域名和 SellerHub 连接。两者在 Native 预检完整账户后才托管凭据，刷新入库后受理，同一设备和 Lease 可重开续读。SellerHub 归集同时写入资产和销售观察，断开撤销本地执行并清理凭据。「批量操作」已组合 SellerHub 一口价预览、一次确认、本机后台 PATCH、精确读取对账与重开续查。上下架与自动验证仍在实施 | Registrar 及 SellerHub 读写分别待真实卖家账户与实机资格 |
-| Atom | 官方 Seller API 库存读取 | 首次连接预检后才建槽并原子导入清单。设置刷新在回执前提交，重开时以同一凭据 incarnation、设备和 Lease 从首面续读。设置显示完整扫描中经双读取核对的 Standard 计数与最多十二个域名。上架、下架、DNS 与私有验证继续开发 | 匿名认证错误已取证，账号读取和实际平台资格待验收 |
+| Atom | 官方 Seller API 库存、精确详情和 Standard 下架 | 设置可原子归集库存、持久刷新并在重开后续读。批量页已组合 Standard 下架预览、一次签名确认、持久单次发送和重开只读对账。当前精确读取只支持确认挂牌存在，批量页保留未核实结果。上架、DNS 与私有验证继续开发 | 匿名认证错误已取证。需要获准的卖家账号及受控 Standard 挂牌，核对认证下架和账户内缺席。目标系统与发行资格待验收 |
 | Namecheap | 未实现实际 Service | 未实现 | 未取得 |
 | Dynadot | 未实现实际 Service | 未实现 | 未取得 |
 | GoDaddy | 官方 Domains v3 账户列表，Native PAT 与受限游标 | 设置中预检完整库存后托管、原子导入、持久刷新和重开续读；注册资料供资产及续费读取 | OTE 匿名 401 已核实；生产真实账户待验收 |
@@ -106,7 +106,7 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
   撤销先持久阻止使用，再清除 Native slot，确认清除后隐藏连接，保留资产和审计历史。未获得平台权限仍允许本地清理。
   Linux/macOS/Windows 均有受限原生掩码录入与 custody 源码。Linux 已用真实账号导入 188 项，并在重开后复核相同数量。Windows/macOS 实机验收待完成。
 - Linux debug 的显式 `afternic-controlled-acceptance` 构建接入了设置、批准和重开恢复。追加迁移 `202611190007` 原子绑定真实账户、工作区、设备、Lease epoch 与唯一凭据槽，读同一连接完整市场库存，写入限 `wecin.com` 的三个 Listing 动作。截止取已验签执行上下文的连续时间投影。Host 向设置和批量页投影受控范围，使用当前 Grant、Lease 和商业权益。见[受控验收工作包](phase0/AFTERNIC_CONTROLLED_ACCEPTANCE_TASK_FRAME.md)。
-- Active Grant 的 commercialAuthority v2 是封闭 capability 集合，包含 Afternic observe/write、Atom 市场 observe、Cloudflare DNS/Registrar observe、GoDaddy、Spaceship 和阿里云 Registrar observe，以及独立的 Spaceship marketplace observe。Afternic write 必须含 observe。空集合仍允许有授权的本地业务。
+- Active Grant 的 commercialAuthority v2 是封闭 capability 集合，包含 Afternic、Atom 和 Spaceship 市场 observe/write，以及 Cloudflare DNS 与 Cloudflare、GoDaddy、Spaceship、阿里云 Registrar observe。市场 write 必须含同市场的 observe。空集合仍允许有授权的本地业务。
   Cloud 只取锁定 Licensing 快照的精确交集；Host floor/runtime/最终提交栅栏包括集合，权限变化不能复用旧 admission。逻辑 Grant 签名用途仍为 `.v3`，不随 wire 升版创建新用途。
 - 十二平台角色、能力目录和不可执行 manifest 已存在。Cloudflare、Afternic、Spaceship、GoDaddy、阿里云和 Atom 已有 Native Service，其余六个平台仍需实现。各平台的完整能力与发行资格继续逐项推进。
   Rust 与 TypeScript 读取合同按 [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)一致扩展；

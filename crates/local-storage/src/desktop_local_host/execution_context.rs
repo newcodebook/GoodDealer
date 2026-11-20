@@ -157,6 +157,13 @@ pub trait DesktopExecutionContextNativePort: Send + Sync {
         Err(Error::Unavailable)
     }
 
+    /// Signs only an Atom Standard removal item approval.
+    /// # Errors
+    /// Rejects an unavailable purpose-specific signer.
+    fn sign_atom_standard_delist_approval(&self, _transcript: &[u8]) -> Result<[u8; 64], Error> {
+        Err(Error::Unavailable)
+    }
+
     /// Signs only the fixed device audit transcript.
     /// # Errors
     /// Refuses wrong purpose, device, key or malformed transcript.
@@ -901,6 +908,9 @@ impl DesktopLocalHost {
             }
             EvidenceSignaturePurpose::SellerHubBinPriceApproval => {
                 native.sign_sellerhub_bin_price_approval(transcript)
+            }
+            EvidenceSignaturePurpose::AtomStandardDelistApproval => {
+                native.sign_atom_standard_delist_approval(transcript)
             }
             EvidenceSignaturePurpose::DeviceAudit => native.sign_device_audit_event(transcript),
             EvidenceSignaturePurpose::ExecutionFact => native.sign_execution_fact(transcript),

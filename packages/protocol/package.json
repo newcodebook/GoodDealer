@@ -26,7 +26,8 @@
     "generate:forced-takeover-vectors": "esbuild scripts/generate-forced-takeover-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-forced-takeover-vectors.mjs && node /tmp/gooddealer-forced-takeover-vectors.mjs",
     "generate:afternic-listing-write-evidence-vectors": "esbuild scripts/generate-afternic-listing-write-evidence-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-afternic-listing-write-vectors.mjs && node /tmp/gooddealer-afternic-listing-write-vectors.mjs",
     "generate:afternic-listing-plan-approval-vectors": "esbuild scripts/generate-afternic-listing-plan-approval-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-afternic-listing-plan-vectors.mjs && node /tmp/gooddealer-afternic-listing-plan-vectors.mjs",
-    "generate:sellerhub-bin-price-vectors": "esbuild scripts/generate-sellerhub-bin-price-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-sellerhub-bin-price-vectors.mjs && node /tmp/gooddealer-sellerhub-bin-price-vectors.mjs"
+    "generate:sellerhub-bin-price-vectors": "esbuild scripts/generate-sellerhub-bin-price-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-sellerhub-bin-price-vectors.mjs && node /tmp/gooddealer-sellerhub-bin-price-vectors.mjs",
+    "generate:atom-standard-delist-vectors": "esbuild scripts/generate-atom-standard-delist-vectors.ts --bundle --platform=node --format=esm --outfile=/tmp/gooddealer-atom-standard-delist-vectors.mjs && node /tmp/gooddealer-atom-standard-delist-vectors.mjs"
   },
   "dependencies": {
     "zod": "4.6.7"

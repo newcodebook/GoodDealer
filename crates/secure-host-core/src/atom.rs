@@ -17,11 +17,15 @@ pub use credentials::{
 };
 
 const DOMAINS: &str = "https://www.atom.com/api/marketplace/domains";
+const DOMAIN_DETAILS: &str = "https://www.atom.com/api/marketplace/domain-details";
+const REMOVE_DOMAIN: &str = "https://www.atom.com/api/marketplace/remove-domain";
 const PAGE_SIZE: usize = 100;
 const MAX_LISTINGS: usize = 10_000;
 const MAX_PAGES: usize = MAX_LISTINGS / PAGE_SIZE + 1;
 const MAX_BODY: usize = 512 * 1024;
 const MISSING_CREDENTIALS: &[u8] = br#"{"message":"API Token and UserId are required"}"#;
+const INVALID_CREDENTIALS: &[u8] =
+    br#"{"message":"Invalid API token or insufficient permissions"}"#;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AtomError {
@@ -79,6 +83,14 @@ pub struct AtomListing {
     reported_standard: bool,
 }
 
+impl AtomListing {
+    /// The exact response identifies the listing as Standard.
+    #[must_use]
+    pub const fn reports_standard(&self) -> bool {
+        self.reported_standard
+    }
+}
+
 pub struct AtomSellerInventory {
     pub listings: Vec<AtomListing>,
     pub standard_scan_checked: bool,
@@ -94,6 +106,12 @@ pub enum AtomListingState {
 
 pub struct AtomPortfolioClient {
     client: Client,
+}
+
+#[derive(Clone, Copy)]
+enum DomainEndpoint {
+    Details,
+    RemoveStandard,
 }
 
 impl AtomPortfolioClient {
@@ -149,6 +167,85 @@ impl AtomPortfolioClient {
             listings,
             standard_scan_checked,
         })
+    }
+
+    /// Returns a positive authenticated observation of the exact seller listing.
+    ///
+    /// # Errors
+    /// Rejects an unauthenticated, ambiguous or mismatched result. A generic not-found
+    /// response does not establish absence from the account.
+    pub async fn observe_listing(
+        &self,
+        credential: &AtomCredential,
+        domain: &str,
+        guard: &mut AtomGuard<'_>,
+    ) -> Result<AtomListing, AtomError> {
+        let (is_json, body) = self
+            .request_exact(credential, domain, DomainEndpoint::Details, guard)
+            .await?;
+        let listing =
+            portfolio_wire::parse_exact_listing(require_inventory_json(is_json, &body)?, domain)?;
+        guard()?;
+        Ok(listing)
+    }
+
+    /// Sends one already claimed Standard removal. The documented receipt only acknowledges
+    /// this request; the caller must obtain an independent account observation.
+    ///
+    /// # Errors
+    /// Rejects a stale guard, invalid input, or any uncertain response; none authorize retrying a write.
+    pub async fn send_standard_removal(
+        &self,
+        credential: &AtomCredential,
+        domain: &str,
+        guard: &mut AtomGuard<'_>,
+    ) -> Result<(), AtomError> {
+        let (is_json, body) = self
+            .request_exact(credential, domain, DomainEndpoint::RemoveStandard, guard)
+            .await?;
+        portfolio_wire::require_remove_acknowledgement(require_inventory_json(is_json, &body)?)?;
+        guard()
+    }
+
+    async fn request_exact(
+        &self,
+        credential: &AtomCredential,
+        domain: &str,
+        endpoint: DomainEndpoint,
+        guard: &mut AtomGuard<'_>,
+    ) -> Result<(bool, Zeroizing<Vec<u8>>), AtomError> {
+        guard()?;
+        let request = self.exact_request(credential, domain, endpoint)?;
+        let response = self.client.execute(request).await;
+        guard()?;
+        read_page(response.map_err(|_| AtomError::Unavailable)?, guard).await
+    }
+
+    fn exact_request(
+        &self,
+        credential: &AtomCredential,
+        domain: &str,
+        endpoint: DomainEndpoint,
+    ) -> Result<Request, AtomError> {
+        if !portfolio_wire::valid_domain(domain) {
+            return Err(AtomError::InputRejected);
+        }
+        let endpoint = match endpoint {
+            DomainEndpoint::Details => DOMAIN_DETAILS,
+            DomainEndpoint::RemoveStandard => REMOVE_DOMAIN,
+        };
+        let mut url = reqwest::Url::parse(endpoint).map_err(|_| AtomError::Unavailable)?;
+        url.query_pairs_mut()
+            .append_pair("api_token", &credential.token)
+            .append_pair("user_id", &credential.user_id)
+            .append_pair("domain_name", domain);
+        // The official operation is a GET with a side effect. It is never cached or automatically retried.
+        self.client
+            .get(url)
+            .header(header::ACCEPT, "application/json")
+            .header(header::CACHE_CONTROL, "no-store")
+            .build()
+            .map_err(|_| AtomError::InputRejected)
     }
 
     async fn scan_portfolio(
@@ -220,7 +317,7 @@ fn standard_inventory_matches(all: &[AtomListing], standard: &[AtomListing]) -> 
 }
 
 fn require_inventory_json(json: bool, body: &[u8]) -> Result<&[u8], AtomError> {
-    if body == MISSING_CREDENTIALS {
+    if matches!(body, MISSING_CREDENTIALS | INVALID_CREDENTIALS) {
         return Err(AtomError::AuthenticationRequired);
     }
     if !json {
@@ -259,12 +356,12 @@ async fn read_page(
     {
         return Err(invalid);
     }
-    // Atom's live anonymous response is HTTP 200 with text/html. Only the observed
-    // closed authentication failure is recognized for that type, never a portfolio.
+    // Atom returns the observed anonymous authentication errors with HTTP 200 and text/html.
+    // The larger observed error bounds that media type; positive observations require JSON.
     let limit = if json {
         MAX_BODY
     } else {
-        MISSING_CREDENTIALS.len()
+        MISSING_CREDENTIALS.len().max(INVALID_CREDENTIALS.len())
     };
     if response
         .content_length()
@@ -288,6 +385,50 @@ async fn read_page(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exact_read_and_removal_use_only_their_fixed_endpoints_and_canonical_domain() {
+        let credential = AtomCredential {
+            user_id: Zeroizing::new("123".into()),
+            token: Zeroizing::new("synthetic&user_id=99+%#".into()),
+        };
+        let client = AtomPortfolioClient::production().unwrap();
+        for (endpoint, path) in [
+            (DomainEndpoint::Details, "/api/marketplace/domain-details"),
+            (
+                DomainEndpoint::RemoveStandard,
+                "/api/marketplace/remove-domain",
+            ),
+        ] {
+            let request = client
+                .exact_request(&credential, "example.test", endpoint)
+                .unwrap();
+            assert_eq!(request.method(), reqwest::Method::GET);
+            assert_eq!(request.url().host_str(), Some("www.atom.com"));
+            assert_eq!(request.url().path(), path);
+            assert_eq!(
+                request.url().query_pairs().collect::<Vec<_>>(),
+                [
+                    ("api_token".into(), credential.token.as_str().into()),
+                    ("user_id".into(), "123".into()),
+                    ("domain_name".into(), "example.test".into()),
+                ]
+            );
+            assert_eq!(request.headers()[header::CACHE_CONTROL], "no-store");
+        }
+        assert!(matches!(
+            client.exact_request(
+                &credential,
+                "example.test&user_id=999",
+                DomainEndpoint::RemoveStandard
+            ),
+            Err(AtomError::InputRejected)
+        ));
+        assert_eq!(
+            require_inventory_json(false, INVALID_CREDENTIALS),
+            Err(AtomError::AuthenticationRequired)
+        );
+    }
 
     #[test]
     fn token_is_percent_encoded_and_endpoint_has_no_caller_selected_segments() {

@@ -1,5 +1,6 @@
 import { createHash, verify } from "node:crypto";
 import {
+  atomStandardDelistApprovalAuditPayloadSchema, atomStandardDelistAuditPayloadSchema, atomStandardDelistClaimPayloadSchema,
   sellerHubBinPriceApprovalAuditPayloadSchema, sellerHubBinPriceAuditPayloadSchema, sellerHubBinPriceClaimPayloadSchema,
   afternicListingPlanApprovalAuditPayloadSchema, afternicListingPlanClaimAuditPayloadSchema,
   afternicListingPlanPreflightRefusedAuditPayloadSchema, afternicListingPlanReconciledAuditPayloadSchema,
@@ -159,7 +160,10 @@ export class PostgresDeviceAuditEvidenceService {
     pending: string | null;
   }> {
     const sellerHub = sellerHubBinPriceAuditPayloadSchema.safeParse(event.payloadRedacted);
-    const requiredCapability = sellerHub.success
+    const atom = atomStandardDelistAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const requiredCapability = atom.success
+      ? atom.data.stage === "reconciled" ? "atom:marketplace:observe" : "atom:marketplace:write"
+      : sellerHub.success
       ? sellerHub.data.stage === "reconciled" ? "spaceship:marketplace:observe" : "spaceship:marketplace:write"
       : "afternic:marketplace:write";
     const context = await this.contexts.read(source.transaction, {
@@ -215,8 +219,11 @@ export class PostgresDeviceAuditEvidenceService {
       ) !== event.chainId
     )
       return verdict("audit_chain");
-    if (sellerHub.success) {
-      const p = sellerHub.data;
+    const marketplace = atom.success ? atom : sellerHub;
+    if (marketplace.success) {
+      const p = marketplace.data;
+      const claim = atom.success ? atomStandardDelistClaimPayloadSchema : sellerHubBinPriceClaimPayloadSchema;
+      const approval = atom.success ? atomStandardDelistApprovalAuditPayloadSchema : sellerHubBinPriceApprovalAuditPayloadSchema;
       if (p.stage === "approved") return verdict(null);
       if (p.stage === "reconciled") {
         if (p.originalActiveLeaseEpoch > event.activeLeaseEpoch) return verdict("authorization");
@@ -233,14 +240,14 @@ export class PostgresDeviceAuditEvidenceService {
           prior.executionFactId === p.originalExecutionFactId &&
           prior.operationId === p.operationId && prior.operationItemId === p.operationItemId &&
           prior.attemptId === p.attemptId && prior.occurredAt <= event.occurredAt &&
-          sellerHubBinPriceClaimPayloadSchema.safeParse(prior.payloadRedacted).success &&
+          claim.safeParse(prior.payloadRedacted).success &&
           hash(encodeDrainStreamEnvelope("execution_fact", prior)) === p.originalExecutionFactDigest
             ? null : "authorization",
         );
       }
       const approved = await this.audits.approval(source.transaction, event, p.approvedOperationId);
       if (approved === null) return verdict(null, "APPROVAL_AUDIT_MISSING");
-      const batch = sellerHubBinPriceApprovalAuditPayloadSchema.safeParse(approved.payloadRedacted);
+      const batch = approval.safeParse(approved.payloadRedacted);
       if (!batch.success || batch.data.operationId !== p.operationId || batch.data.planHash !== p.planHash ||
           approved.occurredAt > event.occurredAt || approved.credentialEpoch !== event.credentialEpoch ||
           approved.signingKeyId !== event.signingKeyId || approved.signingKeyVersion !== event.signingKeyVersion)

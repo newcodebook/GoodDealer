@@ -6,7 +6,7 @@ import {
 import { formatDate, formatMoney, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { Button, Panel } from "@gooddealer/ui";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import "./sellerhub-bin-price-panel.css";
+import "./marketplace-batch.css";
 
 type Copy = ReturnType<typeof getPresentationCopy<"batchOperation">>;
 type Connections = Awaited<ReturnType<SellerHubPort["status"]>>["connections"];
@@ -42,7 +42,7 @@ function PriceChanges({ locale, plan }: { readonly locale: Locale; readonly plan
     preview: copy.sellerHubBinAwaiting, queued: copy.sellerHubBinQueued,
     reconciling: copy.sellerHubBinReconciling, changed: copy.sellerHubBinChanged, refused: copy.sellerHubBinRefused,
   };
-  return <div className="sellerhub-bin-price-table">
+  return <div className="marketplace-batch-table">
     <table>
       <caption>{plan.connectionLabel}</caption>
       <thead><tr>
@@ -177,12 +177,12 @@ export function SellerHubBinPricePanel({ locale, port, connectionsPort, readOnly
     : notice === "preview_failed" ? copy.sellerHubBinPreviewFailed
       : notice === "approve_unknown" ? copy.sellerHubBinApproveUnknown : null;
 
-  return <Panel><div className="sellerhub-bin-price">
+  return <Panel><div className="marketplace-batch">
     <h2 id={`${id}-title`}>{copy.sellerHubBinTitle}</h2>
     <p role="status">{noticeText ?? (plan ? planText(copy, plan.state) : null)}</p>
     {status && !mayEdit && !readOnly && <p>{copy.sellerHubBinUnavailable}</p>}
     {mayEdit && connections.length === 0 && <p>{copy.sellerHubBinConnectFirst}</p>}
-    {mayEdit && connections.length > 0 && <form className="sellerhub-bin-price-form" aria-labelledby={`${id}-title`} onSubmit={preview}>
+    {mayEdit && connections.length > 0 && <form className="marketplace-batch-form" aria-labelledby={`${id}-title`} onSubmit={preview}>
       <label htmlFor={`${id}-connection`}>{copy.sellerHubBinConnection}</label>
       <select id={`${id}-connection`} name="connection" value={connection} required disabled={busy}
         onChange={event => { setConnection(event.target.value); edit(); }}>
@@ -198,7 +198,7 @@ export function SellerHubBinPricePanel({ locale, port, connectionsPort, readOnly
       {invalid && <p id={`${id}-invalid`} role="alert">{copy.sellerHubBinInvalid}</p>}
       <Button type="submit" disabled={busy}>{copy.sellerHubBinPreview}</Button>
     </form>}
-    {status && status.recent.length > 0 && <div className="sellerhub-bin-price-form">
+    {status && status.recent.length > 0 && <div className="marketplace-batch-form">
       <label htmlFor={`${id}-recent`}>{copy.sellerHubBinRecent}</label>
       <select id={`${id}-recent`} value={plan && status.recent.some(row => row.planId === plan.planId) ? plan.planId : ""}
         onChange={event => { setSelected(event.target.value || null); setEdited(false); setReview(null); }} disabled={busy}>
@@ -211,7 +211,7 @@ export function SellerHubBinPricePanel({ locale, port, connectionsPort, readOnly
     {plan && <PriceChanges locale={locale} plan={plan} />}
     {plan?.state === "awaiting_approval" && mayApprove && !edited
       && <Button type="button" disabled={busy} onClick={() => setReview(plan)}>{copy.sellerHubBinReview}</Button>}
-    <dialog ref={dialog} className="sellerhub-bin-price-dialog" aria-labelledby={`${id}-confirm`}
+    <dialog ref={dialog} className="marketplace-batch-dialog" aria-labelledby={`${id}-confirm`}
       onClose={event => {
         const choice = event.currentTarget.returnValue;
         event.currentTarget.returnValue = "";
@@ -220,7 +220,7 @@ export function SellerHubBinPricePanel({ locale, port, connectionsPort, readOnly
       }}>
       <h3 id={`${id}-confirm`}>{copy.sellerHubBinReview}</h3>
       {review && <PriceChanges locale={locale} plan={review} />}
-      <form method="dialog" className="sellerhub-bin-price-actions">
+      <form method="dialog" className="marketplace-batch-actions">
         <Button type="submit" value="cancel" autoFocus>{copy.sellerHubBinCancel}</Button>
         <Button type="submit" value="approve" disabled={!mayApprove || busy || edited || !reviewCanApprove}>{copy.sellerHubBinApprove}</Button>
       </form>

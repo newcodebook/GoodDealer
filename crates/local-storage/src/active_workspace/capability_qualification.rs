@@ -32,6 +32,7 @@ pub(crate) const CLOUDFLARE_REGISTRAR_OBSERVE: &str = "cloudflare:registrar:obse
 pub(crate) const ALIYUN_REGISTRAR_OBSERVE: &str = "aliyun:registrar:observe";
 pub(crate) const GODADDY_REGISTRAR_OBSERVE: &str = "godaddy:registrar:observe";
 pub(crate) const ATOM_MARKETPLACE_OBSERVE: &str = "atom:marketplace:observe";
+pub(crate) const ATOM_MARKETPLACE_WRITE: &str = "atom:marketplace:write";
 pub(crate) const SPACESHIP_MARKETPLACE_OBSERVE: &str = "spaceship:marketplace:observe";
 pub(crate) const SPACESHIP_MARKETPLACE_WRITE: &str = "spaceship:marketplace:write";
 pub(crate) const SPACESHIP_REGISTRAR_OBSERVE: &str = "spaceship:registrar:observe";

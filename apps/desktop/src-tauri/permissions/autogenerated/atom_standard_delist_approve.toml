@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-atom-standard-delist-approve"
+description = "Enables the atom_standard_delist_approve command without any pre-configured scope."
+commands.allow = ["atom_standard_delist_approve"]
+
+[[permission]]
+identifier = "deny-atom-standard-delist-approve"
+description = "Denies the atom_standard_delist_approve command without any pre-configured scope."
+commands.deny = ["atom_standard_delist_approve"]

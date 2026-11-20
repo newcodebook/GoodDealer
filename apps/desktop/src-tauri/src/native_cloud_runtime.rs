@@ -416,6 +416,14 @@ impl NativeCloudCoordinator {
                                 ).await.unwrap_or(false) {
                                     wake.wake_durable_operations();
                                 }
+                            } else if matches!(operation, ProviderOperation::AtomStandardDelistStep) {
+                                let run = Arc::new(crate::provider_credential_orchestrator::atom::Run::new(
+                                    host, cancel, power, true,
+                                ));
+                                if run.standard_delist_step().await.unwrap_or(false) {
+                                    wake.wake_durable_operations();
+                                }
+                                projection.wake();
                             } else if matches!(operation, ProviderOperation::SellerHubBinStep) {
                                 let run = Arc::new(crate::provider_credential_orchestrator::spaceship::Run::new(
                                     host, cancel, power, true,
@@ -515,6 +523,19 @@ impl NativeCloudCoordinator {
     }
 
     pub(crate) fn wake_sellerhub_bin(&self) {
+        self.provider.wake_durable_operations();
+        self.wake();
+    }
+
+    pub(crate) fn atom_standard_delist_execution_available(&self) -> bool {
+        let power = self.power.snapshot();
+        !self.cancel_fence.is_cancelled()
+            && power.ready
+            && !power.paused
+            && self.provider.atom_status() == ProviderStatus::Ready
+    }
+
+    pub(crate) fn wake_atom_standard_delist(&self) {
         self.provider.wake_durable_operations();
         self.wake();
     }
@@ -849,6 +870,7 @@ async fn run_provider_operation(
     let outcome = match operation {
         ProviderOperation::AfternicDelistStep
         | ProviderOperation::AfternicListingWriteStep
+        | ProviderOperation::AtomStandardDelistStep
         | ProviderOperation::SellerHubBinStep => None,
         ProviderOperation::AfternicConnect { display_label } => {
             let result = afternic::connect(host, display_label, cancel_fence, power).await;

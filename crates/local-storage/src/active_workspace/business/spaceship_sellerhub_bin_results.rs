@@ -7,7 +7,9 @@ use super::{
     validate_timestamp,
 };
 use crate::active_workspace::business::spaceship_sellerhub::queue_scan_in_transaction;
-use execution_evidence::sellerhub_bin::{self as evidence, ReconciliationOutcome};
+use execution_evidence::marketplace_approval::{
+    self as evidence, ApprovalPurpose, ReconciliationOutcome,
+};
 
 impl BusinessDatabase {
     #[expect(
@@ -117,6 +119,7 @@ fn observation_evidence(
         };
         let matched = matches!(kind, ReconciliationOutcome::Matched);
         let (audit_id, audit_hash) = evidence::record_reconciliation(
+            ApprovalPurpose::SellerHubBinPrice,
             tx,
             context,
             &work.operation_id,
@@ -157,6 +160,7 @@ fn observation_evidence(
         };
         if let Some(reason) = reason {
             let (audit_id, audit_hash) = evidence::record_preflight_refusal(
+                ApprovalPurpose::SellerHubBinPrice,
                 tx,
                 context,
                 &work.operation_id,

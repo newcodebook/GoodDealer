@@ -63,6 +63,9 @@ Linux 真实账户库存观察到两个响应行为。未投影的 `maxLeasePeri
 官方 `GET /domains` 支持 `type=standard`，可在认证账户内核对下架前的类型及资源身份。`remove-domain` 只支持 Standard。筛选结果缺席仍需精确账户读取对账。`add-domain` 的 Premium 类型会扣除一枚 coin，并提交平台审核。[筛选](https://apidocs.atom.com/api-reference/seller_apis/domains) [下架](https://apidocs.atom.com/api-reference/seller_apis/remove_domain) [上架](https://apidocs.atom.com/api-reference/seller_apis/add_domain)
 Native 已组合无筛选和 `type=standard` 的双完整读取。仅当两个清单的 Standard 条目按规范域名、Listing 摘要和已知状态一致，且两份响应都明确标记 `listing_type=Standard` 时才保存正向报告。两份分页有各自完整性检查。未识别的类别或状态、跨读取变化与第二次读取失败保留显式未知。此读路径不产生下架已完成、所有权已验证或可调写入的结论。
 匿名 Standard 筛选实测仍返回库存路由已知的凭据要求，状态为 HTTP 200、`text/html`。匿名 `domain-details` 同样返回 HTTP 200、`text/html`，实际 JSON 为 `{"message":"Invalid API token or insufficient permissions"}`。该响应只表示认证或权限失败。授权账号内精确缺席的结果仍需取证。
+
+已接入的 Standard 下架使用同账户的 `domain-details` 复核正向挂牌，要求精确域名、同一 Listing 摘要、明确 Standard 和已观察的 `Seller Approved`。Native 只接受官方 `Successfully removed the domain` 作为请求回执。重开只读 `domain-details`，挂牌仍在或无法确认的结果均保留未核实。通用 404、空数组、null、筛选缺席和匿名错误无法证明账户内缺席。[官方详情](https://apidocs.atom.com/api-reference/seller_apis/domain_details) [官方下架](https://apidocs.atom.com/api-reference/seller_apis/remove_domain)
+
 `verify-dns` 只返回 `DNS check request accepted`。详情示例的 `status: Seller Approved` 是 Listing 状态示例，
 文档未证明它可替代 DNS/owner 验证终态；需核实 challenge 获取和可观测终态，不能据此宣称验证闭环完成。
 

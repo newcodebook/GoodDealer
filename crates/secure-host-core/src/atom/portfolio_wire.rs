@@ -20,6 +20,74 @@ struct ListingWire {
     listing_type: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MessageWire {
+    message: String,
+}
+
+pub(super) fn parse_exact_listing(
+    body: &[u8],
+    expected_domain: &str,
+) -> Result<AtomListing, AtomError> {
+    let row: ListingWire = serde_json::from_slice(body).map_err(|_| AtomError::ProtocolRejected)?;
+    let (listing, _) = decode_listing(row)?;
+    if listing.domain != expected_domain {
+        return Err(AtomError::ProtocolRejected);
+    }
+    Ok(listing)
+}
+
+pub(super) fn require_remove_acknowledgement(body: &[u8]) -> Result<(), AtomError> {
+    let wire: MessageWire =
+        serde_json::from_slice(body).map_err(|_| AtomError::ProtocolRejected)?;
+    if wire.message != "Successfully removed the domain" {
+        return Err(AtomError::ProtocolRejected);
+    }
+    Ok(())
+}
+
+fn decode_listing(record: ListingWire) -> Result<(AtomListing, u64), AtomError> {
+    let domain = record.domain_name.to_ascii_lowercase();
+    let reported_standard = record.listing_type.as_deref() == Some("Standard");
+    if record.id == 0
+        || !valid_domain(&domain)
+        || !valid_text(&record.status, 128)
+        || [
+            (record.primary_category, 512),
+            (record.description, 32 * 1024),
+            (record.logo_image, 4096),
+            (record.listing_type, 128),
+        ]
+        .into_iter()
+        .any(|(value, max)| value.is_some_and(|text| text.len() > max))
+        || [record.full_price, record.selling_price, record.discount]
+            .into_iter()
+            .flatten()
+            .any(|value| !value.is_finite() || value < 0.0)
+    {
+        return Err(AtomError::ProtocolRejected);
+    }
+    let state = match record.status.as_str() {
+        "Seller Approved" => AtomListingState::SellerApproved,
+        "Transfer Complete" => AtomListingState::TransferComplete,
+        _ => AtomListingState::Unclassified,
+    };
+    let mut digest = Sha256::new();
+    digest.update(b"GOODDEALER-ATOM-LISTING-V1\0");
+    digest.update(record.id.to_be_bytes());
+    Ok((
+        AtomListing {
+            domain,
+            resource_digest: digest.finalize().into(),
+            state,
+            reported_standard,
+            observed_in_standard_scan: false,
+        },
+        record.id,
+    ))
+}
+
 // The API has no cursor, stable ordering parameter or total. Reject observable drift and
 // require a terminal empty page; a short page alone is insufficient evidence of completion.
 #[derive(Default)]
@@ -40,43 +108,11 @@ impl PortfolioScan {
             return Ok(true);
         }
         for record in records {
-            let domain = record.domain_name.to_ascii_lowercase();
-            let reported_standard = record.listing_type.as_deref() == Some("Standard");
-            if record.id == 0
-                || !valid_domain(&domain)
-                || !valid_text(&record.status, 128)
-                || [
-                    (record.primary_category, 512),
-                    (record.description, 32 * 1024),
-                    (record.logo_image, 4096),
-                    (record.listing_type, 128),
-                ]
-                .into_iter()
-                .any(|(value, max)| value.is_some_and(|text| text.len() > max))
-                || [record.full_price, record.selling_price, record.discount]
-                    .into_iter()
-                    .flatten()
-                    .any(|value| !value.is_finite() || value < 0.0)
-                || !self.ids.insert(record.id)
-                || !self.domains.insert(domain.clone())
-            {
+            let (listing, id) = decode_listing(record)?;
+            if !self.ids.insert(id) || !self.domains.insert(listing.domain.clone()) {
                 return Err(invalid);
             }
-            let state = match record.status.as_str() {
-                "Seller Approved" => AtomListingState::SellerApproved,
-                "Transfer Complete" => AtomListingState::TransferComplete,
-                _ => AtomListingState::Unclassified,
-            };
-            let mut digest = Sha256::new();
-            digest.update(b"GOODDEALER-ATOM-LISTING-V1\0");
-            digest.update(record.id.to_be_bytes());
-            self.listings.push(AtomListing {
-                domain,
-                resource_digest: digest.finalize().into(),
-                state,
-                reported_standard,
-                observed_in_standard_scan: false,
-            });
+            self.listings.push(listing);
         }
         Ok(false)
     }
@@ -90,7 +126,7 @@ fn valid_text(value: &str, max: usize) -> bool {
     !value.is_empty() && value.len() <= max && !value.chars().any(char::is_control)
 }
 
-fn valid_domain(value: &str) -> bool {
+pub(super) fn valid_domain(value: &str) -> bool {
     value.len() <= 253
         && value.contains('.')
         && value.split('.').all(|label| {
@@ -155,6 +191,43 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 scan.accept(second.as_bytes()),
+                Err(AtomError::ProtocolRejected)
+            );
+        }
+    }
+
+    #[test]
+    fn exact_listing_requires_the_requested_domain_and_keeps_uncertain_reads_uncertain() {
+        let listing = br#"{"id":2725,"domain_name":"Test.com","status":"Seller Approved","listing_type":"Standard"}"#;
+        let exact = parse_exact_listing(listing, "test.com").unwrap();
+        assert!(exact.reported_standard);
+        assert!(parse_exact_listing(listing, "other.test").is_err());
+        for wire in [
+            br"[]" as &[u8],
+            br"null",
+            br#"{"message":"Domain not found"}"#,
+            br#"{"id":2725,"domain_name":"test.com","status":"Seller Approved","id":4}"#,
+        ] {
+            assert_eq!(
+                parse_exact_listing(wire, "test.com"),
+                Err(AtomError::ProtocolRejected)
+            );
+        }
+    }
+
+    #[test]
+    fn removal_receipt_accepts_the_documented_message_only() {
+        assert_eq!(
+            require_remove_acknowledgement(br#"{"message":"Successfully removed the domain"}"#),
+            Ok(())
+        );
+        for wire in [
+            br#"{"message":"Successfully updated"}"# as &[u8],
+            br#"{"message":"Successfully removed the domain","cookie":"refuse"}"#,
+            br#"{"message":"Rejected","message":"Successfully removed the domain"}"#,
+        ] {
+            assert_eq!(
+                require_remove_acknowledgement(wire),
                 Err(AtomError::ProtocolRejected)
             );
         }

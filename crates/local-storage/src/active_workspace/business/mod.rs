@@ -100,6 +100,13 @@ pub use wire::verify_rebootstrap_plan_digest;
 
 mod aliyun_registrar;
 mod atom_marketplace;
+mod atom_standard_delist;
+pub(crate) use atom_standard_delist::AtomStandardDelistWorkSeed;
+pub use atom_standard_delist::{
+    DesktopAtomListingObservation, DesktopAtomStandardDelistApproveRequest,
+    DesktopAtomStandardDelistPreview, DesktopAtomStandardDelistPreviewRequest,
+    DesktopAtomStandardDelistStatus, DesktopAtomStandardDelistStatusRequest,
+};
 mod cloudflare_credential;
 mod cloudflare_registrar;
 mod cloudflare_registrar_account;

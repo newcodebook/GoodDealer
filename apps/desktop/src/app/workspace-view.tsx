@@ -7,7 +7,7 @@ import { DesktopShell, type DesktopShellStatus, type ShellNavigationSection, typ
 import { AssetLibrary, DomainDetail, type AssetLibraryPresentation, type DomainDetailPresentation } from "../features/portfolio";
 import { DnsVerification } from "../features/dns";
 import { SalesDesk } from "../features/marketplace";
-import { AfternicDelistPanel, AfternicListingWritePanel, BatchList, SellerHubBinPricePanel } from "../features/operations/batch-operations";
+import { AfternicDelistPanel, AfternicListingWritePanel, AtomStandardDelistPanel, BatchList, SellerHubBinPricePanel } from "../features/operations/batch-operations";
 import { ManualTaskInbox } from "../features/operations/manual-tasks";
 import { OperationHistory } from "../features/operations/operation-history";
 import { RenewalDesk, type RenewalListView } from "../features/registration";
@@ -357,6 +357,8 @@ function BatchRoute({ locale, ports, readGeneration, onStale, readOnly }: {
     <AfternicListingWritePanel locale={locale} port={ports.afternicListingWrite} planPort={ports.afternicListingPlan}
       connectionsPort={ports.afternic} readOnly={readOnly} onChanged={onStale} />
     <AfternicDelistPanel locale={locale} port={ports.afternicDelist} connectionsPort={ports.afternic} readOnly={readOnly} onChanged={onStale} />
+    {ports.atomStandardDelist && ports.atom && <AtomStandardDelistPanel locale={locale}
+      port={ports.atomStandardDelist} connectionsPort={ports.atom} readOnly={readOnly} />}
     {ports.sellerhubBinPrice && ports.sellerhub && <SellerHubBinPricePanel locale={locale}
       port={ports.sellerhubBinPrice} connectionsPort={ports.sellerhub} readOnly={readOnly} onChanged={onStale} />}
     <div className="afternic-batch-history">

@@ -1864,7 +1864,8 @@ pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
         "afternic:marketplace:observe",
         "afternic:marketplace:write",
         "aliyun:registrar:observe",
-        "atom:marketplace:observe",
+        crate::active_workspace::capability_qualification::ATOM_MARKETPLACE_OBSERVE,
+        crate::active_workspace::capability_qualification::ATOM_MARKETPLACE_WRITE,
         "cloudflare:dns:observe",
         "cloudflare:registrar:observe",
         "godaddy:registrar:observe",
@@ -1879,6 +1880,10 @@ pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
         && values.windows(2).all(|pair| pair[0] < pair[1])
         && [
             ("afternic:marketplace:write", "afternic:marketplace:observe"),
+            (
+                crate::active_workspace::capability_qualification::ATOM_MARKETPLACE_WRITE,
+                crate::active_workspace::capability_qualification::ATOM_MARKETPLACE_OBSERVE,
+            ),
             (
                 crate::active_workspace::capability_qualification::SPACESHIP_MARKETPLACE_WRITE,
                 crate::active_workspace::capability_qualification::SPACESHIP_MARKETPLACE_OBSERVE,

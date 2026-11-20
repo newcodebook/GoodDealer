@@ -65,7 +65,7 @@ v1 按以下阶段推进。阶段编号只表示顺序，不是新的工作包�
 | **4. 当前范围全系统 V1 汇合验收** | V1 | 在同一候选快照上覆盖账号/商业授权、Desktop OAuth/Grant/Lease、本地业务、同步/Conflict Center、Cloudflare、Cloud/PostgreSQL 和 Tauri/Rust，并完成独立复审。通过即为 ADR-0027 所说的“Cloudflare 路径稳定”。 | 阶段 3。 |
 | **5. 两平台实际能力与必要共用合同** | C1、L1、H1、D1 | 复用已完成连接/角色/Listing 绑定结构，以 Cloudflare 与 Afternic 真实客户步骤验证共用面；实现具名权限、持久计划/对账、必要 DNS 与所有权验证，资金逐笔确认。Cloudflare 其余能力按依赖接续。 | 所需授权、连接与已核实协议就绪；不以前一阶段全量验收或全部 Cloudflare 写能力为 Afternic 前置，不预铺十二个空 Service。 |
 | **6. Afternic 与统一资产归集** | C1、L1、H1、D1 | 优先完成现有资产来源归集、Afternic Listing 与整批一次确认、结果对账。 | 所需连接/计划/授权基础就绪；不要求先完成所有 Cloudflare 写能力。 |
-| **7. Atom（含 AtomRegistrar）** | C1、D1 | 官方卖家库存、持久刷新及重开续读已组合，继续真实读取验收、上下架、验证闭环和其余能力。query-string token 留在 Host。 | 具名开发准入和获 Seller API 访问的账号，验证结果以当前真实账户观察为准。 |
+| **7. Atom（含 AtomRegistrar）** | C1、D1 | 官方库存、持久刷新及重开续读已组合。批量操作已接上 Standard 下架预览、一次确认、单次发送和重开只读对账。继续取得认证缺席证据，并推进上架、自动验证及其余能力。 | 具名开发准入、获 Seller API 访问的账号及受控 Standard 挂牌。 |
 | **8. Spaceship（含 SellerHub）** | C1、D1 | 统一 registrar/dns/marketplace 连接；验证记录获取、DNS 发布与平台复核。 | 所需框架与 DNS Service 就绪，可与其他平台实现交叠。 |
 | **9. Sedo** | C1、D1 | SOAP 卖家组合管理、有限批次与异步检查；核实认证、parking 副作用和验证流程。 | 官方合同和账户准入完成。 |
 | **10. 易名、阿里云、22.cn 与其余注册商** | C1、L1、H1、D1 | 按易名 → 阿里云 → 22.cn 的市场优先级交付资产归集及上下架；继续完成 GoDaddy、Porkbun、Dynadot、Namecheap 和 Cloudflare 全部目标能力。 | 各平台所需依赖就绪；注册商/DNS 读取优先服务实际资产来源，可先于对应市场写入。 |

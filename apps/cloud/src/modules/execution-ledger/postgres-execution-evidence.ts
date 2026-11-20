@@ -1,5 +1,8 @@
 import { createHash, verify } from "node:crypto";
 import {
+  decodeAtomStandardDelistItemApprovalJson, encodeAtomStandardDelistItemApprovalEnvelope,
+  encodeAtomStandardDelistItemApprovalSignatureTranscript, encodeAtomStandardDelistLocalDispatchKeyDigestInput,
+  atomStandardDelistClaimPayloadSchema, atomStandardDelistApprovalAuditPayloadSchema, atomStandardDelistClaimAuditPayloadSchema,
   decodeSellerHubBinPriceItemApprovalJson, encodeSellerHubBinPriceItemApprovalEnvelope,
   encodeSellerHubBinPriceItemApprovalSignatureTranscript, encodeSellerHubBinPriceLocalDispatchKeyDigestInput,
   sellerHubBinPriceClaimPayloadSchema, sellerHubBinPriceApprovalAuditPayloadSchema, sellerHubBinPriceClaimAuditPayloadSchema,
@@ -123,7 +126,8 @@ export class PostgresExecutionFactEvidenceService {
     pending: string | null;
   }> {
     const sellerHub = sellerHubBinPriceClaimPayloadSchema.safeParse(fact.payloadRedacted);
-    const requiredCapability = sellerHub.success ? "spaceship:marketplace:write" : "afternic:marketplace:write";
+    const atom = atomStandardDelistClaimPayloadSchema.safeParse(fact.payloadRedacted);
+    const requiredCapability = atom.success ? "atom:marketplace:write" : sellerHub.success ? "spaceship:marketplace:write" : "afternic:marketplace:write";
     const context = await this.contexts.read(source.transaction, {
       requiredCapability,
       workspaceId: fact.workspaceId,
@@ -171,18 +175,18 @@ export class PostgresExecutionFactEvidenceService {
     const planPayload = afternicListingPlanClaimPayloadSchema.safeParse(fact.payloadRedacted);
     const writePayload = afternicListingWriteClaimPayloadSchema.safeParse(fact.payloadRedacted);
     const isPlan = ownershipPayload.success || planPayload.success;
-    const payload = sellerHub.success ? sellerHub.data : ownershipPayload.success ? ownershipPayload.data : planPayload.success ? planPayload.data
+    const payload = atom.success ? atom.data : sellerHub.success ? sellerHub.data : ownershipPayload.success ? ownershipPayload.data : planPayload.success ? planPayload.data
       : writePayload.success ? writePayload.data : afternicDelistClaimPayloadSchema.parse(fact.payloadRedacted);
-    const encodeApproval = sellerHub.success ? encodeSellerHubBinPriceItemApprovalEnvelope : ownershipPayload.success ? encodeAfternicOwnershipReviewItemApprovalEnvelope
+    const encodeApproval = atom.success ? encodeAtomStandardDelistItemApprovalEnvelope : sellerHub.success ? encodeSellerHubBinPriceItemApprovalEnvelope : ownershipPayload.success ? encodeAfternicOwnershipReviewItemApprovalEnvelope
       : planPayload.success ? encodeAfternicListingPlanItemApprovalEnvelope
         : writePayload.success ? encodeAfternicListingWriteItemApprovalEnvelope : encodeAfternicDelistItemApprovalEnvelope;
-    const encodeApprovalSignature = sellerHub.success ? encodeSellerHubBinPriceItemApprovalSignatureTranscript : ownershipPayload.success ? encodeAfternicOwnershipReviewItemApprovalSignatureTranscript
+    const encodeApprovalSignature = atom.success ? encodeAtomStandardDelistItemApprovalSignatureTranscript : sellerHub.success ? encodeSellerHubBinPriceItemApprovalSignatureTranscript : ownershipPayload.success ? encodeAfternicOwnershipReviewItemApprovalSignatureTranscript
       : planPayload.success ? encodeAfternicListingPlanItemApprovalSignatureTranscript
         : writePayload.success ? encodeAfternicListingWriteItemApprovalSignatureTranscript : encodeAfternicDelistItemApprovalSignatureTranscript;
-    const decodeApproval = sellerHub.success ? decodeSellerHubBinPriceItemApprovalJson : ownershipPayload.success ? decodeAfternicOwnershipReviewItemApprovalJson
+    const decodeApproval = atom.success ? decodeAtomStandardDelistItemApprovalJson : sellerHub.success ? decodeSellerHubBinPriceItemApprovalJson : ownershipPayload.success ? decodeAfternicOwnershipReviewItemApprovalJson
       : planPayload.success ? decodeAfternicListingPlanItemApprovalJson
         : writePayload.success ? decodeAfternicListingWriteItemApprovalJson : decodeAfternicDelistItemApprovalJson;
-    const dispatchKey = sellerHub.success ? encodeSellerHubBinPriceLocalDispatchKeyDigestInput : encodeAfternicLocalDispatchKeyDigestInput;
+    const dispatchKey = atom.success ? encodeAtomStandardDelistLocalDispatchKeyDigestInput : sellerHub.success ? encodeSellerHubBinPriceLocalDispatchKeyDigestInput : encodeAfternicLocalDispatchKeyDigestInput;
     let approval;
     try {
       approval = decodeApproval(
@@ -252,7 +256,7 @@ export class PostgresExecutionFactEvidenceService {
       return verdict("authorization");
     const approvedAudit = await this.audits.approval(source.transaction, fact, fact.approvedOperationId);
     if (approvedAudit === null) return verdict(null, "APPROVAL_AUDIT_MISSING");
-    const batchResult = sellerHub.success ? sellerHubBinPriceApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : isPlan ? afternicListingPlanApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : writePayload.success ? afternicListingWriteApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : afternicDelistApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted);
+    const batchResult = atom.success ? atomStandardDelistApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : sellerHub.success ? sellerHubBinPriceApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : isPlan ? afternicListingPlanApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : writePayload.success ? afternicListingWriteApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : afternicDelistApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted);
     if (!batchResult.success) return verdict("authorization");
     const batch = batchResult.data;
     if (
@@ -272,11 +276,11 @@ export class PostgresExecutionFactEvidenceService {
     )
       return verdict("authorization");
     if (ownershipPayload.success && await this.audits.itemSatisfied(source.transaction, fact, fact.operationId, fact.operationItemId)) return verdict("authorization");
-    if (sellerHub.success && await this.audits.itemRefused(source.transaction, fact, fact.operationId, fact.operationItemId))
+    if ((sellerHub.success || atom.success) && await this.audits.itemRefused(source.transaction, fact, fact.operationId, fact.operationItemId))
       return verdict("authorization");
     const audit = await this.audits.event(source.transaction, fact, fact.auditEventRef);
     if (audit === null) return verdict(null, "PAIRED_AUDIT_MISSING");
-    const paired = sellerHub.success ? sellerHubBinPriceClaimAuditPayloadSchema.safeParse(audit.payloadRedacted) : ownershipPayload.success ? afternicOwnershipReviewClaimAuditPayloadSchema.safeParse(audit.payloadRedacted)
+    const paired = atom.success ? atomStandardDelistClaimAuditPayloadSchema.safeParse(audit.payloadRedacted) : sellerHub.success ? sellerHubBinPriceClaimAuditPayloadSchema.safeParse(audit.payloadRedacted) : ownershipPayload.success ? afternicOwnershipReviewClaimAuditPayloadSchema.safeParse(audit.payloadRedacted)
       : planPayload.success ? afternicListingPlanClaimAuditPayloadSchema.safeParse(audit.payloadRedacted) : writePayload.success ? afternicListingWriteClaimAuditPayloadSchema.safeParse(audit.payloadRedacted) : afternicDelistClaimAuditPayloadSchema.safeParse(audit.payloadRedacted);
     if (!paired.success) return verdict("authorization");
     const p = paired.data;

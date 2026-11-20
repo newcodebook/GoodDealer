@@ -2,7 +2,10 @@
 use super::{
     BusinessDatabase, BusinessDatabaseError,
     afternic::random_id,
-    execution_evidence::{self, ApprovalTarget, EvidenceSigner, ExecutionEvidenceContext},
+    execution_evidence::{
+        self, ApprovalTarget, EvidenceSigner, ExecutionEvidenceContext,
+        marketplace_approval::{self, ApprovalPurpose},
+    },
     hex_digest, is_uuid_v4, validate_domain_asset_id, validate_sha256_hex, validate_timestamp,
 };
 use crate::{DesktopSellerHubListingFact, DesktopSellerHubListingState};
@@ -613,9 +616,7 @@ impl BusinessDatabase {
                 (existing, None)
             }
             "awaiting_approval" => {
-                if plan.expires_at.as_str() <= context.occurred_at.as_str()
-                    || plan.expires_at.as_str() <= at
-                {
+                if plan.expires_at.as_str() <= at.max(context.occurred_at.as_str()) {
                     return Err(stale);
                 }
                 for item in &plan.targets {
@@ -655,8 +656,15 @@ impl BusinessDatabase {
                         request_digest: digest,
                     });
                 }
-                execution_evidence::sellerhub_bin::record_approval(
-                    &tx, context, id, &operation, &plan.hash, &targets, signer,
+                marketplace_approval::record_approval(
+                    ApprovalPurpose::SellerHubBinPrice,
+                    &tx,
+                    context,
+                    id,
+                    &operation,
+                    &plan.hash,
+                    &targets,
+                    signer,
                 )?;
                 tx.execute("UPDATE operation_plans SET phase='executing' WHERE workspace_id=?1 AND plan_id=?2",
                     params![workspace,id]).map_err(storage)?;
@@ -806,7 +814,8 @@ impl BusinessDatabase {
         if !pending || request_digest(target)? != work.request_digest {
             return Err(stale);
         }
-        execution_evidence::sellerhub_bin::record_claim(
+        marketplace_approval::record_claim(
+            ApprovalPurpose::SellerHubBinPrice,
             &tx,
             context,
             &work.operation_id,

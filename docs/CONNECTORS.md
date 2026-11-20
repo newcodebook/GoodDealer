@@ -62,7 +62,7 @@ registrar/dns/marketplace/acquisition 角色，覆盖 ADR-0027“完整域名能
 `qualification_pending`，没有可执行状态）与单项资金确认引用已定义，仍不可执行；Provider-specific 最小权限及未知结果
 对账资格尚需逐项确证。
 Afternic 的原生库存已通过真实 Linux 开发账户读取。Spaceship Registrar 已通过 Native 连接、设置页、ProviderLane 和单 SQLCipher writer 组合完整归集，使用独立签名权益及资格。阿里云按相同客户入口组合同一批量资产事务，采用独立 ACS3 签名及 Native 托管。GoDaddy 用自己的 PAT 槽和官方 v3 读取作用域，复用原 Registrar 资产事务。各平台实测与发行状态见 [当前实现](CURRENT_IMPLEMENTATION.md)。
-Atom 使用官方卖家库存接口、原生专属托管与同一 Listing 绑定所有者。设置页读取持久结果，实际账户和目标系统资格仍待验收。
+Atom 使用官方卖家库存、精确详情和 Standard 下架接口。设置页读取持久库存，批量页读取签名确认和逐域名对账结果。原生专属托管和 Listing 绑定沿用各自所有者。实际账户、认证缺席及目标系统资格仍待验收。
 
 ## 证据边界
 

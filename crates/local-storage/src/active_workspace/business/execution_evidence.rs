@@ -106,6 +106,7 @@ pub(crate) enum EvidenceSignaturePurpose {
     AfternicListingPlanApproval,
     AfternicOwnershipReviewApproval,
     SellerHubBinPriceApproval,
+    AtomStandardDelistApproval,
     DeviceAudit,
     ExecutionFact,
 }
@@ -118,7 +119,7 @@ pub(super) struct ApprovalTarget {
 fn storage(_: rusqlite::Error) -> BusinessDatabaseError {
     BusinessDatabaseError::StorageRejected
 }
-fn sql(value: u64) -> Result<i64> {
+pub(super) fn sql(value: u64) -> Result<i64> {
     i64::try_from(value).map_err(|_| rejected())
 }
 fn rejected() -> BusinessDatabaseError {
@@ -1084,5 +1085,5 @@ pub(super) use listing_plan::{
     record_listing_plan_approval, record_listing_plan_claim, record_listing_plan_observation,
 };
 
-#[path = "execution_evidence_sellerhub_bin.rs"]
-pub(super) mod sellerhub_bin;
+#[path = "execution_evidence_marketplace_approval.rs"]
+pub(super) mod marketplace_approval;

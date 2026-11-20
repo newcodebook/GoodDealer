@@ -128,7 +128,7 @@ impl<'a> ActiveBatchOperationsReader<'a> {
         let plans = {
             let mut statement = transaction
                 .prepare(
-                    "SELECT plan_id, title, operation_kind, CASE WHEN operation_kind IN ('afternic_delist','afternic_listing_write') AND phase='awaiting_approval' AND expires_at<=?4 THEN 'expired' ELSE phase END, risk_level, item_count, created_at
+                    "SELECT plan_id, title, operation_kind, CASE WHEN operation_kind IN ('afternic_delist','afternic_listing_write','atom_standard_delist') AND phase='awaiting_approval' AND expires_at<=?4 THEN 'expired' ELSE phase END, risk_level, item_count, created_at
                      FROM operation_plans WHERE workspace_id = ?1
                      ORDER BY created_at DESC, plan_id DESC LIMIT ?2 OFFSET ?3",
                 )
@@ -364,8 +364,10 @@ fn latest_attempts(
     let mut results = BatchResultCounts::default();
     let mut statement = connection
         .prepare(
-            "SELECT COALESCE((SELECT e.effective_status FROM (SELECT * FROM afternic_delist_effective_attempts UNION ALL SELECT * FROM afternic_listing_write_effective_attempts) e WHERE e.workspace_id=a.workspace_id AND e.operation_id=a.operation_id AND e.item_id=a.item_id),status) AS projected_status, count(*) FROM operation_attempts a
-             WHERE workspace_id = ?1 AND operation_id = ?2
+            "SELECT CASE WHEN p.operation_kind='atom_standard_delist' AND a.status IN ('running','waiting_remote') THEN 'outcome_unknown'
+             ELSE COALESCE((SELECT e.effective_status FROM (SELECT * FROM afternic_delist_effective_attempts UNION ALL SELECT * FROM afternic_listing_write_effective_attempts) e WHERE e.workspace_id=a.workspace_id AND e.operation_id=a.operation_id AND e.item_id=a.item_id),a.status) END AS projected_status, count(*)
+             FROM operation_attempts a JOIN operation_plans p USING(workspace_id,plan_id)
+             WHERE a.workspace_id = ?1 AND a.operation_id = ?2
                AND attempt_number = (SELECT max(attempt_number) FROM operation_attempts b
                  WHERE b.workspace_id = a.workspace_id AND b.operation_id = a.operation_id
                    AND b.item_id = a.item_id)

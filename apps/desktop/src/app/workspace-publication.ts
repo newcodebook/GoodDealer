@@ -9,6 +9,7 @@ import {
   type GoDaddyRegistrarPort,
   type CloudflareRegistrarAccountPort,
   type AtomMarketplacePort,
+  type AtomStandardDelistPort,
   type AfternicDelistPort,
   type AfternicListingPlanPort,
   type AfternicListingWritePort,
@@ -77,6 +78,7 @@ export interface AuthoritativeWorkspacePorts {
   readonly spaceship?: SpaceshipRegistrarPort;
   readonly sellerhub?: SellerHubPort;
   readonly sellerhubBinPrice?: SellerHubBinPricePort;
+  readonly atomStandardDelist?: AtomStandardDelistPort;
   readonly aliyun?: AliyunRegistrarPort;
   readonly godaddy?: GoDaddyRegistrarPort;
   readonly cloudflareRegistrarAccount?: CloudflareRegistrarAccountPort;

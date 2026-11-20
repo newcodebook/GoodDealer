@@ -35,6 +35,21 @@ pub enum DesktopAtomListingState {
     Unclassified,
 }
 
+pub(super) fn listing_observation_digest(
+    binding_digest: &str,
+    domain: &str,
+    state: DesktopAtomListingState,
+) -> Result<String> {
+    let state = serde_json::to_string(&state).map_err(|_| BusinessDatabaseError::InvalidInput)?;
+    Ok(hex_digest(
+        format!("{binding_digest}:{domain}:{state}").as_bytes(),
+    ))
+}
+
+pub(super) fn listing_binding_digest(incarnation: &str, resource_digest: &str) -> String {
+    hex_digest(format!("gooddealer:atom:v1:{incarnation}:{resource_digest}").as_bytes())
+}
+
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopAtomInventoryReceipt {
@@ -615,16 +630,8 @@ impl AtomInventoryCommit<'_> {
     ) -> Result<()> {
         let id = &self.seed.connection_id;
         let domain = &item.domain;
-        let resource = hex_digest(
-            format!(
-                "gooddealer:atom:v1:{}:{}",
-                self.seed.incarnation_id, item.resource_digest
-            )
-            .as_bytes(),
-        );
-        let state =
-            serde_json::to_string(&item.state).map_err(|_| BusinessDatabaseError::InvalidInput)?;
-        let observation = hex_digest(format!("{resource}:{domain}:{state}").as_bytes());
+        let resource = listing_binding_digest(&self.seed.incarnation_id, &item.resource_digest);
+        let observation = listing_observation_digest(&resource, domain, item.state)?;
         let current: Option<String> = tx.query_row(
             "SELECT resource_binding_digest FROM domain_asset_provider_bindings WHERE workspace_id=?1
              AND entity_id=?2 AND connection_id=?3 AND provider_kind='atom' AND resource_kind='listing'

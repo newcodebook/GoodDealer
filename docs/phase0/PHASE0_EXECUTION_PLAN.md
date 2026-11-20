@@ -599,3 +599,11 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 独立审查发现并关闭了原事实 canonical 字节核对、无待扫描状态的准入以及撤销后未执行项目卡住的问题。[独立审查](../reviews/2026-11-20-sellerhub-bin-price-review.md) SQLCipher 专项 7 项，历史迁移字节与外键复验通过；Native 签名和跨语言向量 19 项，桌面改价与命令权限专项 8 项，Linux 三 crate 严格 Clippy，隔离 PostgreSQL 185 项通过。
 - 根 `pnpm check` 通过，含 Desktop 437 项、Tauri 195 项、SQLCipher 694 项及 Core 148 项。
 - 此次在本机执行源码和隔离数据库验收。SellerHub 认证接口、真实改价、开发 Cloud 发布、具名资格、Windows/macOS 实机和发行待验证。
+
+## 2026-11-20 Atom Standard 批量下架与只读续作
+
+- 批量页接通选连接、逐域名预览、整批一次确认和已保存结果。SQLCipher 追加 `202611200012`，冻结最新完整扫描的正向 Standard 证据、Listing 与资产代次，复用原有计划、尝试和结果。并发中仅一个签名认领能提交。撤销、变化或最终栅栏失败时拒绝发送。
+- Native 在固定 `domain-details` 精确确认同一已批准 Standard 挂牌后，使用官方固定 `remove-domain` 单次发送。同一认领无论收到回执、超时或退出，重开后只进行精确读取。账号内缺席合同仍待认证取证，无法证实移除时显示未核实。历史认领和新设备观察分别验证权限。
+- Cloud 追加 `202611200003` 和 `202611200004`。独立审查发现 Atom 对账沿用旧平台名，修复后重新验证。隔离 PostgreSQL 18.4 从 77 条前缀升级，186 项通过，含 Atom、SellerHub 和 Afternic 回归。Linux 三 crate 全目标严格 Clippy 通过。[独立审查](../reviews/2026-11-20-atom-standard-delist-review.md)
+- 根 `pnpm check` 通过，含 Desktop 438 项、Tauri 196 项、SQLCipher 696 项和 Core 152 项。
+- 真实 Atom 下架和账户内缺席需要获准的 Atom Seller API 账户及受控 Standard 挂牌。开发 Cloud 未部署本切片。Windows/macOS 实机及发行资格仍需各自验收。

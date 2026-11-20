@@ -3,8 +3,9 @@ use super::ProviderCredentialError;
 use crate::native_cloud_runtime::NativeCloudCancelFence;
 use gooddealer_local_storage::{
     DesktopAtomConnection, DesktopAtomConnectionState, DesktopAtomListingFact,
-    DesktopAtomListingState, DesktopAtomMarketplaceStatus, DesktopLocalHost, DesktopLocalHostError,
-    DesktopNativeCloudAdmission,
+    DesktopAtomListingObservation, DesktopAtomListingState, DesktopAtomMarketplaceStatus,
+    DesktopAtomStandardDelistClaim, DesktopAtomStandardDelistWork, DesktopLocalHost,
+    DesktopLocalHostError, DesktopNativeCloudAdmission,
 };
 use gooddealer_secure_host_core::{
     AtomCapture, AtomCredential, AtomCredentialPlan, AtomError, AtomGuard, AtomListing,
@@ -250,6 +251,121 @@ impl Run {
             return Err(ProviderCredentialError::Keychain);
         }
         Ok(())
+    }
+
+    pub(crate) async fn standard_delist_step(self: &Arc<Self>) -> Result<bool> {
+        let run = Arc::clone(self);
+        let next = tauri::async_runtime::spawn_blocking(move || {
+            let work = run.commit(|host| {
+                host.next_atom_standard_delist_work(host.begin_native_cloud_run()?)
+            })?;
+            Ok::<_, ProviderCredentialError>(work.map(|work| {
+                let credential = if work.can_observe() {
+                    load_atom_credential_guarded(&Slot(work.connection()), &mut || {
+                        run.delist_read_guard(&work)
+                    })
+                } else {
+                    Ok(None)
+                };
+                (work, credential)
+            }))
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)??;
+        let Some((work, credential)) = next else {
+            return Ok(false);
+        };
+        let client = AtomPortfolioClient::production().map_err(native_error)?;
+        let read = match &credential {
+            Ok(Some(credential)) => {
+                let mut guard = || self.delist_read_guard(&work);
+                tokio::select! {
+                    biased;
+                    _ = self.power.wait_for_epoch_change(self.epoch) => Err(AtomError::AuthorityStale),
+                    result = client.observe_listing(credential, work.domain(), &mut guard) => result,
+                }
+            }
+            Ok(None) => Err(AtomError::CustodyMismatch),
+            Err(error) => Err(*error),
+        };
+        if matches!(read, Err(AtomError::AuthorityStale)) {
+            return Err(ProviderCredentialError::Host);
+        }
+        let observation = read.ok().map(exact_observation);
+        let run = Arc::clone(self);
+        let claim = tauri::async_runtime::spawn_blocking(move || {
+            if work.is_reconciliation() {
+                run.commit(|host| host.settle_atom_standard_delist(&work, observation.as_ref()))?;
+                return Ok(None);
+            }
+            let _power = run
+                .power
+                .hold_write_epoch(run.epoch)
+                .map_err(|_| ProviderCredentialError::Host)?;
+            run.cancel
+                .commit(|| {
+                    run.host
+                        .commit_atom_standard_delist_preflight(work, observation.as_ref())
+                })
+                .ok_or(ProviderCredentialError::Host)?
+                .map_err(host_error)
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)??;
+        if let (Some(claim), Ok(Some(credential))) = (claim, credential) {
+            let mut guard = || self.delist_dispatch_guard(&claim);
+            // A receipt or interrupted send leaves the same durable, read-only reconciliation work.
+            let _ = tokio::select! {
+                biased;
+                _ = self.power.wait_for_epoch_change(self.epoch) => Err(AtomError::AuthorityStale),
+                result = client.send_standard_removal(&credential, claim.domain(), &mut guard) => result,
+            };
+        }
+        Ok(true)
+    }
+
+    fn delist_read_guard(
+        &self,
+        work: &DesktopAtomStandardDelistWork,
+    ) -> std::result::Result<(), AtomError> {
+        drop(self.hold_power()?);
+        self.host
+            .recheck_atom_standard_delist_read(work)
+            .map_err(|_| AtomError::AuthorityStale)?;
+        drop(self.hold_power()?);
+        Ok(())
+    }
+
+    fn delist_dispatch_guard(
+        &self,
+        claim: &DesktopAtomStandardDelistClaim,
+    ) -> std::result::Result<(), AtomError> {
+        let check_power = || {
+            self.power
+                .hold_write_epoch(self.epoch)
+                .map_err(|_| AtomError::AuthorityStale)
+        };
+        drop(check_power()?);
+        self.cancel
+            .commit(|| self.host.recheck_atom_standard_delist_dispatch(claim))
+            .ok_or(AtomError::AuthorityStale)?
+            .map_err(|_| AtomError::AuthorityStale)?;
+        drop(check_power()?);
+        if self.cancel.is_cancelled() {
+            return Err(AtomError::AuthorityStale);
+        }
+        Ok(())
+    }
+}
+
+fn exact_observation(row: AtomListing) -> DesktopAtomListingObservation {
+    let reported_standard = row.reports_standard();
+    let fact = listing_fact(row);
+    DesktopAtomListingObservation {
+        domain: fact.domain,
+        resource_digest: fact.resource_digest,
+        state: fact.state,
+        reported_standard,
     }
 }
 

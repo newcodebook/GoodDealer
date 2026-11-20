@@ -447,6 +447,24 @@
           "markdownDescription": "Enables the atom_marketplace_submit command without any pre-configured scope."
         },
         {
+          "description": "Enables the atom_standard_delist_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-atom-standard-delist-approve",
+          "markdownDescription": "Enables the atom_standard_delist_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the atom_standard_delist_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-atom-standard-delist-preview",
+          "markdownDescription": "Enables the atom_standard_delist_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the atom_standard_delist_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-atom-standard-delist-status",
+          "markdownDescription": "Enables the atom_standard_delist_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cloudflare_connection_activate command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cloudflare-connection-activate",
@@ -919,6 +937,24 @@
           "type": "string",
           "const": "deny-atom-marketplace-submit",
           "markdownDescription": "Denies the atom_marketplace_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the atom_standard_delist_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-atom-standard-delist-approve",
+          "markdownDescription": "Denies the atom_standard_delist_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the atom_standard_delist_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-atom-standard-delist-preview",
+          "markdownDescription": "Denies the atom_standard_delist_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the atom_standard_delist_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-atom-standard-delist-status",
+          "markdownDescription": "Denies the atom_standard_delist_status command without any pre-configured scope."
         },
         {
           "description": "Denies the cloudflare_connection_activate command without any pre-configured scope.",

@@ -365,6 +365,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         owner: "active-workspace/spaceship-sellerhub-bin-approval",
         sql: include_str!("../active_workspace/spaceship_sellerhub_bin_approval.sql"),
     },
+    ActiveMigration {
+        id: 202_611_200_012,
+        owner: "active-workspace/atom-standard-delist-approval",
+        sql: include_str!("../active_workspace/atom_standard_delist_approval.sql"),
+    },
 ];
 
 /// Migrations that rebuild a table other tables reference. SQLite cannot alter a column CHECK, and
@@ -372,8 +377,12 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
 /// actions would remove the children. These run with foreign keys disabled for their transaction
 /// only, as SQLite's documented table-rebuild procedure requires, and must leave
 /// `foreign_key_check` empty before they commit.
-const TABLE_REBUILD_MIGRATIONS: &[i64] =
-    &[SYNC_WIRE_V3_MIGRATION_ID, 202_611_190_008, 202_611_200_011];
+const TABLE_REBUILD_MIGRATIONS: &[i64] = &[
+    SYNC_WIRE_V3_MIGRATION_ID,
+    202_611_190_008,
+    202_611_200_011,
+    202_611_200_012,
+];
 
 // Test diagnostics identify backend failures without exposing SQL, paths, or database values.
 // Production retains its single closed rejection and emits no diagnostic output.
@@ -728,7 +737,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 54);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 55);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection

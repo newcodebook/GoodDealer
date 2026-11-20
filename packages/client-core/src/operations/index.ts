@@ -9,3 +9,4 @@ export * from "./afternic-listing-write";
 export * from "./afternic-listing-plan";
 
 export * from "./sellerhub-bin-price";
+export * from "./atom-standard-delist";

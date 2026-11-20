@@ -17,6 +17,10 @@ use crate::{
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+#[path = "atom_standard_delist.rs"]
+mod delist;
+pub use delist::{DesktopAtomStandardDelistClaim, DesktopAtomStandardDelistWork};
+
 /// Opaque Native-only receipt for one exact credential incarnation and scan head.
 pub struct DesktopAtomConnection {
     admission: DesktopNativeCloudAdmission,

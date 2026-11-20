@@ -22,6 +22,7 @@ pub(crate) enum ProviderOperation {
     /// Internal wake only: picks one durable due Afternic item, never receives Renderer plans.
     AfternicDelistStep,
     AfternicListingWriteStep,
+    AtomStandardDelistStep,
     SellerHubBinStep,
     AfternicConnect {
         display_label: String,
@@ -119,7 +120,10 @@ impl ProviderOperation {
     fn is_durable_market_step(&self) -> bool {
         matches!(
             self,
-            Self::AfternicDelistStep | Self::AfternicListingWriteStep | Self::SellerHubBinStep
+            Self::AfternicDelistStep
+                | Self::AfternicListingWriteStep
+                | Self::AtomStandardDelistStep
+                | Self::SellerHubBinStep
         )
     }
 
@@ -128,6 +132,7 @@ impl ProviderOperation {
             Self::AfternicDelistStep => "afternic:delist",
             Self::AfternicListingWriteStep => "afternic:listing-write",
             Self::SellerHubBinStep => "spaceship:sellerhub-bin-price",
+            Self::AtomStandardDelistStep => "atom:standard-delist",
             Self::AfternicConnect { .. } => "afternic:new-connection",
             Self::SpaceshipConnect | Self::SellerHubConnect => "spaceship:new-connection",
             Self::AliyunConnect => "aliyun:new-connection",
@@ -229,7 +234,8 @@ impl ProviderRecoveryOutcome {
             ProviderOperation::GoDaddyConnect
             | ProviderOperation::GoDaddyRefresh { .. }
             | ProviderOperation::GoDaddyRevoke { .. } => self.godaddy,
-            ProviderOperation::AtomConnect
+            ProviderOperation::AtomStandardDelistStep
+            | ProviderOperation::AtomConnect
             | ProviderOperation::AtomRefresh { .. }
             | ProviderOperation::AtomRevoke { .. } => self.atom,
             operation if operation.is_afternic() => self.afternic,
@@ -368,6 +374,7 @@ impl ProviderAdmissionState {
             }
             ProviderOperation::AfternicDelistStep
             | ProviderOperation::AfternicListingWriteStep
+            | ProviderOperation::AtomStandardDelistStep
             | ProviderOperation::SellerHubBinStep
             | ProviderOperation::Revoke { .. }
             | ProviderOperation::Purge { .. }
@@ -697,6 +704,7 @@ impl ProviderLane {
                     for operation in [
                         ProviderOperation::AfternicDelistStep,
                         ProviderOperation::AfternicListingWriteStep,
+                        ProviderOperation::AtomStandardDelistStep,
                         ProviderOperation::SellerHubBinStep,
                     ] {
                         if *self.cancel.borrow() {
@@ -1017,7 +1025,7 @@ mod tests {
                     tokio::task::yield_now().await;
                     let mut items = record.lock().unwrap();
                     items.push(operation);
-                    if items.len() < 7 {
+                    if items.len() < 9 {
                         wake.wake_durable_operations();
                     } else {
                         wake.cancel();
@@ -1038,9 +1046,11 @@ mod tests {
                 revoke,
                 ProviderOperation::AfternicDelistStep,
                 ProviderOperation::AfternicListingWriteStep,
+                ProviderOperation::AtomStandardDelistStep,
                 ProviderOperation::SellerHubBinStep,
                 ProviderOperation::AfternicDelistStep,
                 ProviderOperation::AfternicListingWriteStep,
+                ProviderOperation::AtomStandardDelistStep,
                 ProviderOperation::SellerHubBinStep,
             ]
         );

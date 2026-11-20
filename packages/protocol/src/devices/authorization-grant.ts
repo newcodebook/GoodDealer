@@ -21,6 +21,7 @@ export const DESKTOP_COMMERCIAL_CAPABILITIES = [
   "afternic:marketplace:write",
   "aliyun:registrar:observe",
   "atom:marketplace:observe",
+  "atom:marketplace:write",
   "cloudflare:dns:observe",
   "cloudflare:registrar:observe",
   "godaddy:registrar:observe",
@@ -37,6 +38,9 @@ export const desktopCommercialCapabilitiesSchema = z.array(desktopCommercialCapa
     }
     if (capabilities.includes("afternic:marketplace:write") && !capabilities.includes("afternic:marketplace:observe")) {
       context.addIssue({ code: "custom", message: "Afternic writes require observation for reconciliation" });
+    }
+    if (capabilities.includes("atom:marketplace:write") && !capabilities.includes("atom:marketplace:observe")) {
+      context.addIssue({ code: "custom", message: "Atom writes require observation for reconciliation" });
     }
     if (capabilities.includes("spaceship:marketplace:write") && !capabilities.includes("spaceship:marketplace:observe")) {
       context.addIssue({ code: "custom", message: "SellerHub writes require observation for reconciliation" });
