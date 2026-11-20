@@ -63,6 +63,8 @@ const reviewedCommands = [
   "local_settings_read",
   "local_storage_repair",
   "local_sync_status",
+  "spaceship_registrar_status",
+  "spaceship_registrar_submit",
   "target_bootstrap_cancel",
   "target_bootstrap_status",
   "target_installation_start",
@@ -313,6 +315,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     "apps/desktop/src/adapters/tauri/forced-takeover.ts",
     "apps/desktop/src/adapters/tauri/afternic-listing-plan.ts",
     "apps/desktop/src/adapters/tauri/afternic-listing-write.ts",
+    "apps/desktop/src/adapters/tauri/spaceship-registrar.ts",
   ].map((path) => requiredRegularFile(root, path, errors));
   const desktopManifest = requiredRegularFile(root, "apps/desktop/src-tauri/Cargo.toml", errors);
   const backupIpcSource = requiredRegularFile(
@@ -356,7 +359,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     attributed: attributedCommands(sources),
     capability: capabilityCommands(capability),
     adapter: unique(adapterSources.flatMap((source, index) => adapterCommands(source, {
-      literalInvocationsOnly: index === 3 || index === 4,
+      literalInvocationsOnly: index === 3 || index === 4 || index === 6,
     }))),
   };
   for (const [name, commands] of Object.entries(sets)) {

@@ -68,10 +68,11 @@ describe("domain Provider coverage and financial confirmation", () => {
       }
       expect(domainProviderManifestEntry(platform, "connection.manage")).toBeNull();
     }
-    // Only Cloudflare's implemented read-only observation awaits qualification; everything else waits on facts.
+    // Implemented read-only observations still require qualification.
     expect(domainProviderCapabilityManifest.filter(({ reason }) => reason === "qualification_pending")
       .map(({ platform, capabilityId }) => `${platform}:${capabilityId}`)).toEqual([
         "cloudflare:registrar.domain.observe", "cloudflare:zone.observe", "cloudflare:dns.records.observe",
+        "spaceship:registrar.domain.observe",
       ]);
     expect(Object.isFrozen(domainProviderCapabilityManifest)).toBe(true);
     expect(domainProviderCapabilityManifest.every((entry) => Object.isFrozen(entry))).toBe(true);

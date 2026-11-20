@@ -1,40 +1,18 @@
 //! Account inventory publication through the sole business writer.
 
 use super::{
-    BusinessDatabase, BusinessDatabaseError, afternic::random_id, assets::import_discovered_asset,
-    validate_domain_asset_id, validate_sha256_hex, validate_timestamp,
+    BusinessDatabase, BusinessDatabaseError,
+    afternic::random_id,
+    registrar_inventory::{RegistrarInventoryBatch, RegistrarInventorySource},
+    validate_sha256_hex,
 };
-use crate::portfolio_projection::valid_date;
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
-use serde::Serialize;
-use std::collections::BTreeSet;
 
-/// Bounded Native-only fields from a complete Cloudflare Registrar scan.
-pub struct DesktopCloudflareRegistrationFact {
-    pub domain: String,
-    pub registered_on: String,
-    pub expires_on: Option<String>,
-    pub auto_renew: bool,
-    pub locked: bool,
-    pub standing: DesktopCloudflareRegistrationStanding,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum DesktopCloudflareRegistrationStanding {
-    Active,
-    Pending,
-    Inactive,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DesktopCloudflareRegistrarScanReceipt {
-    pub observed: u32,
-    pub imported: u32,
-    pub skipped: u32,
-    pub completed_at: String,
-}
-
+pub use super::registrar_inventory::{
+    DesktopRegistrarScanReceipt as DesktopCloudflareRegistrarScanReceipt,
+    DesktopRegistrationFact as DesktopCloudflareRegistrationFact,
+    DesktopRegistrationStanding as DesktopCloudflareRegistrationStanding,
+};
 #[derive(PartialEq, Eq)]
 pub(crate) struct CloudflareRegistrarScanHead {
     pub run_id: String,
@@ -52,32 +30,6 @@ pub(crate) struct CloudflareRegistrarInventoryCommit<'a> {
     pub device_id: &'a str,
     pub lease_epoch: u64,
     pub at: &'a str,
-}
-
-impl CloudflareRegistrarInventoryCommit<'_> {
-    fn validate(&self) -> Result<(), BusinessDatabaseError> {
-        if self.registrations.len() > 10_000 {
-            return Err(BusinessDatabaseError::InvalidInput);
-        }
-        validate_sha256_hex(self.account_scope_digest)?;
-        validate_timestamp(Some(self.at.to_owned()))
-            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
-        let mut domains = BTreeSet::new();
-        for row in self.registrations {
-            validate_domain_asset_id(&row.domain)
-                .map_err(|_| BusinessDatabaseError::InvalidInput)?;
-            if !domains.insert(&row.domain)
-                || !valid_date(&row.registered_on)
-                || row.expires_on.as_ref().map_or(
-                    row.standing != DesktopCloudflareRegistrationStanding::Pending,
-                    |expiry| !valid_date(expiry) || expiry < &row.registered_on,
-                )
-            {
-                return Err(BusinessDatabaseError::InvalidInput);
-            }
-        }
-        Ok(())
-    }
 }
 
 fn storage(_: rusqlite::Error) -> BusinessDatabaseError {
@@ -123,16 +75,22 @@ impl BusinessDatabase {
 
     /// Commits only a complete scan, with ordinary asset creation and Outbox entries in the
     /// same transaction. An absence can never remove an asset or assert loss of ownership.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "transaction ordering and the final fence stay together"
-    )]
     pub(crate) fn import_cloudflare_registrar_inventory(
         &mut self,
         input: &CloudflareRegistrarInventoryCommit<'_>,
         final_guard: impl FnOnce() -> Result<(), BusinessDatabaseError>,
     ) -> Result<DesktopCloudflareRegistrarScanReceipt, BusinessDatabaseError> {
-        input.validate()?;
+        validate_sha256_hex(input.account_scope_digest)?;
+        let inventory = RegistrarInventoryBatch {
+            workspace: &self.workspace_id,
+            connection_id: input.connection_id,
+            registrations: input.registrations,
+            device_id: input.device_id,
+            lease_epoch: input.lease_epoch,
+            at: input.at,
+            source: RegistrarInventorySource::Cloudflare,
+        };
+        inventory.validate()?;
         let generation = i64::try_from(input.credential_generation)
             .map_err(|_| BusinessDatabaseError::InvalidInput)?;
         let tx = self
@@ -166,66 +124,12 @@ impl BusinessDatabase {
         if qualified_role != 1 {
             return Err(BusinessDatabaseError::MutationStale);
         }
-        let mut has_targets = false;
-        let mut receipt = DesktopCloudflareRegistrarScanReceipt {
-            observed: u32::try_from(input.registrations.len())
-                .map_err(|_| BusinessDatabaseError::InvalidInput)?,
-            imported: 0,
-            skipped: 0,
-            completed_at: input.at.to_owned(),
-        };
-        for (ordinal, row) in input.registrations.iter().enumerate() {
-            let Some(created) = import_discovered_asset(
-                &tx,
-                workspace,
-                &random_id()?,
-                input.device_id,
-                input.lease_epoch,
-                input.at,
-                &row.domain,
-            )?
-            else {
-                receipt.skipped += 1;
-                continue;
-            };
-            receipt.imported += u32::from(created);
-            if !has_targets {
-                tx.execute(
-                    "INSERT INTO provider_observation_runs (workspace_id,observation_run_id,connection_id,observation_capability,started_at,status,connector_version)
-                     VALUES (?1,?2,?3,'registrar',?4,'running','cloudflare-registrar-v4')",
-                    params![workspace,run,input.connection_id,input.at],
-                ).map_err(storage)?;
-                has_targets = true;
-            }
-            let ordinal =
-                u32::try_from(ordinal).map_err(|_| BusinessDatabaseError::InvalidInput)?;
-            tx.execute(
-                "INSERT INTO provider_observation_targets (workspace_id,observation_run_id,entity_id,ordinal,status,requested_at)
-                 VALUES (?1,?2,?3,?4,'requested',?5)",
-                params![workspace,run,row.domain,ordinal,input.at],
-            ).map_err(storage)?;
-            tx.execute(
-                "INSERT INTO registrar_observations (workspace_id,observation_id,observation_run_id,entity_id,
-                        registrar_name,registered_on,expires_on,auto_renew,registrar_lock,observation_availability,
-                        evidence_status,observed_at,provider_version_token)
-                 VALUES (?1,?2,?3,?4,'Cloudflare',?5,?6,?7,?8,'available',?9,?10,?3)",
-                params![workspace,random_id()?,run,row.domain,row.registered_on,row.expires_on,row.auto_renew,row.locked,
-                    if row.standing == DesktopCloudflareRegistrationStanding::Active { "confirmed" } else { "unknown" },input.at],
-            ).map_err(storage)?;
-        }
-        tx.execute(
-            "UPDATE provider_observation_targets SET status='succeeded',completed_at=?1 WHERE workspace_id=?2 AND observation_run_id=?3",
-            params![input.at,workspace,run],
-        ).map_err(storage)?;
-        tx.execute(
-            "UPDATE provider_observation_runs SET status='succeeded',completed_at=?1 WHERE workspace_id=?2 AND observation_run_id=?3",
-            params![input.at,workspace,run],
-        ).map_err(storage)?;
+        let (observation_run, receipt) = inventory.write(&tx, &run)?;
         tx.execute(
             "INSERT INTO cloudflare_registrar_inventory_scans (workspace_id,scan_id,observation_run_id,connection_id,connection_incarnation_id,
                     credential_generation,account_scope_digest,observed_count,imported_count,skipped_count,completed_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
-            params![workspace,run,has_targets.then_some(&run),input.connection_id,input.connection_incarnation_id,generation,input.account_scope_digest,
+            params![workspace,run,observation_run,input.connection_id,input.connection_incarnation_id,generation,input.account_scope_digest,
                 receipt.observed,receipt.imported,receipt.skipped,input.at],
         ).map_err(storage)?;
         tx.execute(

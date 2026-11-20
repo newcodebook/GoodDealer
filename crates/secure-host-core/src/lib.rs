@@ -41,8 +41,19 @@ mod desktop_oauth;
 #[cfg(target_os = "linux")]
 mod linux_credential_capture;
 mod local_workspace_binding;
+#[cfg(target_os = "macos")]
+mod macos_pair_capture;
+mod provider_credential_slot;
 #[cfg(target_os = "linux")]
 mod secret_service_custody;
+mod spaceship;
+
+pub use spaceship::{
+    SpaceshipCapture, SpaceshipCredential, SpaceshipCredentialPlan, SpaceshipError, SpaceshipGuard,
+    SpaceshipRegistrarClient, SpaceshipRegistration, SpaceshipRegistrationStanding,
+    load_spaceship_credential_guarded, publish_spaceship_credential_guarded,
+    purge_spaceship_credential_guarded,
+};
 
 pub use afternic_credentials::{
     AfternicCapture, AfternicCredential, AfternicCredentialPlan, load_afternic_credential_guarded,

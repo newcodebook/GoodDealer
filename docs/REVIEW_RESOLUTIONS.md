@@ -12,7 +12,7 @@
 
 | 主题 | 当前结论 | 外部资格边界 |
 | --- | --- | --- |
-| v1 范围与本地协调 | Cloud 账号/授权控制面、本地域名资产业务库、脱敏同步恢复和 Host-local 域名 Provider capability 按各自合同汇合；当前只有 Cloudflare API-only read 已组合。 | 外部资格不是本地合同实现启动、继续或本地验收的前提。 |
+| v1 范围与本地协调 | Cloud 账号/授权控制面、本地域名资产业务库、脱敏同步恢复和 Host-local 域名 Provider capability 按各自合同汇合。各平台的组合与真实验收见 [当前实现](CURRENT_IMPLEMENTATION.md)。 | 外部资格不阻塞本地实现和本地验证。 |
 | 当前组合 | Cloud public composition 已注册账号激活、Desktop Grant 与六条账号 billing 路径，共八条公共业务路径；Desktop OAuth 和支付 webhook 使用独立入口。Desktop Native 已组合 Keychain device/refresh custody、PKCE、challenge/PoP、access/refresh、Bearer Grant 拉取、Grant/Lease 双重验签与本地 runtime 激活。共享开发环境已部署 Account Web、Stripe test-mode Checkout/webhook、开发 OpenBao signer 与 self-hosted worker；生产 Provider/worker/signer 和客户发行仍未组合或资格化。 | 本地与共享开发证据只证明这些精确边界，不证明客户可用、生产部署、生产 OpenBao custody、原生签名/公证、live 提供商资格、发行或 Gate closure。 |
 | A：账户/个人默认工作区 | ADR-0022 的服务器导出范围和原子创建约束由 A1 实现，并在 D1/V1 汇合；不扩展到团队、多工作区、所有权转移或凭据迁移。 | `Q-OPS` 只在声称受管/已部署账户能力时适用。 |
 | P：本地域名资产 | 本地 SQLCipher 是读写权威；业务事务与 secret-free Outbox 原子提交，Cloud 仅是同步恢复副本。 | `Q-OPS` 只在声称已部署同步服务时适用。 |

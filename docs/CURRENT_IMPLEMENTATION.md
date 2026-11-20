@@ -12,7 +12,7 @@
 | --- | --- | --- | --- |
 | Cloudflare | 官方 Zone/DNS 读取及 Registrar 账户库存 | 单 Zone 连接与维护，设置页账户库存扫描、原子归集和最近结果已组合。当前从有效 Zone 连接查得所属账户；Registrar 需要独立授权与资格 | 未取得 |
 | Afternic | 官方库存/GET/Create/Update/Remove/Relist | 设置连接、完整市场库存归集、持久整批上架/改价/下架及重开只读对账已组合。源码支持批次内或独立的 `OWNERSHIP_REVIEW` 官方复核。Linux debug 受控范围只包括库存与 `wecin.com` 的三项 Listing 变更 | Linux 受控真实库存读取通过，挂牌写入与目标平台资格待验收 |
-| Spaceship | 未实现实际 Service | 账户归集及 SellerHub 旅程未实现 | 未取得 |
+| Spaceship | 官方 Registrar 域名列表 | 设置页原生连接、完整归集、持久刷新、重开续读和本地断开已组合。SellerHub 旅程待实现 | 未取得 |
 | Atom | 未实现实际 Service | Listing 旅程未实现 | 未取得 |
 | Namecheap | 未实现实际 Service | 未实现 | 未取得 |
 | Dynadot | 未实现实际 Service | 未实现 | 未取得 |
@@ -23,7 +23,7 @@
 | 阿里云 | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 | 22.cn | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 
-六个资产来源尚无已通过真实账户验收的账户级归集。Cloudflare 已组合完整注册列表扫描、设置入口及持久导入，当前需要账户下一个有效 Zone 作为连接锚点。Linux 已接入固定 GTK 凭据窗口及 Secret Service，独立 Registrar 账户连接、受控授权与真实资格仍待推进。Afternic 的归集对象为市场库存。Linux 受控验收使用 Native 托管的真实 Afternic 凭据，读入 188 个库存域名并新增 188 个本地资产，重开复读仍为 188 个且新增 0。真实 Listing 写入待验收。Afternic 官方复核已进入源码组合，资格清单未开放。`OWNERSHIP_UNVERIFIED` 的私有会话、DNS 与自动验证闭环仍在实施。[所有权复核工作包](phase0/AFTERNIC_OWNERSHIP_REVIEW_TASK_FRAME.md)
+六个资产来源尚无已通过真实账户验收的账户级归集。Cloudflare 已组合完整注册列表扫描、设置入口及持久导入，当前需要账户下一个有效 Zone 作为连接锚点。Linux 已接入固定 GTK 凭据窗口及 Secret Service，独立 Registrar 账户连接、受控授权与真实资格仍待推进。Spaceship 已组合独立的账户级 Registrar 连接和资产导入，追加本地迁移 `202611190010`。手动刷新先持久保存待扫描状态，重新打开应用会从首面继续读取，完整结果原子更新注册观察、资产、Outbox 和扫描回执。仍需具名开发验收范围和真实 `domains:read` 账户。Afternic 的归集对象为市场库存。Linux 受控验收使用 Native 托管的真实 Afternic 凭据，读入 188 个库存域名并新增 188 个本地资产，重开复读仍为 188 个且新增 0。真实 Listing 写入待验收。Afternic 官方复核已进入源码组合，资格清单未开放。`OWNERSHIP_UNVERIFIED` 的私有会话、DNS 与自动验证闭环仍在实施。[所有权复核工作包](phase0/AFTERNIC_OWNERSHIP_REVIEW_TASK_FRAME.md)
 
 ## 丢机强制接管与首次云恢复
 
@@ -99,9 +99,9 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
   撤销先持久阻止使用，再清除 Native slot，确认清除后隐藏连接，保留资产和审计历史。未获得平台权限仍允许本地清理。
   Linux/macOS/Windows 均有受限原生掩码录入与 custody 源码。Linux GTK 实际输入/清空生命周期和 logind 注册释放已独立验证，真实账号与目标 OS 待验收。
 - Linux debug 的显式 `afternic-controlled-acceptance` 构建接入了设置、批准和重开恢复。追加迁移 `202611190007` 原子绑定真实账户、工作区、设备、Lease epoch 与唯一凭据槽，读同一连接完整市场库存，写入限 `wecin.com` 的三个 Listing 动作。截止取已验签执行上下文的连续时间投影。Host 向设置和批量页投影受控范围，使用当前 Grant、Lease 和商业权益。见[受控验收工作包](phase0/AFTERNIC_CONTROLLED_ACCEPTANCE_TASK_FRAME.md)。
-- Active Grant 的 commercialAuthority v2 是精确封闭 capability 集合：Afternic observe/write、Cloudflare observe；write 必须含 observe。空集合仍允许有授权的本地业务。
+- Active Grant 的 commercialAuthority v2 是封闭 capability 集合，包含 Afternic 市场 observe/write、Cloudflare DNS/Registrar observe 和 Spaceship Registrar observe。Afternic write 必须含 observe。空集合仍允许有授权的本地业务。
   Cloud 只取锁定 Licensing 快照的精确交集；Host floor/runtime/最终提交栅栏包括集合，权限变化不能复用旧 admission。逻辑 Grant 签名用途仍为 `.v3`，不随 wire 升版创建新用途。
-- 十二平台角色、能力目录和不可执行 manifest 已存在；除 Cloudflare 与 Afternic 外的实际 Service 仍需实现。
+- 十二平台角色、能力目录和不可执行 manifest 已存在。Cloudflare、Afternic 和 Spaceship 已有 Native Service，其余平台仍需实现，三者的完整能力与发行资格继续逐项推进。
   Rust 与 TypeScript 读取合同按 [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)一致扩展；
   名录和展示名称不授予 Provider 执行能力，销售聚合的临时位图也已扩容以保留全部平台。
 - [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)已明确已确认官方能力使用官方 API，当前其余缺口全部自研私有 HTTP 接口；

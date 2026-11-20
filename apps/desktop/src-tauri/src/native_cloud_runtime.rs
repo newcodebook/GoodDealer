@@ -91,11 +91,18 @@ impl ProviderOperationRecord {
             Err(ProviderCredentialError::ProviderRetryLater) => "retry_later",
             Err(ProviderCredentialError::CredentialRejected) => "credential_rejected",
             Err(ProviderCredentialError::ProviderResponseRejected) => "provider_response_rejected",
-            Err(ProviderCredentialError::Keychain) if kind.starts_with("afternic_") => {
+            Err(ProviderCredentialError::Keychain)
+                if kind.starts_with("afternic_") || kind.starts_with("spaceship_") =>
+            {
                 "credential_store_unavailable"
             }
-            Err(ProviderCredentialError::Host) if kind.starts_with("afternic_") => {
+            Err(ProviderCredentialError::Host)
+                if kind.starts_with("afternic_") || kind.starts_with("spaceship_") =>
+            {
                 "local_operation_blocked"
+            }
+            Err(ProviderCredentialError::Capture) if kind == "spaceship_connect" => {
+                "capture_incomplete"
             }
             Err(_) => "failed",
         };
@@ -319,15 +326,21 @@ impl NativeCloudCoordinator {
                             .is_ok();
                             let afternic =
                                 crate::provider_credential_orchestrator::afternic::recover(
-                                    host,
-                                    cancel_fence,
-                                    power,
+                                    Arc::clone(&host),
+                                    Arc::clone(&cancel_fence),
+                                    power.clone(),
                                 )
                                 .await
                                 .is_ok();
+                            let spaceship = Arc::new(
+                                crate::provider_credential_orchestrator::spaceship::Run::new(
+                                    host, cancel_fence, power, true,
+                                ),
+                            ).recover().await.is_ok();
                             ProviderRecoveryOutcome {
                                 cloudflare,
                                 afternic,
+                                spaceship,
                             }
                         }
                     },
@@ -459,6 +472,9 @@ impl NativeCloudCoordinator {
     pub(crate) fn afternic_provider_status(&self) -> ProviderStatus {
         self.provider.afternic_status()
     }
+    pub(crate) fn spaceship_provider_status(&self) -> ProviderStatus {
+        self.provider.spaceship_status()
+    }
 
     /// The latest Provider operation's closed outcome; none after the session is cancelled.
     ///
@@ -563,7 +579,7 @@ async fn run_provider_operation(
     operation: ProviderOperation,
     power: gooddealer_secure_host_core::NativePowerGate,
 ) {
-    use crate::provider_credential_orchestrator::{RevocationOutcome, afternic};
+    use crate::provider_credential_orchestrator::{RevocationOutcome, afternic, spaceship};
     // The outcome is recorded for the connection status as a closed value only. Every operation
     // may have committed before it ended, whatever it returned: activation imports the Zone and
     // records its prewrite state, revocation commits the denial when it is prepared, and a
@@ -593,6 +609,33 @@ async fn run_provider_operation(
             Some(ProviderOperationRecord::of(
                 "afternic_revoke",
                 result.as_ref().map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::SpaceshipConnect => {
+            let run = Arc::new(spaceship::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "spaceship_connect",
+                run.connect().await.as_ref().map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::SpaceshipRefresh { connection_id } => {
+            let run = Arc::new(spaceship::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "spaceship_refresh",
+                run.refresh(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::SpaceshipRevoke { connection_id } => {
+            let run = Arc::new(spaceship::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "spaceship_revoke",
+                run.revoke(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
             ))
         }
         ProviderOperation::CloudflareRegistrarRefresh { connection_id } => {

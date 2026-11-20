@@ -5,6 +5,7 @@ pub(crate) mod afternic;
 pub(crate) mod afternic_delist;
 pub(crate) mod afternic_listing_write;
 mod cloudflare;
+pub(crate) mod spaceship;
 
 pub(crate) use cloudflare::{
     ProviderCredentialError, RevocationOutcome, activate, observe, purge, recover,

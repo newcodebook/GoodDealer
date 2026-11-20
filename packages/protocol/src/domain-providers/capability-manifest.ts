@@ -37,12 +37,14 @@ export type DomainProviderManifestEntry = z.infer<typeof domainProviderManifestE
 
 /**
  * Locally implemented capabilities awaiting qualification include Cloudflare's registration,
- * Zone and DNS record observation. docs/CONNECTORS.md records what the Host implements and must be
+ * Zone and DNS observation and Spaceship's registration observation.
+ * docs/CONNECTORS.md records what the Host implements and must be
  * changed with this list; the Host qualification register, not this list, decides what may run.
  * Every other entry waits on its platform's facts.
  */
 const implemented: Readonly<Partial<Record<LaunchPlatformKind, readonly DomainProviderCapabilityId[]>>> = {
   cloudflare: ["registrar.domain.observe", "zone.observe", "dns.records.observe"],
+  spaceship: ["registrar.domain.observe"],
 };
 
 export const domainProviderCapabilityManifest: readonly DomainProviderManifestEntry[] = Object.freeze(

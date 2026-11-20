@@ -171,7 +171,9 @@ pub use active_workspace::business::{
     DesktopAfternicConnectionSummary, DesktopAfternicConnectionsRead,
     DesktopAfternicInventoryReceipt, DesktopAfternicListingObservation, DesktopAfternicScanSummary,
     DesktopCloudflareRegistrarScanReceipt, DesktopCloudflareRegistrationFact,
-    DesktopCloudflareRegistrationStanding,
+    DesktopCloudflareRegistrationStanding, DesktopRegistrarScanReceipt, DesktopRegistrationFact,
+    DesktopRegistrationStanding, DesktopSpaceshipConnectionState,
+    DesktopSpaceshipConnectionSummary,
 };
 #[cfg(all(test, unix))]
 pub(crate) use active_workspace::business::{
@@ -197,6 +199,9 @@ pub use active_workspace::settings::{
 };
 pub use active_workspace::storage_repair::StorageRepairKind;
 pub use desktop_local_host::afternic::DesktopAfternicConnection;
+pub use desktop_local_host::spaceship_registrar::{
+    DesktopSpaceshipConnection, DesktopSpaceshipRegistrarStatus,
+};
 #[cfg(all(test, unix))]
 pub(crate) use portfolio_projection::DomainAssetProjectionRow;
 pub use portfolio_projection::{

@@ -4,6 +4,7 @@ pub(crate) mod afternic_delist;
 pub(crate) mod afternic_listing_plan;
 pub(crate) mod afternic_listing_write;
 pub(crate) mod forced_takeover;
+pub(crate) mod spaceship_registrar;
 pub(crate) mod target_bootstrap;
 pub(crate) mod target_installation;
 
@@ -615,13 +616,30 @@ pub(crate) fn cloudflare_connection_status(
         Some(serde_json::json!({"lastScan": prepared.last_scan(), "lastOutcome": outcome}))
     });
     let last_operation = last_operation
-        .filter(|record| {
-            !record.kind.starts_with("afternic_") && record.kind != "registrar_refresh"
-        })
+        .filter(|record| is_cloudflare_connection_operation(record.kind))
         .map(|record| serde_json::json!({ "kind": record.kind, "outcome": record.outcome }));
     Ok(
         serde_json::json!({ "schemaVersion": 1, "state": state, "connectionRef": local.connection_ref, "displayLabel": local.display_label, "qualified": local.qualified, "capturable": gooddealer_secure_host_core::CloudflareCapture::supported(), "lastOperation": last_operation, "readGeneration": local.read_generation, "registrar": registrar }),
     )
+}
+
+fn is_cloudflare_connection_operation(kind: &str) -> bool {
+    matches!(kind, "activate" | "revoke" | "purge" | "observe")
+}
+
+#[cfg(test)]
+#[test]
+fn cloudflare_connection_status_never_includes_other_platform_operations() {
+    for kind in [
+        "spaceship_connect",
+        "spaceship_refresh",
+        "spaceship_revoke",
+        "afternic_refresh",
+        "registrar_refresh",
+    ] {
+        assert!(!is_cloudflare_connection_operation(kind));
+    }
+    assert!(is_cloudflare_connection_operation("activate"));
 }
 
 #[tauri::command]

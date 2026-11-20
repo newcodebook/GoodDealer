@@ -1,4 +1,4 @@
-//! Fixed Cloudflare and Afternic capture on the running desktop GTK main loop.
+//! Fixed Provider credential capture on the running desktop GTK main loop.
 //! Provider-owned adapters select one closed purpose; no Renderer input or caller-selected
 //! labels, fields, commands, or secret destinations participate in this boundary.
 use gtk::{glib, prelude::*};
@@ -22,12 +22,14 @@ const INPUT_TIMEOUT: Duration = Duration::from_secs(120);
 pub(super) enum Purpose {
     Cloudflare,
     Afternic,
+    Spaceship,
 }
 impl Purpose {
     const fn title(self) -> &'static str {
         match self {
             Self::Cloudflare => "GoodDealer — Connect Cloudflare",
             Self::Afternic => "GoodDealer — Connect Afternic",
+            Self::Spaceship => "GoodDealer — Connect Spaceship",
         }
     }
 }
@@ -171,6 +173,11 @@ fn capture_controls(purpose: Purpose, form: &Form) -> (gtk::Grid, gtk::Button, g
             "Cloudflare API _token",
             "Connect Cloudflare",
         ),
+        Purpose::Spaceship => (
+            "Spaceship API _key",
+            "Spaceship API _secret",
+            "Connect Spaceship",
+        ),
     };
     let key_label = gtk::Label::new(Some(first_label));
     key_label.set_use_underline(true);
@@ -198,7 +205,7 @@ fn open_capture(purpose: Purpose, sender: SyncSender<Event>, cancelled: Arc<Atom
     window.set_border_width(20);
     let form = Rc::new(Form {
         key: entry(
-            purpose == Purpose::Afternic,
+            purpose != Purpose::Cloudflare,
             if purpose == Purpose::Cloudflare {
                 32
             } else {
@@ -420,7 +427,9 @@ mod tests {
             );
             assert_eq!(secret.input_purpose(), gtk::InputPurpose::Password);
             let (first, second) = match purpose {
-                Purpose::Afternic => ("native_canary_key_1234", "native_canary_secret_1234"),
+                Purpose::Afternic | Purpose::Spaceship => {
+                    ("native_canary_key_1234", "native_canary_secret_1234")
+                }
                 Purpose::Cloudflare => (
                     "0123456789abcdef0123456789abcdef",
                     "native_canary_token_1234",
@@ -449,6 +458,25 @@ mod tests {
         None
     }
 
+    fn run_spaceship_case(worker_revoked: &AtomicBool, case: NativeCase) -> bool {
+        use crate::{SpaceshipCapture, SpaceshipError};
+        let result = SpaceshipCapture::capture_guarded(&mut || {
+            if worker_revoked.load(Ordering::SeqCst) {
+                Err(SpaceshipError::AuthorityStale)
+            } else {
+                Ok(())
+            }
+        });
+        match case {
+            NativeCase::Submit => result.is_ok(),
+            NativeCase::Cancel => {
+                matches!(result, Err(SpaceshipError::CaptureCancelled))
+            }
+            NativeCase::Revoke => matches!(result, Err(SpaceshipError::AuthorityStale)),
+            NativeCase::Invalid => matches!(result, Err(SpaceshipError::InputRejected)),
+        }
+    }
+
     fn run_native_case(purpose: Purpose, case: NativeCase) {
         let revoked = Arc::new(AtomicBool::new(false));
         let worker_revoked = Arc::clone(&revoked);
@@ -457,6 +485,7 @@ mod tests {
             // Exercise each public Provider adapter as well as GTK, preserving its exact
             // error classification and full credential bytes without printing the canary.
             let accepted = match purpose {
+                Purpose::Spaceship => run_spaceship_case(&worker_revoked, case),
                 Purpose::Afternic => {
                     use crate::afternic_provider::AfternicError;
                     let result = crate::AfternicCapture::capture_guarded(&mut || {
@@ -554,7 +583,7 @@ mod tests {
     #[ignore = "requires a real GTK display; native canaries only, no account credentials"]
     fn actual_gtk_capture_submission_cancellation_revocation_and_late_dispatch() {
         assert!(gtk::init().is_ok(), "GTK display unavailable");
-        for purpose in [Purpose::Afternic, Purpose::Cloudflare] {
+        for purpose in [Purpose::Afternic, Purpose::Cloudflare, Purpose::Spaceship] {
             assert!(matches!(
                 capture(purpose, &mut || true),
                 Err(CaptureError::Unavailable)

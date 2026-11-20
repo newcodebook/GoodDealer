@@ -6,6 +6,20 @@ use serde::de::{DeserializeOwned, Deserializer, Error as _, MapAccess, SeqAccess
 use serde_json::{Map, Value};
 use tauri::ipc::{InvokeBody, Request};
 
+pub(crate) fn is_provider_connection_uuid(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && bytes[14] == b'4'
+        && matches!(bytes[19], b'8' | b'9' | b'a' | b'b')
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                *byte == b'-'
+            } else {
+                matches!(byte, b'0'..=b'9' | b'a'..=b'f')
+            }
+        })
+}
+
 pub(crate) fn decode_provider_request<T: DeserializeOwned>(
     request: &Request<'_>,
     maximum_wire_bytes: usize,

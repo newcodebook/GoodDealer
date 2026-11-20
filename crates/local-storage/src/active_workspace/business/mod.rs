@@ -100,6 +100,8 @@ pub use wire::verify_rebootstrap_plan_digest;
 mod cloudflare_credential;
 mod cloudflare_registrar;
 mod cloudflare_retirement;
+mod registrar_inventory;
+mod spaceship_registrar;
 pub(crate) use cloudflare_registrar::{
     CloudflareRegistrarInventoryCommit, CloudflareRegistrarScanHead,
 };
@@ -107,6 +109,11 @@ pub use cloudflare_registrar::{
     DesktopCloudflareRegistrarScanReceipt, DesktopCloudflareRegistrationFact,
     DesktopCloudflareRegistrationStanding,
 };
+pub use registrar_inventory::{
+    DesktopRegistrarScanReceipt, DesktopRegistrationFact, DesktopRegistrationStanding,
+};
+pub use spaceship_registrar::{DesktopSpaceshipConnectionState, DesktopSpaceshipConnectionSummary};
+pub(crate) use spaceship_registrar::{SpaceshipConnectionSeed, SpaceshipInventoryCommit};
 mod drain_claims;
 mod normal_handoff;
 pub(crate) use cloudflare_credential::{

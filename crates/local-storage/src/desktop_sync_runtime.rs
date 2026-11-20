@@ -1790,7 +1790,7 @@ fn map_database_error(error: BusinessDatabaseError) -> DesktopSyncError {
 
 /// The signed commercial contract is a canonical closed set, including a valid empty set.
 pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
-    values.len() <= 4
+    values.len() <= 5
         && values.iter().all(|value| {
             matches!(
                 value.as_str(),
@@ -1798,6 +1798,7 @@ pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
                     | "afternic:marketplace:write"
                     | "cloudflare:dns:observe"
                     | "cloudflare:registrar:observe"
+                    | "spaceship:registrar:observe"
             )
         })
         && values.windows(2).all(|pair| pair[0] < pair[1])
@@ -1812,6 +1813,7 @@ pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::active_workspace::capability_qualification::SPACESHIP_REGISTRAR_OBSERVE;
     use std::sync::{
         Arc, Barrier,
         atomic::{AtomicBool, Ordering as AtomicOrdering},
@@ -2023,6 +2025,10 @@ mod tests {
         );
         assert_eq!(
             runtime.require_provider_capability(&admitted, "afternic:marketplace:observe"),
+            Err(DesktopSyncError::Blocked)
+        );
+        assert_eq!(
+            runtime.require_provider_capability(&admitted, SPACESHIP_REGISTRAR_OBSERVE),
             Err(DesktopSyncError::Blocked)
         );
         runtime.provider_capabilities.clear();

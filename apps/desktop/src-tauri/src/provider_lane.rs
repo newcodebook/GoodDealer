@@ -1,4 +1,4 @@
-//! One Native Provider execution slot with separate Cloudflare and Afternic recovery gates.
+//! One Native Provider execution slot with independent credential recovery gates.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -29,6 +29,13 @@ pub(crate) enum ProviderOperation {
         connection_id: String,
     },
     AfternicRevoke {
+        connection_id: String,
+    },
+    SpaceshipConnect,
+    SpaceshipRefresh {
+        connection_id: String,
+    },
+    SpaceshipRevoke {
         connection_id: String,
     },
     Activate {
@@ -78,10 +85,13 @@ impl ProviderOperation {
             Self::AfternicDelistStep => "afternic:delist",
             Self::AfternicListingWriteStep => "afternic:listing-write",
             Self::AfternicConnect { .. } => "afternic:new-connection",
+            Self::SpaceshipConnect => "spaceship:new-connection",
             Self::AfternicRefresh { connection_id } | Self::AfternicRevoke { connection_id } => {
                 connection_id
             }
             Self::Activate { connection_id }
+            | Self::SpaceshipRefresh { connection_id }
+            | Self::SpaceshipRevoke { connection_id }
             | Self::CloudflareRegistrarRefresh { connection_id }
             | Self::Revoke { connection_id }
             | Self::Purge { connection_id, .. }
@@ -116,12 +126,14 @@ struct ConnectionRateState {
 pub(crate) struct ProviderRecoveryOutcome {
     pub(crate) cloudflare: bool,
     pub(crate) afternic: bool,
+    pub(crate) spaceship: bool,
 }
 impl From<bool> for ProviderRecoveryOutcome {
     fn from(complete: bool) -> Self {
         Self {
             cloudflare: complete,
             afternic: complete,
+            spaceship: complete,
         }
     }
 }
@@ -129,6 +141,7 @@ impl From<bool> for ProviderRecoveryOutcome {
 struct ProviderAdmissionState {
     recovering: bool,
     afternic_recovering: bool,
+    spaceship_recovering: bool,
     recovery_generation: Option<u64>,
     in_flight: Option<ProviderOperation>,
     rates: HashMap<String, ConnectionRateState>,
@@ -139,6 +152,7 @@ impl Default for ProviderAdmissionState {
         Self {
             recovering: true,
             afternic_recovering: true,
+            spaceship_recovering: true,
             recovery_generation: Some(0),
             in_flight: None,
             rates: HashMap::new(),
@@ -158,16 +172,20 @@ impl ProviderAdmissionState {
     fn admit(&mut self, operation: &ProviderOperation, now: Instant) -> ProviderAdmission {
         // Serial execution still drains any queued/running recovery first. Only permanent
         // retirement may pass a failed recovery gate; the Host rejects possible live writers.
-        let recovering = if operation.is_afternic() {
-            self.afternic_recovering
-        } else {
-            self.recovering
+        let recovering = match operation {
+            ProviderOperation::SpaceshipConnect
+            | ProviderOperation::SpaceshipRefresh { .. }
+            | ProviderOperation::SpaceshipRevoke { .. } => self.spaceship_recovering,
+            operation if operation.is_afternic() => self.afternic_recovering,
+            _ => self.recovering,
         };
         if self.recovery_generation.is_none()
             || (recovering
                 && !matches!(
                     operation,
-                    ProviderOperation::Purge { .. } | ProviderOperation::AfternicRevoke { .. }
+                    ProviderOperation::Purge { .. }
+                        | ProviderOperation::AfternicRevoke { .. }
+                        | ProviderOperation::SpaceshipRevoke { .. }
                 ))
         {
             return ProviderAdmission::Busy;
@@ -178,6 +196,7 @@ impl ProviderAdmissionState {
                 ProviderOperation::Observe { .. }
                     | ProviderOperation::CloudflareRegistrarRefresh { .. }
                     | ProviderOperation::AfternicRefresh { .. }
+                    | ProviderOperation::SpaceshipRefresh { .. }
             ) && in_flight == operation
             {
                 ProviderAdmission::Coalesced
@@ -197,7 +216,9 @@ impl ProviderAdmissionState {
             .entry(operation.connection_id().to_owned())
             .or_default();
         match operation {
-            ProviderOperation::Activate { .. } | ProviderOperation::AfternicConnect { .. } => {
+            ProviderOperation::Activate { .. }
+            | ProviderOperation::AfternicConnect { .. }
+            | ProviderOperation::SpaceshipConnect => {
                 if rate
                     .last_activation
                     .is_some_and(|last| now.duration_since(last) < ACTIVATION_WINDOW)
@@ -208,6 +229,7 @@ impl ProviderAdmissionState {
             }
             ProviderOperation::Observe { .. }
             | ProviderOperation::CloudflareRegistrarRefresh { .. }
+            | ProviderOperation::SpaceshipRefresh { .. }
             | ProviderOperation::AfternicRefresh { .. } => {
                 while rate
                     .observations
@@ -230,6 +252,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::AfternicListingWriteStep
             | ProviderOperation::Revoke { .. }
             | ProviderOperation::Purge { .. }
+            | ProviderOperation::SpaceshipRevoke { .. }
             | ProviderOperation::AfternicRevoke { .. } => {}
         }
         self.in_flight = Some(operation.clone());
@@ -245,6 +268,7 @@ impl ProviderAdmissionState {
     fn begin_recovery(&mut self) {
         self.recovering = true;
         self.afternic_recovering = true;
+        self.spaceship_recovering = true;
         self.recovery_generation = self
             .recovery_generation
             .and_then(|generation| generation.checked_add(1));
@@ -258,6 +282,7 @@ impl ProviderAdmissionState {
         if generation.is_some() && self.recovery_generation == generation {
             self.recovering = !complete.cloudflare;
             self.afternic_recovering = !complete.afternic;
+            self.spaceship_recovering = !complete.spaceship;
         }
     }
 }
@@ -273,12 +298,18 @@ pub(crate) struct ProviderLaneHandle {
 
 impl ProviderLaneHandle {
     pub(crate) fn status(&self) -> ProviderStatus {
-        self.status_for(false)
+        self.status_for(|state| state.recovering)
     }
     pub(crate) fn afternic_status(&self) -> ProviderStatus {
-        self.status_for(true)
+        self.status_for(|state| state.afternic_recovering)
     }
-    fn status_for(&self, afternic: bool) -> ProviderStatus {
+    pub(crate) fn spaceship_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.spaceship_recovering)
+    }
+    fn status_for(
+        &self,
+        is_recovering: impl FnOnce(&ProviderAdmissionState) -> bool,
+    ) -> ProviderStatus {
         let Ok(admission) = self.admission.lock() else {
             return ProviderStatus::Blocked;
         };
@@ -286,11 +317,7 @@ impl ProviderLaneHandle {
             ProviderStatus::Blocked
         } else if admission.in_flight.is_some() {
             ProviderStatus::Busy
-        } else if if afternic {
-            admission.afternic_recovering
-        } else {
-            admission.recovering
-        } {
+        } else if is_recovering(&admission) {
             ProviderStatus::Recovering
         } else {
             ProviderStatus::Ready
@@ -471,7 +498,11 @@ impl ProviderLane {
                     self.complete(&operation);
                     self.delist_wake.notify_one();
                     if !*self.cancel.borrow()
-                        && matches!(operation, ProviderOperation::AfternicRevoke { .. })
+                        && matches!(
+                            operation,
+                            ProviderOperation::AfternicRevoke { .. }
+                                | ProviderOperation::SpaceshipRevoke { .. }
+                        )
                     {
                         let generation = self.recovery_generation();
                         let complete = recover().await;
@@ -606,6 +637,7 @@ mod tests {
             ProviderRecoveryOutcome {
                 cloudflare: true,
                 afternic: false,
+                spaceship: true,
             },
         );
         assert_eq!(handle.status(), ProviderStatus::Ready);
@@ -624,6 +656,7 @@ mod tests {
             ProviderRecoveryOutcome {
                 cloudflare: false,
                 afternic: true,
+                spaceship: true,
             },
         );
         assert_eq!(

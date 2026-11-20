@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createCloudflarePort,
   createAfternicPort,
+  createSpaceshipRegistrarPort,
   createAfternicDelistPort,
   createAfternicListingPlanPort,
   createAfternicListingWritePort,
@@ -69,6 +70,7 @@ const workspacePorts: AuthoritativeWorkspacePorts = {
   manualTasks: createLocalManualTasksPort(),
   cloudflare: createCloudflarePort(),
   afternic: createAfternicPort(),
+  spaceship: createSpaceshipRegistrarPort(),
   afternicDelist: createAfternicDelistPort(),
   afternicListingPlan: createAfternicListingPlanPort(),
   afternicListingWrite: createAfternicListingWritePort(),

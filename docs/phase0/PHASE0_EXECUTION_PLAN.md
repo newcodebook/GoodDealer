@@ -466,3 +466,11 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - Cloudflare 和 Afternic 使用同一 Native GTK 的窗口生命周期与取消处理。用途固定在对应的 Service 内，窗口接收各自有界字段。Cloudflare 复用 v3 信封与现有连接代次，Secret Service 条目由跨进程槽锁保护。退役仅检查固定槽元数据和删除结果，可处理无法解析的载荷与精确重复条目。
 - Cloudflare 激活检查当前 Native 电源纪元。收到平台结果后，按电源、取消、Host 的锁顺序准入准备与 prewrite。进入 prewrite 后，已开始的本地托管 CAS 沿原标记和回读完成，失去 Host 权威时保留可恢复状态。当前仍需真实开发授权及 Cloudflare 账户验收。
 - 真实 GTK 窗口与 Secret Service 测试槽分别通过。Native 验证覆盖两种窗口提交与取消、托管信封精确替换、损坏和重复条目退役及最终缺失确认。Core/Tauri 全模块测试、Storage 托管专项、严格 Clippy、平台无关检查及独立审查通过。
+- 提交 `7966da4` 通过完整根 `pnpm check`，已快进到主工作目录。
+
+## 2026-11-20 Spaceship Registrar 账户归集
+
+- 设置页接入独立的 Spaceship 连接、刷新、结果和断开。官方 `domains:read` 使用固定 HTTPS 端点和专用 Native 托管槽。接续 Afternic 首次导入故障的经验，分开显示托管、凭据拒绝、网络/限速与响应校验状态，原始账号数据留在 Native。
+- 新增本地 `202611190010`，旧迁移保持原字节。Node/Renderer 只传短业务动作或读取脱敏回执。SQLCipher 在既有 writer 里原子提交资产、Outbox 与注册观察。重启重新读取已持久发起的扫描；部分结果不提交，已存回执保留。确认空准备槽可回收，撤销先持久拒绝再清除精确 Native 槽。
+- 根 `pnpm check`、Linux Desktop 构建、Windows GNU 目标严格 Clippy、本机 PostgreSQL 设备授权与执行证据 184/184、SQLCipher 专项 2/2、真实 GTK 与隔离 Secret Service 合成数据测试通过。源码与复审结果见 [审查记录](../reviews/2026-11-20-spaceship-registrar-review.md)。
+- 真实验收需要具名开发准入和签发 `spaceship:registrar:observe`、有 `domains:read` 的 Spaceship 凭据与已知域名。生产资格仍待取证；SellerHub、Windows/macOS 实机验证待推进。

@@ -5,8 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::{fmt, sync::Mutex};
 use zeroize::{Zeroize, Zeroizing};
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-const SERVICE: &str = "com.gooddealer.desktop.afternic.listing.v1";
 const MAX_ENVELOPE: usize = 4096;
 static CUSTODY: Mutex<()> = Mutex::new(());
 
@@ -289,151 +287,38 @@ pub(super) fn parse_capture(bytes: &[u8]) -> Result<AfternicCredential, Afternic
 }
 #[cfg(target_os = "macos")]
 fn capture_macos(guard: &mut AfternicGuard<'_>) -> Result<AfternicCredential, AfternicError> {
-    use std::{
-        io::Read,
-        process::{Command, Stdio},
-        time::{Duration, Instant},
-    };
-    const SCRIPT: &str = r#"set apiKey to text returned of (display dialog "Afternic API key" default answer "" with hidden answer)
-set apiSecret to text returned of (display dialog "Afternic API secret" default answer "" with hidden answer)
-return apiKey & linefeed & apiSecret"#;
-    let mut child = Command::new("/usr/bin/osascript")
-        .args(["-e", SCRIPT])
-        .env_clear()
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .stdout(Stdio::piped())
-        .spawn()
-        .map_err(|_| AfternicError::CustodyUnavailable)?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or(AfternicError::CustodyUnavailable)?;
-    let reader = std::thread::spawn(move || {
-        let mut bytes = Zeroizing::new(Vec::new());
-        stdout.take(1027).read_to_end(&mut bytes).map(|_| bytes)
-    });
-    let deadline = Instant::now() + Duration::from_secs(120);
-    let status = loop {
-        if guard().is_err() || Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = reader.join();
-            return Err(AfternicError::AuthorityStale);
-        }
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = reader.join();
-                return Err(AfternicError::CustodyUnavailable);
-            }
-        }
-    };
-    let bytes = reader
-        .join()
-        .map_err(|_| AfternicError::CustodyUnavailable)?
-        .map_err(|_| AfternicError::CustodyUnavailable)?;
+    use crate::macos_pair_capture::{CaptureError, Purpose, capture};
+    let bytes =
+        capture(Purpose::Afternic, &mut || guard().is_ok()).map_err(|error| match error {
+            CaptureError::Unavailable => AfternicError::CustodyUnavailable,
+            CaptureError::Cancelled => AfternicError::CaptureCancelled,
+            CaptureError::AuthorityStale => AfternicError::AuthorityStale,
+        })?;
     guard()?;
-    if !status.success() {
-        return Err(AfternicError::CaptureCancelled);
-    }
     parse_capture(&bytes)
 }
 
-#[cfg(target_os = "linux")]
 fn native_load(account: &str) -> Result<Option<Zeroizing<Vec<u8>>>, AfternicError> {
-    crate::secret_service_custody::load(SERVICE, account)
-        .map_err(|_| AfternicError::CustodyUnavailable)
-}
-#[cfg(target_os = "linux")]
-fn native_store(account: &str, bytes: &[u8]) -> Result<(), AfternicError> {
-    crate::secret_service_custody::store(SERVICE, account, bytes)
-        .map_err(|_| AfternicError::CustodyUnavailable)
-}
-#[cfg(target_os = "linux")]
-fn native_delete(account: &str) -> Result<(), AfternicError> {
-    crate::secret_service_custody::delete(SERVICE, account)
-        .map_err(|_| AfternicError::CustodyUnavailable)
-}
-#[cfg(target_os = "macos")]
-fn keychain_options(
-    account: &str,
-    protect: bool,
-) -> Result<security_framework::passwords::PasswordOptions, AfternicError> {
-    use security_framework::{
-        access_control::{ProtectionMode, SecAccessControl},
-        passwords::{AccessControlOptions, PasswordOptions},
-    };
-    let mut options = PasswordOptions::new_generic_password(SERVICE, account);
-    options.use_protected_keychain();
-    options.set_access_synchronized(Some(false));
-    if protect {
-        options.set_access_control(
-            SecAccessControl::create_with_protection(
-                Some(ProtectionMode::AccessibleWhenUnlockedThisDeviceOnly),
-                AccessControlOptions::empty().bits(),
-            )
-            .map_err(|_| AfternicError::CustodyUnavailable)?,
-        );
-    }
-    Ok(options)
-}
-#[cfg(target_os = "macos")]
-fn native_load(account: &str) -> Result<Option<Zeroizing<Vec<u8>>>, AfternicError> {
-    match security_framework::passwords::generic_password(keychain_options(account, false)?) {
-        Ok(bytes) => Ok(Some(Zeroizing::new(bytes))),
-        Err(error) if error.code() == -25300 => Ok(None),
-        Err(_) => Err(AfternicError::CustodyUnavailable),
-    }
-}
-#[cfg(target_os = "macos")]
-fn native_store(account: &str, bytes: &[u8]) -> Result<(), AfternicError> {
-    security_framework::passwords::set_generic_password_options(
-        bytes,
-        keychain_options(account, true)?,
+    crate::provider_credential_slot::load(
+        crate::provider_credential_slot::Service::Afternic,
+        account,
     )
     .map_err(|_| AfternicError::CustodyUnavailable)
 }
-#[cfg(target_os = "macos")]
-fn native_delete(account: &str) -> Result<(), AfternicError> {
-    match security_framework::passwords::delete_generic_password_options(keychain_options(
-        account, false,
-    )?) {
-        Ok(()) => Ok(()),
-        Err(error) if error.code() == -25300 => Ok(()),
-        Err(_) => Err(AfternicError::CustodyUnavailable),
-    }
-}
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn native_load(_: &str) -> Result<Option<Zeroizing<Vec<u8>>>, AfternicError> {
-    Err(AfternicError::CustodyUnavailable)
-}
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn native_store(_: &str, _: &[u8]) -> Result<(), AfternicError> {
-    Err(AfternicError::CustodyUnavailable)
-}
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn native_delete(_: &str) -> Result<(), AfternicError> {
-    Err(AfternicError::CustodyUnavailable)
-}
-
-#[cfg(windows)]
-fn native_load(account: &str) -> Result<Option<Zeroizing<Vec<u8>>>, AfternicError> {
-    crate::windows_custody::load(SERVICE, account)
-        .map(|value| value.map(Zeroizing::new))
-        .map_err(|_| AfternicError::CustodyUnavailable)
-}
-#[cfg(windows)]
 fn native_store(account: &str, bytes: &[u8]) -> Result<(), AfternicError> {
-    crate::windows_custody::store(SERVICE, account, bytes)
-        .map_err(|_| AfternicError::CustodyUnavailable)
+    crate::provider_credential_slot::store(
+        crate::provider_credential_slot::Service::Afternic,
+        account,
+        bytes,
+    )
+    .map_err(|_| AfternicError::CustodyUnavailable)
 }
-#[cfg(windows)]
 fn native_delete(account: &str) -> Result<(), AfternicError> {
-    crate::windows_custody::delete(SERVICE, account).map_err(|_| AfternicError::CustodyUnavailable)
+    crate::provider_credential_slot::delete(
+        crate::provider_credential_slot::Service::Afternic,
+        account,
+    )
+    .map_err(|_| AfternicError::CustodyUnavailable)
 }
 
 #[cfg(test)]

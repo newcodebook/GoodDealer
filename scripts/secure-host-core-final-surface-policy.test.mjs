@@ -30,6 +30,7 @@ const expectedSourceFiles = [
   "lib.rs",
   "linux_credential_capture.rs",
   "local_workspace_binding.rs",
+  "macos_pair_capture.rs",
   "native_continuous_clock.rs",
   "native_continuous_clock/macos.rs",
   "native_continuous_clock/windows.rs",
@@ -37,7 +38,11 @@ const expectedSourceFiles = [
   "native_power/linux.rs",
   "native_power/macos.rs",
   "native_power/windows.rs",
+  "provider_credential_slot.rs",
   "secret_service_custody.rs",
+  "spaceship.rs",
+  "spaceship/credentials.rs",
+  "spaceship/registrar_wire.rs",
   "windows_credential_capture.rs",
   "windows_custody.rs",
   "windows_custody/format.rs",
@@ -50,6 +55,11 @@ const expectedAfternicExports = [
   "load_afternic_credential_guarded", "publish_afternic_credential_guarded", "purge_afternic_credential_guarded",
   "AfternicDomainObservation", "AfternicError", "AfternicGuard", "AfternicListing", "AfternicListingFields",
   "AfternicListingIntent", "AfternicListingStatus", "AfternicPortfolio", "AfternicProviderClient", "AfternicWriteOutcome",
+];
+const expectedSpaceshipExports = [
+  "SpaceshipCapture", "SpaceshipCredential", "SpaceshipCredentialPlan", "SpaceshipError", "SpaceshipGuard",
+  "SpaceshipRegistrarClient", "SpaceshipRegistration", "SpaceshipRegistrationStanding",
+  "load_spaceship_credential_guarded", "publish_spaceship_credential_guarded", "purge_spaceship_credential_guarded",
 ];
 const expectedCloudflareCaptureExports = [
   "CloudflareCandidate",
@@ -244,6 +254,7 @@ const expectedLocalStorageExportModules = [
   "active_workspace::settings",
   "active_workspace::storage_repair",
   "desktop_local_host::afternic",
+  "desktop_local_host::spaceship_registrar",
   "portfolio_projection",
   "application_root",
   "desktop_business_runtime",
@@ -353,6 +364,13 @@ const expectedLocalStoragePublicExports = [
   "DesktopCloudflareRegistrarScanReceipt",
   "DesktopCloudflareRegistrationFact",
   "DesktopCloudflareRegistrationStanding",
+  "DesktopRegistrarScanReceipt",
+  "DesktopRegistrationFact",
+  "DesktopRegistrationStanding",
+  "DesktopSpaceshipConnection",
+  "DesktopSpaceshipConnectionState",
+  "DesktopSpaceshipConnectionSummary",
+  "DesktopSpaceshipRegistrarStatus",
   "DesktopCloudflareResolution",
   "DesktopCloudflareRetirement",
   "DesktopCloudflareRetirementCandidate",
@@ -474,9 +492,10 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   if (pathState(libPath) !== "file") return errors;
   const libSource = readRegularFile(libPath, errors);
   if (libSource === null) return errors;
-  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory|native_power|native_continuous_clock)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
+  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory|native_power|native_continuous_clock|spaceship)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
   const exportMatches = [...libSource.matchAll(exportPattern)];
   const expectedExportModules = [
+    "spaceship",
     "afternic_credentials",
     "afternic_provider",    "cloudflare_capture",
     "cloudflare_keychain",
@@ -502,6 +521,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     ...expectedNativePowerExports,
     ...expectedNativeContinuousClockExports,
     ...expectedAfternicExports,
+    ...expectedSpaceshipExports,
     ...expectedCloudflareCaptureExports,
     ...expectedCloudflareKeychainExports,
     ...expectedCloudflareProviderExports,

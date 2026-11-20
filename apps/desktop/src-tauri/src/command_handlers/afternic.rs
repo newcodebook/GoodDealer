@@ -1,6 +1,6 @@
 //! Bounded Afternic business intents. Credentials are captured only by Native.
 use crate::native_cloud_runtime::NativeCloudCoordinator;
-use crate::provider_ipc::decode_provider_request;
+use crate::provider_ipc::{decode_provider_request, is_provider_connection_uuid};
 use crate::provider_lane::{ProviderOperation, ProviderStatus, ProviderSubmission};
 use gooddealer_local_storage::DesktopLocalHost;
 use serde::Deserialize;
@@ -37,19 +37,7 @@ impl ConnectRequest {
 }
 impl ConnectionRequest {
     fn validate(self) -> Result<String, String> {
-        let bytes = self.connection_id.as_bytes();
-        if self.schema_version != 1
-            || bytes.len() != 36
-            || bytes[14] != b'4'
-            || !matches!(bytes[19], b'8' | b'9' | b'a' | b'b')
-            || bytes.iter().enumerate().any(|(i, b)| {
-                if matches!(i, 8 | 13 | 18 | 23) {
-                    *b != b'-'
-                } else {
-                    !matches!(b, b'0'..=b'9' | b'a'..=b'f')
-                }
-            })
-        {
+        if self.schema_version != 1 || !is_provider_connection_uuid(&self.connection_id) {
             return Err(rejected());
         }
         Ok(self.connection_id)

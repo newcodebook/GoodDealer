@@ -242,6 +242,8 @@ fn main() {
             command_handlers::afternic_listing_write::afternic_listing_write_preview,
             command_handlers::afternic_listing_write::afternic_listing_write_status,
             command_handlers::afternic::afternic_inventory_refresh,
+            command_handlers::spaceship_registrar::spaceship_registrar_status,
+            command_handlers::spaceship_registrar::spaceship_registrar_submit,
             command_handlers::cloudflare_connection_activate,
             command_handlers::cloudflare_connection_create,
             command_handlers::cloudflare_connection_revoke,

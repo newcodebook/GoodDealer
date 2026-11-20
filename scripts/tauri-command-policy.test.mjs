@@ -74,6 +74,8 @@ function createFixture() {
     "local_sales_read",
     "local_settings_read",
     "local_storage_repair",
+    "spaceship_registrar_status",
+    "spaceship_registrar_submit",
     "target_bootstrap_status",
     "target_installation_start",
     "target_installation_status",
@@ -147,12 +149,14 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
   writeFile(
     root,
     "apps/desktop/src/adapters/tauri/index.ts",
-    commands.filter((command) => !command.startsWith("local_backup_") && !command.startsWith("afternic_") && !command.startsWith("forced_takeover_"))
+    commands.filter((command) => !command.startsWith("local_backup_") && !command.startsWith("afternic_") && !command.startsWith("forced_takeover_") && !command.startsWith("spaceship_"))
       .map((command) => `invoke("${command}")`)
       .join("\n"),
   );
   writeFile(root, "apps/desktop/src/adapters/tauri/forced-takeover.ts",
     commands.filter(command => command.startsWith("forced_takeover_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/spaceship-registrar.ts",
+    commands.filter(command => command.startsWith("spaceship_")).map(command => `invoke("${command}")`).join("\n"));
   writeFile(
     root,
     "apps/desktop/src/adapters/tauri/afternic.ts",

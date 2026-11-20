@@ -2,6 +2,7 @@ import {
   createConflictResolutionIntent,
   type DeviceDirectorySettingsPort,
   type AfternicConnectionPort,
+  type SpaceshipRegistrarPort,
   type AfternicDelistPort,
   type AfternicListingPlanPort,
   type AfternicListingWritePort,
@@ -67,6 +68,7 @@ export interface AuthoritativeWorkspacePorts {
    */
   readonly cloudflare: CloudflareConnectionPort;
   readonly afternic: AfternicConnectionPort;
+  readonly spaceship?: SpaceshipRegistrarPort;
   readonly afternicDelist: AfternicDelistPort;
   readonly afternicListingPlan?: AfternicListingPlanPort;
   readonly afternicListingWrite: AfternicListingWritePort;

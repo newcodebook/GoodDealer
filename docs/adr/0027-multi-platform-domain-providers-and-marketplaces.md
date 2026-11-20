@@ -144,7 +144,7 @@ Provider 页面回跳只构成不可信的 reconciliation hint，不能作为成
   不引入第三方 IP 查询服务。
 - **最小权限**：支持 scope 的平台（Spaceship、Cloudflare）只请求 manifest 中已实现能力所需的 scope；
   连接校验发现 scope 不足时按能力降级，而不是整条连接失败。
-- **Linux**：Provider 秘密按 [ADR-0025](0025-linux-secret-service-custody.md) 的具名条目准入。Afternic API key/secret 可通过固定 Native GTK 窗口录入并托管于 Secret Service；其他 Provider 与备份条目仍须分别明确威胁接受。Linux 开发验收与 Windows/macOS 完整目标及实机资格分别记录。
+- **Linux**：Provider 秘密按 [ADR-0025](0025-linux-secret-service-custody.md) 的具名条目准入。固定 Native GTK 窗口只捕获已列明用途的字段，条目存入 Secret Service。新增 Provider 与备份条目须分别明确威胁接受。Linux 开发验收与 Windows/macOS 完整目标及实机资格分别记录。
 
 Cloudflare 观察的 401/403 统一表示凭据被拒绝，不据此区分失效与权限不足；429、408、425 与服务端错误
 表示稍后重试，传输失败表示无法连接，其他不符响应为通用失败。写操作仍按未知结果规则先对账，

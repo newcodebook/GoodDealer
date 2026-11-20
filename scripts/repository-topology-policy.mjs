@@ -476,7 +476,7 @@ export const repositoryTopology = Object.freeze([
       "getrandom",
       // Fixed Linux system logind sleep/resume notifications and delay inhibitor.
       "gio",
-      // Fixed Linux Afternic masked-input window on the existing GTK main context.
+      // Fixed Linux Provider credential windows on the existing GTK main context.
       "gtk",
       "hmac",
       "keyring-core",
@@ -494,6 +494,7 @@ export const repositoryTopology = Object.freeze([
       "serde_json",
       "sha2",
       "tempfile",
+      "time",
       "tokio",
       "tokio-rustls",
       "url",

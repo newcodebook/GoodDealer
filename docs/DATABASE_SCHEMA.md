@@ -65,6 +65,8 @@ Desired State 与 Observed State 永远分离。Provider 观察不能直接覆�
 | `cloudflare_dns_staged_batches` / `cloudflare_dns_staged_records` | 保存凭据切换期间的非秘密 DNS 观察 custody：batch 绑定 workspace/connection incarnation、来源 intent、observation/run/entity、Lease Epoch、scope/Zone/observation digest、观察时间、Zone/Nameserver/DNSSEC/可用性/Provider version 事实及规范化记录；`visibility` 仅允许 `staged`、`committed`、`discarded`，credential intent 通过 batch ID 与完整 observation digest 精确绑定后才可提交或丢弃。 | 否；仅成功提交后另行产生 count-only Cloud 投影 |
 | `cloudflare_dns_source_heads` / `cloudflare_dns_projection_outbox` / `cloudflare_dns_projection_heads` | 保存 Cloudflare DNS 观察的单调来源序列、count-only Cloud 投影及其 durable delivery lease、重试截止时间和 ACK 头。 | 仅同步 count-only 投影；不含凭据或 Provider 原始记录 |
 | `provider_observation_runs` | 一次本地 Provider 读取的状态、`observation_capability`、Connector 版本和错误。 | 否；含本地连接 FK |
+| `spaceship_registrar_connections` | 本地 Spaceship Registrar 连接 incarnation、随机托管见证、待扫描、撤销和清理状态。 | 否；凭据保存在 Native |
+| `spaceship_registrar_scans` | 同一连接完整扫描的导入数量、时间及本地观察运行引用。 | 否；新域名走通常的资产 Outbox |
 | `provider_observation_targets` | 每次读取的逐资产 requested/succeeded/failed/missing 结果，用于部分失败和有界重试。 | 否；含本地运行 FK |
 | `registrar_observations` | Registrar、注册/到期、续费、锁定和置信状态。 | 仅显式脱敏字段 |
 | `dns_zone_observations` | Zone、NS、DNSSEC、Provider 修改时间和证据状态。 | 仅显式脱敏字段 |

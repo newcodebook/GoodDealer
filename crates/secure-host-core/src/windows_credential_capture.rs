@@ -17,6 +17,7 @@ const MAX_CHARACTERS: usize = 512;
 pub(crate) enum Purpose {
     Cloudflare,
     Afternic,
+    Spaceship,
 }
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum CaptureError {
@@ -108,6 +109,12 @@ impl Dialog {
                 "Connect Afternic - GoodDealer",
                 "API key",
                 "API secret",
+                true,
+            ),
+            Purpose::Spaceship => (
+                "Connect Spaceship - GoodDealer",
+                "Spaceship API key",
+                "Spaceship API secret",
                 true,
             ),
         };

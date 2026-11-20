@@ -59,6 +59,32 @@ pub(crate) const CLOUDFLARE_V2_MIGRATION_SQL: &str = include_str!("cloudflare_v2
 #[cfg(test)]
 pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
     (
+        "spaceship_registrar_connections",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "credential_proof",
+            "state",
+            "scan_pending",
+            "created_at",
+            "purged_at",
+        ],
+    ),
+    (
+        "spaceship_registrar_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "observation_run_id",
+            "observed_count",
+            "imported_count",
+            "skipped_count",
+            "completed_at",
+        ],
+    ),
+    (
         "afternic_ownership_review_preflights",
         &[
             "workspace_id",

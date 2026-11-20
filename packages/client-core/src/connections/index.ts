@@ -314,3 +314,4 @@ export { deviceDirectoryViewSchema, deviceSelfNameIntentSchema, parseDeviceDirec
 export { afternicConnectIntentSchema, afternicConnectionIntentSchema, afternicConnectionsStatusSchema, parseAfternicConnectionsStatus, type AfternicConnectionsStatus, type AfternicConnectionPort } from "./afternic";
 
 export { afternicControlledAcceptanceSchema, type AfternicControlledAcceptance } from "./afternic-controlled-acceptance";
+export { parseSpaceshipRegistrarStatus, spaceshipRegistrarIntentSchema, type SpaceshipRegistrarIntent, type SpaceshipRegistrarPort, type SpaceshipRegistrarStatus } from "./spaceship-registrar";

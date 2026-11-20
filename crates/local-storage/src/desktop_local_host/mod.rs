@@ -26,6 +26,7 @@ mod restore;
     reason = "backup projection accessors await production native composition"
 )]
 mod source;
+pub(crate) mod spaceship_registrar;
 #[cfg(all(test, unix))]
 mod standby_tests;
 mod sync;
