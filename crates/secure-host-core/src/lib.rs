@@ -79,7 +79,8 @@ pub use sedo::{
 pub use spaceship::{
     SpaceshipCapture, SpaceshipClient, SpaceshipCredential, SpaceshipCredentialPlan,
     SpaceshipError, SpaceshipGuard, SpaceshipRegistration, SpaceshipRegistrationStanding,
-    SpaceshipSellerHubListing, SpaceshipSellerHubStatus, load_spaceship_credential_guarded,
+    SpaceshipSellerHubCreateObservation, SpaceshipSellerHubListing, SpaceshipSellerHubStatus,
+    SpaceshipSellerHubTxtOption, SpaceshipSellerHubTxtRecord, load_spaceship_credential_guarded,
     publish_spaceship_credential_guarded, purge_spaceship_credential_guarded,
 };
 

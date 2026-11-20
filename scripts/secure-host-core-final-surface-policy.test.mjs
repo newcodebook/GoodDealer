@@ -57,6 +57,7 @@ const expectedSourceFiles = [
   "spaceship.rs",
   "spaceship/credentials.rs",
   "spaceship/registrar_wire.rs",
+  "spaceship/sellerhub_verification_wire.rs",
   "spaceship/sellerhub_wire.rs",
   "windows_credential_capture.rs",
   "windows_custody.rs",
@@ -74,7 +75,8 @@ const expectedAfternicExports = [
 const expectedSpaceshipExports = [
   "SpaceshipCapture", "SpaceshipCredential", "SpaceshipCredentialPlan", "SpaceshipError", "SpaceshipGuard",
   "SpaceshipClient", "SpaceshipRegistration", "SpaceshipRegistrationStanding",
-  "SpaceshipSellerHubListing", "SpaceshipSellerHubStatus",
+  "SpaceshipSellerHubCreateObservation", "SpaceshipSellerHubListing", "SpaceshipSellerHubStatus",
+  "SpaceshipSellerHubTxtOption", "SpaceshipSellerHubTxtRecord",
   "load_spaceship_credential_guarded", "publish_spaceship_credential_guarded", "purge_spaceship_credential_guarded",
 ];
 const expectedAliyunExports = [
@@ -431,6 +433,17 @@ const expectedLocalStoragePublicExports = [
   "DesktopGoDaddyConnectionSummary",
   "DesktopSpaceshipRegistrarStatus",
   "DesktopSellerHubConnection",
+  "DesktopSellerHubCreateApproval",
+  "DesktopSellerHubCreateApproveRequest",
+  "DesktopSellerHubCreateClaim",
+  "DesktopSellerHubCreateDetail",
+  "DesktopSellerHubCreatePlanSummary",
+  "DesktopSellerHubCreatePreview",
+  "DesktopSellerHubCreatePreviewRequest",
+  "DesktopSellerHubCreateStatus",
+  "DesktopSellerHubCreateStatusRequest",
+  "DesktopSellerHubCreateWork",
+  "SellerHubCreateReadback",
   "DesktopSellerHubBinApproval",
   "DesktopSellerHubBinApproveRequest",
   "DesktopSellerHubBinClaim",
@@ -649,7 +662,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   const exactPublicItemSurfaces = [
     ["desktop_device_identity/execution_evidence.rs", [
       "sign_afternic_delist_approval_transcript", "sign_afternic_listing_plan_approval_transcript",
-      "sign_afternic_listing_write_approval_transcript", "sign_afternic_ownership_review_approval_transcript", "sign_sellerhub_bin_price_approval_transcript", "sign_atom_standard_delist_approval_transcript", "sign_device_audit_event_transcript",
+      "sign_afternic_listing_write_approval_transcript", "sign_afternic_ownership_review_approval_transcript", "sign_sellerhub_bin_price_approval_transcript", "sign_sellerhub_create_listing_approval_transcript", "sign_atom_standard_delist_approval_transcript", "sign_device_audit_event_transcript",
       "sign_execution_fact_transcript",
     ], "device execution evidence"],
     ["native_continuous_clock.rs", expectedNativeContinuousClockPublicItems, "native continuous clock"],
@@ -743,6 +756,7 @@ export function localStorageFinalSurfaceErrors({ storageRoot = repositoryLocalSt
       "fnsign_afternic_listing_plan_approval(&self,_transcript:&[u8])->Result<[u8;64],Error>{Err(Error::Unavailable)}",
       "fnsign_afternic_ownership_review_approval(&self,_transcript:&[u8])->Result<[u8;64],Error>{Err(Error::Unavailable)}",
       "fnsign_sellerhub_bin_price_approval(&self,_transcript:&[u8])->Result<[u8;64],Error>{Err(Error::Unavailable)}",
+      "fnsign_sellerhub_create_listing_approval(&self,_transcript:&[u8])->Result<[u8;64],Error>{Err(Error::Unavailable)}",
       "fnsign_atom_standard_delist_approval(&self,_transcript:&[u8])->Result<[u8;64],Error>{Err(Error::Unavailable)}",
       "fnsign_device_audit_event(&self,transcript:&[u8])->Result<[u8;64],Error>;",
       "fnsign_execution_fact(&self,transcript:&[u8])->Result<[u8;64],Error>;",
@@ -1003,7 +1017,7 @@ test("rejects execution context setters, public samples and caller-selected trus
   assert.ok(localStorageFinalSurfaceErrors({ storageRoot: fixture }).some((error) => error.includes("Native port")));
 });
 
-test("rejects an arbitrary device evidence signer outside the three fixed purposes", (t) => {
+test("rejects an arbitrary device evidence signer outside the fixed purposes", (t) => {
   const fixture = useFixture(t);
   writeFileSync(join(fixture, "src/desktop_device_identity/execution_evidence.rs"),
     "\nimpl DesktopDeviceIdentity { pub fn sign_arbitrary_bytes(&self, bytes: &[u8]) {} }\n", { flag: "a" });

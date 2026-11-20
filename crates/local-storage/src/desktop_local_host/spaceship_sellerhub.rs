@@ -23,6 +23,12 @@ use crate::{
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+#[path = "spaceship_sellerhub_creation.rs"]
+mod creation;
+pub use creation::{
+    DesktopSellerHubCreateClaim, DesktopSellerHubCreateStatus, DesktopSellerHubCreateWork,
+};
+
 /// Opaque Native-only receipt for one exact credential incarnation and scan head.
 pub struct DesktopSellerHubConnection {
     admission: DesktopNativeCloudAdmission,

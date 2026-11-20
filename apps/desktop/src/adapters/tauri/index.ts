@@ -1036,4 +1036,4 @@ export { createAfternicListingWritePort } from "./afternic-listing-write";
 export { createAfternicListingPlanPort } from "./afternic-listing-plan";
 
 export { createCloudflareRegistrarAccountPort } from "./cloudflare-registrar-account";
-export { createSellerHubBinPricePort, createSellerHubPort } from "./sellerhub";
+export { createSellerHubBinPricePort, createSellerHubCreatePort, createSellerHubPort } from "./sellerhub";

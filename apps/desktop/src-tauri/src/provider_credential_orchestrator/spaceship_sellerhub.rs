@@ -12,6 +12,9 @@ use gooddealer_local_storage::{
 };
 use gooddealer_secure_host_core::{SpaceshipSellerHubListing, SpaceshipSellerHubStatus};
 
+#[path = "spaceship_sellerhub_creation.rs"]
+mod creation;
+
 struct Slot<'a>(&'a DesktopSellerHubConnection);
 impl SpaceshipCredentialPlan for Slot<'_> {
     fn connection_incarnation(&self) -> &str {

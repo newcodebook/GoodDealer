@@ -35,6 +35,7 @@ pub(crate) const ATOM_MARKETPLACE_OBSERVE: &str = "atom:marketplace:observe";
 pub(crate) const ATOM_MARKETPLACE_WRITE: &str = "atom:marketplace:write";
 pub(crate) const SEDO_MARKETPLACE_OBSERVE: &str = "sedo:marketplace:observe";
 pub(crate) const SPACESHIP_MARKETPLACE_OBSERVE: &str = "spaceship:marketplace:observe";
+pub(crate) const SPACESHIP_MARKETPLACE_CREATE: &str = "spaceship:marketplace:create-listing";
 pub(crate) const SPACESHIP_MARKETPLACE_WRITE: &str = "spaceship:marketplace:write";
 pub(crate) const SPACESHIP_REGISTRAR_OBSERVE: &str = "spaceship:registrar:observe";
 

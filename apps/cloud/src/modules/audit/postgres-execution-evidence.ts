@@ -1,6 +1,7 @@
 import { createHash, verify } from "node:crypto";
 import {
   atomStandardDelistApprovalAuditPayloadSchema, atomStandardDelistAuditPayloadSchema, atomStandardDelistClaimPayloadSchema,
+  sellerHubCreateListingApprovalAuditPayloadSchema, sellerHubCreateListingAuditPayloadSchema, sellerHubCreateListingClaimPayloadSchema,
   sellerHubBinPriceApprovalAuditPayloadSchema, sellerHubBinPriceAuditPayloadSchema, sellerHubBinPriceClaimPayloadSchema,
   afternicListingPlanApprovalAuditPayloadSchema, afternicListingPlanClaimAuditPayloadSchema,
   afternicListingPlanPreflightRefusedAuditPayloadSchema, afternicListingPlanReconciledAuditPayloadSchema,
@@ -160,11 +161,13 @@ export class PostgresDeviceAuditEvidenceService {
     pending: string | null;
   }> {
     const sellerHub = sellerHubBinPriceAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const creation = sellerHubCreateListingAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const seller = creation.success ? creation : sellerHub;
     const atom = atomStandardDelistAuditPayloadSchema.safeParse(event.payloadRedacted);
     const requiredCapability = atom.success
       ? atom.data.stage === "reconciled" ? "atom:marketplace:observe" : "atom:marketplace:write"
-      : sellerHub.success
-      ? sellerHub.data.stage === "reconciled" ? "spaceship:marketplace:observe" : "spaceship:marketplace:write"
+      : seller.success
+      ? seller.data.stage === "reconciled" ? "spaceship:marketplace:observe" : "spaceship:marketplace:write"
       : "afternic:marketplace:write";
     const context = await this.contexts.read(source.transaction, {
       requiredCapability,
@@ -219,11 +222,11 @@ export class PostgresDeviceAuditEvidenceService {
       ) !== event.chainId
     )
       return verdict("audit_chain");
-    const marketplace = atom.success ? atom : sellerHub;
+    const marketplace = atom.success ? atom : seller;
     if (marketplace.success) {
       const p = marketplace.data;
-      const claim = atom.success ? atomStandardDelistClaimPayloadSchema : sellerHubBinPriceClaimPayloadSchema;
-      const approval = atom.success ? atomStandardDelistApprovalAuditPayloadSchema : sellerHubBinPriceApprovalAuditPayloadSchema;
+      const claim = atom.success ? atomStandardDelistClaimPayloadSchema : creation.success ? sellerHubCreateListingClaimPayloadSchema : sellerHubBinPriceClaimPayloadSchema;
+      const approval = atom.success ? atomStandardDelistApprovalAuditPayloadSchema : creation.success ? sellerHubCreateListingApprovalAuditPayloadSchema : sellerHubBinPriceApprovalAuditPayloadSchema;
       if (p.stage === "approved") return verdict(null);
       if (p.stage === "reconciled") {
         if (p.originalActiveLeaseEpoch > event.activeLeaseEpoch) return verdict("authorization");

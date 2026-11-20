@@ -5,6 +5,7 @@ import {
   type SpaceshipRegistrarPort,
   type SellerHubPort,
   type SellerHubBinPricePort,
+  type SellerHubCreatePort,
   type AliyunRegistrarPort,
   type GoDaddyRegistrarPort,
   type CloudflareRegistrarAccountPort,
@@ -79,6 +80,7 @@ export interface AuthoritativeWorkspacePorts {
   readonly spaceship?: SpaceshipRegistrarPort;
   readonly sellerhub?: SellerHubPort;
   readonly sellerhubBinPrice?: SellerHubBinPricePort;
+  readonly sellerhubCreate?: SellerHubCreatePort;
   readonly atomStandardDelist?: AtomStandardDelistPort;
   readonly aliyun?: AliyunRegistrarPort;
   readonly godaddy?: GoDaddyRegistrarPort;

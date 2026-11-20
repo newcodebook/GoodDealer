@@ -428,9 +428,9 @@ pub(super) fn install_handoff_barrier(
                 "INSERT INTO device_handoff_barriers
                  (workspace_id, device_switch_request_id, began_at, active_lease_epoch, source_device_id, frozen_unresolved_count)
                  VALUES (?1, ?2, ?3, ?4, ?5, (SELECT count(*) FROM (SELECT * FROM afternic_delist_effective_attempts UNION ALL SELECT * FROM afternic_listing_write_effective_attempts UNION ALL
-                    SELECT prior.*,CASE WHEN p.operation_kind='atom_standard_delist' AND prior.status='waiting_remote' THEN 'outcome_unknown' ELSE prior.status END
+                    SELECT prior.*,CASE WHEN p.operation_kind IN ('atom_standard_delist','sellerhub_create_listing') AND prior.status='waiting_remote' THEN 'outcome_unknown' ELSE prior.status END
                     FROM operation_attempts prior JOIN operation_plans p USING(workspace_id,plan_id)
-                     WHERE p.operation_kind IN ('sellerhub_bin_price','atom_standard_delist')) a JOIN device_execution_fact_outbox f ON f.workspace_id=a.workspace_id AND f.operation_id=a.operation_id AND f.item_id=a.item_id AND f.attempt_number=a.attempt_number WHERE a.workspace_id=?1 AND a.effective_status IN ('running','outcome_unknown') AND f.source_device_id=?5 AND f.active_lease_epoch=?4)) ON CONFLICT (workspace_id) DO NOTHING",
+                     WHERE p.operation_kind IN ('sellerhub_bin_price','atom_standard_delist','sellerhub_create_listing')) a JOIN device_execution_fact_outbox f ON f.workspace_id=a.workspace_id AND f.operation_id=a.operation_id AND f.item_id=a.item_id AND f.attempt_number=a.attempt_number WHERE a.workspace_id=?1 AND a.effective_status IN ('running','outcome_unknown') AND f.source_device_id=?5 AND f.active_lease_epoch=?4)) ON CONFLICT (workspace_id) DO NOTHING",
                 params![workspace_id, device_switch_request_id, began_at, epoch,source_device_id],
             )
             .map_err(|_| BusinessDatabaseError::InvalidInput)?;

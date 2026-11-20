@@ -17,6 +17,15 @@ const OBSERVATION_WINDOW: Duration = Duration::from_mins(1);
 const OBSERVATION_MINIMUM_SPACING: Duration = Duration::from_secs(15);
 const OBSERVATION_LIMIT: usize = 4;
 
+// Each durable market capability gets a turn in the same slot.
+const DURABLE_MARKET_STEPS: [ProviderOperation; 5] = [
+    ProviderOperation::AfternicDelistStep,
+    ProviderOperation::AfternicListingWriteStep,
+    ProviderOperation::AtomStandardDelistStep,
+    ProviderOperation::SellerHubBinStep,
+    ProviderOperation::SellerHubCreateStep,
+];
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ProviderOperation {
     /// Internal wake only: picks one durable due Afternic item, never receives Renderer plans.
@@ -24,6 +33,7 @@ pub(crate) enum ProviderOperation {
     AfternicListingWriteStep,
     AtomStandardDelistStep,
     SellerHubBinStep,
+    SellerHubCreateStep,
     AfternicConnect {
         display_label: String,
     },
@@ -131,6 +141,7 @@ impl ProviderOperation {
                 | Self::AfternicListingWriteStep
                 | Self::AtomStandardDelistStep
                 | Self::SellerHubBinStep
+                | Self::SellerHubCreateStep
         )
     }
 
@@ -138,6 +149,7 @@ impl ProviderOperation {
         match self {
             Self::AfternicDelistStep => "afternic:delist",
             Self::AfternicListingWriteStep => "afternic:listing-write",
+            Self::SellerHubCreateStep => "spaceship:sellerhub-create-listing",
             Self::SellerHubBinStep => "spaceship:sellerhub-bin-price",
             Self::AtomStandardDelistStep => "atom:standard-delist",
             Self::AfternicConnect { .. } => "afternic:new-connection",
@@ -236,6 +248,7 @@ impl ProviderRecoveryOutcome {
             | ProviderOperation::SpaceshipRefresh { .. }
             | ProviderOperation::SpaceshipRevoke { .. } => self.spaceship,
             ProviderOperation::SellerHubBinStep
+            | ProviderOperation::SellerHubCreateStep
             | ProviderOperation::SellerHubConnect
             | ProviderOperation::SellerHubRefresh { .. }
             | ProviderOperation::SellerHubRevoke { .. } => self.sellerhub,
@@ -398,6 +411,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::AfternicListingWriteStep
             | ProviderOperation::AtomStandardDelistStep
             | ProviderOperation::SellerHubBinStep
+            | ProviderOperation::SellerHubCreateStep
             | ProviderOperation::Revoke { .. }
             | ProviderOperation::Purge { .. }
             | ProviderOperation::SpaceshipRevoke { .. }
@@ -738,13 +752,7 @@ impl ProviderLane {
                 }
                 Work::DurableOperations => {
                     idle_due = Instant::now() + Duration::from_secs(30);
-                    // Each durable market capability gets a turn in the same slot.
-                    for operation in [
-                        ProviderOperation::AfternicDelistStep,
-                        ProviderOperation::AfternicListingWriteStep,
-                        ProviderOperation::AtomStandardDelistStep,
-                        ProviderOperation::SellerHubBinStep,
-                    ] {
+                    for operation in DURABLE_MARKET_STEPS {
                         if *self.cancel.borrow() {
                             return;
                         }
@@ -1064,7 +1072,7 @@ mod tests {
                     tokio::task::yield_now().await;
                     let mut items = record.lock().unwrap();
                     items.push(operation);
-                    if items.len() < 9 {
+                    if items.len() < 11 {
                         wake.wake_durable_operations();
                     } else {
                         wake.cancel();
@@ -1087,10 +1095,12 @@ mod tests {
                 ProviderOperation::AfternicListingWriteStep,
                 ProviderOperation::AtomStandardDelistStep,
                 ProviderOperation::SellerHubBinStep,
+                ProviderOperation::SellerHubCreateStep,
                 ProviderOperation::AfternicDelistStep,
                 ProviderOperation::AfternicListingWriteStep,
                 ProviderOperation::AtomStandardDelistStep,
                 ProviderOperation::SellerHubBinStep,
+                ProviderOperation::SellerHubCreateStep,
             ]
         );
     }

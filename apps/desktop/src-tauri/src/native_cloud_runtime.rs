@@ -433,6 +433,14 @@ impl NativeCloudCoordinator {
                                     wake.wake_durable_operations();
                                 }
                                 projection.wake();
+                            } else if matches!(operation, ProviderOperation::SellerHubCreateStep) {
+                                let run = Arc::new(crate::provider_credential_orchestrator::spaceship::Run::new(
+                                    host, cancel, power, true,
+                                ));
+                                if run.sellerhub_create_step().await.unwrap_or(false) {
+                                    wake.wake_durable_operations();
+                                }
+                                projection.wake();
                             } else if matches!(operation, ProviderOperation::SellerHubBinStep) {
                                 let run = Arc::new(crate::provider_credential_orchestrator::spaceship::Run::new(
                                     host, cancel, power, true,
@@ -523,7 +531,7 @@ impl NativeCloudCoordinator {
     pub(crate) fn wake_afternic_listing_write(&self) {
         self.provider.wake_durable_operations();
     }
-    pub(crate) fn sellerhub_bin_execution_available(&self) -> bool {
+    pub(crate) fn sellerhub_write_lane_available(&self) -> bool {
         let power = self.power.snapshot();
         !self.cancel_fence.is_cancelled()
             && power.ready
@@ -531,7 +539,7 @@ impl NativeCloudCoordinator {
             && self.provider.sellerhub_status() == ProviderStatus::Ready
     }
 
-    pub(crate) fn wake_sellerhub_bin(&self) {
+    pub(crate) fn wake_sellerhub_operations(&self) {
         self.provider.wake_durable_operations();
         self.wake();
     }
@@ -909,7 +917,8 @@ async fn run_provider_operation(
         ProviderOperation::AfternicDelistStep
         | ProviderOperation::AfternicListingWriteStep
         | ProviderOperation::AtomStandardDelistStep
-        | ProviderOperation::SellerHubBinStep => None,
+        | ProviderOperation::SellerHubBinStep
+        | ProviderOperation::SellerHubCreateStep => None,
         ProviderOperation::AfternicConnect { display_label } => {
             let result = afternic::connect(host, display_label, cancel_fence, power).await;
             Some(ProviderOperationRecord::of(

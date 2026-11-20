@@ -11,6 +11,7 @@ pub(crate) mod forced_takeover;
 pub(crate) mod godaddy_registrar;
 pub(crate) mod sedo_marketplace;
 pub(crate) mod sellerhub_bin_price;
+pub(crate) mod sellerhub_create;
 pub(crate) mod spaceship_registrar;
 pub(crate) mod spaceship_sellerhub;
 pub(crate) mod target_bootstrap;

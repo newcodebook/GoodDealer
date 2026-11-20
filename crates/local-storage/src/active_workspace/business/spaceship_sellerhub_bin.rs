@@ -385,9 +385,9 @@ fn already_in_execution(db: &Connection, workspace: &str, item: &FrozenTarget) -
          JOIN operation_plan_items i USING(workspace_id,plan_id,item_id)
          JOIN operation_plans p USING(workspace_id,plan_id)
          WHERE i.workspace_id=?1 AND i.connection_id=?2 AND i.entity_id=?3
-         AND p.operation_kind=?4 AND
+         AND p.operation_kind IN (?4,?5) AND
          a.status IN ('queued','running','outcome_unknown','waiting_remote','manual_action_required','failed_retryable'))",
-        params![workspace,item.connection_id,item.domain,PLAN_KIND], |r| r.get(0),
+        params![workspace,item.connection_id,item.domain,PLAN_KIND,super::spaceship_sellerhub_create::KIND], |r| r.get(0),
     ).map_err(storage)
 }
 

@@ -110,7 +110,7 @@ Standby 协议、Cloud 签发、独立签名用途、Host 验证、路由清单�
 
 Cloudflare 独立 Registrar、Spaceship Registrar、GoDaddy Registrar 和阿里云 Registrar 均复用既有资产事务、ProviderLane 与账户归集设置面板。这些路径均先完成 Native 账户库存预检，再发布各自的不可变凭据槽。阿里云卖家私有 HTTP 调查、22.cn/易名资产与交易流程，以及 GoDaddy 真实账户验收均独立保留。
 
-Spaceship SellerHub 复用同一平台的 Native Service、凭据录入和串行 ProviderLane。账户归集使用独立 marketplace 连接、不可变槽位及签名读取权益，后续写入以这一账户的当前挂牌观察为基线。官方清单没有独立 Listing ID，已有绑定按资产代次复用，完整扫描缺席仅使旧观察显示未知。一口价变更已接通「批量操作」与具名持久操作，重开只读对账，源码通过本地和 Cloud 数据库验证。接续真实卖家受控验收及上下架和验证。
+Spaceship SellerHub 复用同一平台的 Native Service、凭据录入和串行 ProviderLane。账户归集使用独立 marketplace 连接、不可变槽位及签名读取权益，后续写入以这一账户的当前挂牌观察为基线。官方清单没有独立 Listing ID，已有绑定按资产代次复用，完整扫描缺席仅使旧观察显示未知。一口价变更和固定价上架已接通「批量操作」与具名持久操作，重开只读对账。固定价上架逐项核对完整库存后认领，保存待所有权验证和确认为在售的区别。接续真实卖家受控验收、下架及获准的自动 DNS 验证。
 Atom 已组合官方卖家库存及重开续读。批量下架从最新完整扫描冻结 Standard 挂牌，复用本地计划、批准与证据流。Native 在单次发送前精确读取并复核挂牌类型、状态与资源。重开后只读取账户并保留未核实结果。继续通过获准卖家账号核对可下架状态及精确的账户内缺席，完成端到端效果确认和平台资格。
 
 Sedo 账户读取走官方 Basic XML POST。Native 按账号完整预检，local-storage 在同一 writer 保存账户库存与持久刷新。真实验收需确认账号准入、空账户和末页终止行为。上架前另行验证 DomainInsert 打开 parking 的副作用，写入对账使用认证账户内精确观察，所有权验证仍需要当前私有协议证据。

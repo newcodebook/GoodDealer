@@ -18,6 +18,12 @@ const SELLERHUB_BIN_APPROVAL: &str = "GOODDEALER-SELLERHUB-BIN-PRICE-ITEM-APPROV
 const SELLERHUB_BIN_APPROVAL_ENVELOPE: &str =
     "GOODDEALER-SELLERHUB-BIN-PRICE-ITEM-APPROVAL-ENVELOPE-V1";
 const SELLERHUB_BIN_DISPATCH_KEY: &str = "GOODDEALER-SELLERHUB-BIN-PRICE-LOCAL-DISPATCH-KEY-V1";
+const SELLERHUB_CREATE_APPROVAL: &str = "GOODDEALER-SELLERHUB-CREATE-LISTING-ITEM-APPROVAL-V1";
+const SELLERHUB_CREATE_APPROVAL_TYPE: &str = "gd.sellerhub-create-listing-item-approval.v1";
+const SELLERHUB_CREATE_APPROVAL_ENVELOPE: &str =
+    "GOODDEALER-SELLERHUB-CREATE-LISTING-ITEM-APPROVAL-ENVELOPE-V1";
+const SELLERHUB_CREATE_DISPATCH_KEY: &str =
+    "GOODDEALER-SELLERHUB-CREATE-LISTING-LOCAL-DISPATCH-KEY-V1";
 const ATOM_STANDARD_DELIST_APPROVAL: &str = "GOODDEALER-ATOM-STANDARD-DELIST-ITEM-APPROVAL-V1";
 const ATOM_STANDARD_DELIST_APPROVAL_TYPE: &str = "gd.atom-standard-delist-item-approval.v1";
 const ATOM_STANDARD_DELIST_APPROVAL_ENVELOPE: &str =
@@ -79,6 +85,22 @@ impl DesktopDeviceIdentity {
         let object = decode(transcript, SELLERHUB_BIN_APPROVAL)
             .ok_or(DesktopDeviceIdentityError::SigningRejected)?;
         if !sellerhub_bin_price_approval(&object) || !self.owns(&object) {
+            return Err(DesktopDeviceIdentityError::SigningRejected);
+        }
+        self.sign_validated(transcript)
+    }
+
+    /// Signs a device-bound fixed-price `SellerHub` creation approval.
+    ///
+    /// # Errors
+    /// Rejects a different purpose, invalid claims, or a different device or key.
+    pub fn sign_sellerhub_create_listing_approval_transcript(
+        &self,
+        transcript: &[u8],
+    ) -> Result<[u8; 64], DesktopDeviceIdentityError> {
+        let object = decode(transcript, SELLERHUB_CREATE_APPROVAL)
+            .ok_or(DesktopDeviceIdentityError::SigningRejected)?;
+        if !sellerhub_create_listing_approval(&object) || !self.owns(&object) {
             return Err(DesktopDeviceIdentityError::SigningRejected);
         }
         self.sign_validated(transcript)
@@ -367,6 +389,8 @@ fn listing_action(object: &Object) -> bool {
 fn approval_domain(object: &Object) -> &'static str {
     if literal(object, "typ", "gd.sellerhub-bin-price-item-approval.v1") {
         SELLERHUB_BIN_APPROVAL
+    } else if literal(object, "typ", SELLERHUB_CREATE_APPROVAL_TYPE) {
+        SELLERHUB_CREATE_APPROVAL
     } else if literal(object, "typ", ATOM_STANDARD_DELIST_APPROVAL_TYPE) {
         ATOM_STANDARD_DELIST_APPROVAL
     } else if literal(object, "typ", "gd.afternic-listing-plan-item-approval.v2") {
@@ -386,6 +410,8 @@ fn approval_domain(object: &Object) -> &'static str {
 fn envelope_domain(object: &Object) -> &'static str {
     if literal(object, "typ", "gd.sellerhub-bin-price-item-approval.v1") {
         SELLERHUB_BIN_APPROVAL_ENVELOPE
+    } else if literal(object, "typ", SELLERHUB_CREATE_APPROVAL_TYPE) {
+        SELLERHUB_CREATE_APPROVAL_ENVELOPE
     } else if literal(object, "typ", ATOM_STANDARD_DELIST_APPROVAL_TYPE) {
         ATOM_STANDARD_DELIST_APPROVAL_ENVELOPE
     } else if literal(object, "typ", "gd.afternic-listing-plan-item-approval.v2") {
@@ -420,6 +446,13 @@ fn sellerhub_bin_price_approval(object: &Object) -> bool {
     approval_claims(object)
         && literal(object, "typ", "gd.sellerhub-bin-price-item-approval.v1")
         && literal(object, "action", "set_bin_price")
+        && literal(object, "capability", "spaceship:marketplace:write")
+}
+
+fn sellerhub_create_listing_approval(object: &Object) -> bool {
+    approval_claims(object)
+        && literal(object, "typ", SELLERHUB_CREATE_APPROVAL_TYPE)
+        && literal(object, "action", "create_listing")
         && literal(object, "capability", "spaceship:marketplace:write")
 }
 
@@ -602,10 +635,56 @@ fn sellerhub_bin_price_audit(object: &Object, event: &Object) -> bool {
     if literal(object, "stage", "approved") {
         return single_attempt_approval_audit(object, event, "sellerhub_bin_price_approval");
     }
-    single_attempt_audit(object, event, "sellerhub_bin_price_attempt", true)
+    single_attempt_audit(
+        object,
+        event,
+        "sellerhub_bin_price_attempt",
+        ReconciliationPurpose::SellerHubPrice,
+    )
 }
 
-fn single_attempt_audit(object: &Object, event: &Object, target: &str, can_confirm: bool) -> bool {
+#[derive(Clone, Copy)]
+enum ReconciliationPurpose {
+    SellerHubPrice,
+    SellerHubCreation,
+    AtomRemoval,
+}
+
+fn reconciliation_outcome_is_valid(object: &Object, purpose: ReconciliationPurpose) -> bool {
+    let outcome = text(object, "outcome");
+    let reason = text(object, "reason");
+    let null_reason = object.get("reason") == Some(&Value::Null);
+    match purpose {
+        ReconciliationPurpose::SellerHubPrice => {
+            (outcome == Some("matched") && null_reason)
+                || outcome.zip(reason) == Some(("different", "postcondition_pending"))
+                || outcome.zip(reason) == Some(("read_failed", "read_failed"))
+        }
+        ReconciliationPurpose::AtomRemoval => matches!(
+            outcome.zip(reason),
+            Some(("different", "postcondition_pending") | ("read_failed", "read_failed"))
+        ),
+        ReconciliationPurpose::SellerHubCreation => {
+            (outcome == Some("published") && null_reason)
+                || matches!(
+                    outcome.zip(reason),
+                    Some(
+                        ("ownership_pending", "ownership_verifying")
+                            | ("terms_unconfirmed", "postcondition_pending")
+                            | ("state_blocked", "not_on_sale")
+                            | ("read_failed", "read_failed")
+                    )
+                )
+        }
+    }
+}
+
+fn single_attempt_audit(
+    object: &Object,
+    event: &Object,
+    target: &str,
+    purpose: ReconciliationPurpose,
+) -> bool {
     if !literal(event, "actorKind", "device_service")
         || !literal(event, "targetType", target)
         || object.get("attemptId") != event.get("targetRef")
@@ -645,18 +724,32 @@ fn single_attempt_audit(object: &Object, event: &Object, target: &str, can_confi
             ) && all(object, "originalExecutionFactDigest", digest)
                 && all(object, "originalSourceDeviceId", identifier)
                 && integer(object, "originalActiveLeaseEpoch", 1)
-                && match (text(object, "outcome"), object.get("reason")) {
-                    (Some("matched"), Some(Value::Null)) => can_confirm,
-                    (Some("different"), Some(Value::String(reason))) => {
-                        reason == "postcondition_pending"
-                    }
-                    (Some("read_failed"), Some(Value::String(reason))) => reason == "read_failed",
-                    _ => false,
-                }
+                && reconciliation_outcome_is_valid(object, purpose)
                 && runtime
         }
         _ => false,
     }
+}
+
+fn sellerhub_create_listing_payload(object: &Object) -> bool {
+    number(object, "schemaVersion") == Some(1)
+        && literal(object, "provider", "spaceship")
+        && literal(object, "action", "create_listing")
+}
+
+fn sellerhub_create_listing_audit(object: &Object, event: &Object) -> bool {
+    if !sellerhub_create_listing_payload(object) {
+        return false;
+    }
+    if literal(object, "stage", "approved") {
+        return single_attempt_approval_audit(object, event, "sellerhub_create_listing_approval");
+    }
+    single_attempt_audit(
+        object,
+        event,
+        "sellerhub_create_listing_attempt",
+        ReconciliationPurpose::SellerHubCreation,
+    )
 }
 
 fn atom_standard_delist_audit(object: &Object, event: &Object) -> bool {
@@ -667,7 +760,12 @@ fn atom_standard_delist_audit(object: &Object, event: &Object) -> bool {
         return single_attempt_approval_audit(object, event, "atom_standard_delist_approval");
     }
     // Seller API evidence currently supplies positive listings, without a definite absence shape.
-    single_attempt_audit(object, event, "atom_standard_delist_attempt", false)
+    single_attempt_audit(
+        object,
+        event,
+        "atom_standard_delist_attempt",
+        ReconciliationPurpose::AtomRemoval,
+    )
 }
 
 fn atom_standard_delist_payload(object: &Object) -> bool {
@@ -692,6 +790,11 @@ fn single_attempt_approval_audit(object: &Object, event: &Object, target: &str) 
 fn sellerhub_bin_price_fact(payload: &Object, event: &Object) -> bool {
     sellerhub_bin_price_payload(payload)
         && single_attempt_fact(payload, event, "sellerhub_bin_price_dispatch_claimed")
+}
+
+fn sellerhub_create_listing_fact(payload: &Object, event: &Object) -> bool {
+    sellerhub_create_listing_payload(payload)
+        && single_attempt_fact(payload, event, "sellerhub_create_listing_dispatch_claimed")
 }
 
 fn atom_standard_delist_fact(payload: &Object, event: &Object) -> bool {
@@ -916,6 +1019,7 @@ fn audit(object: &Object) -> bool {
                 audit_payload(p, object)
                     || plan_audit_payload(p, object)
                     || sellerhub_bin_price_audit(p, object)
+                    || sellerhub_create_listing_audit(p, object)
                     || atom_standard_delist_audit(p, object)
             })
     {
@@ -1015,6 +1119,7 @@ fn fact(object: &Object, key: &[u8; 32]) -> bool {
     if !fact_payload(payload, object)
         && !plan_fact_payload(payload, object)
         && !sellerhub_bin_price_fact(payload, object)
+        && !sellerhub_create_listing_fact(payload, object)
         && !atom_standard_delist_fact(payload, object)
     {
         return false;
@@ -1065,6 +1170,8 @@ fn fact(object: &Object, key: &[u8; 32]) -> bool {
         "operationItemId":object["operationItemId"],"attemptNo":1,"localOperationKey":approved["planId"]});
     let dispatch_domain = if sellerhub_bin_price_payload(payload) {
         SELLERHUB_BIN_DISPATCH_KEY
+    } else if sellerhub_create_listing_payload(payload) {
+        SELLERHUB_CREATE_DISPATCH_KEY
     } else if atom_standard_delist_payload(payload) {
         ATOM_STANDARD_DELIST_DISPATCH_KEY
     } else {
@@ -1100,6 +1207,7 @@ fn verified_approval(evidence: &Object, key: &[u8; 32]) -> Option<(Object, [u8; 
         .and_then(|v| v.as_str().and_then(base64::<64>))?;
     if !(approval(&approved)
         || sellerhub_bin_price_approval(&approved)
+        || sellerhub_create_listing_approval(&approved)
         || atom_standard_delist_approval(&approved)
         || plan_item_approval(&approved, false)
         || plan_item_approval(&approved, true))
@@ -1334,6 +1442,69 @@ mod tests {
                     .is_err()
             );
         }
+    }
+    #[test]
+    fn sellerhub_creation_has_a_distinct_approval_and_truthful_reconciliation() {
+        let device = identity();
+        let vector: Value = serde_json::from_str(include_str!(
+            "../../../../packages/protocol/test-vectors/sellerhub-bin-price/approval.json"
+        ))
+        .unwrap();
+        let mut claims = vector["approval"].as_object().unwrap().clone();
+        claims.remove("deviceSignature");
+        let original = transcript(SELLERHUB_BIN_APPROVAL, &claims);
+        claims.insert("typ".into(), json!(SELLERHUB_CREATE_APPROVAL_TYPE));
+        claims.insert("action".into(), json!("create_listing"));
+        let creation = transcript(SELLERHUB_CREATE_APPROVAL, &claims);
+        assert!(
+            device
+                .sign_sellerhub_create_listing_approval_transcript(&creation)
+                .is_ok()
+        );
+        assert!(
+            device
+                .sign_sellerhub_create_listing_approval_transcript(&original)
+                .is_err()
+        );
+        assert!(
+            device
+                .sign_sellerhub_bin_price_approval_transcript(&creation)
+                .is_err()
+        );
+        claims.insert("workspaceId".into(), json!("another-workspace"));
+        claims.insert("sourceDeviceId".into(), json!("another-device"));
+        assert!(
+            device
+                .sign_sellerhub_create_listing_approval_transcript(&transcript(
+                    SELLERHUB_CREATE_APPROVAL,
+                    &claims
+                ))
+                .is_err()
+        );
+
+        let outcome = |result, reason| {
+            json!({"outcome": result, "reason":reason})
+                .as_object()
+                .unwrap()
+                .clone()
+        };
+        let pending = outcome("ownership_pending", json!("ownership_verifying"));
+        assert!(reconciliation_outcome_is_valid(
+            &pending,
+            ReconciliationPurpose::SellerHubCreation
+        ));
+        assert!(!reconciliation_outcome_is_valid(
+            &pending,
+            ReconciliationPurpose::SellerHubPrice
+        ));
+        assert!(!reconciliation_outcome_is_valid(
+            &outcome("published", json!("ownership_verifying")),
+            ReconciliationPurpose::SellerHubCreation,
+        ));
+        assert!(reconciliation_outcome_is_valid(
+            &outcome("published", Value::Null),
+            ReconciliationPurpose::SellerHubCreation,
+        ));
     }
     #[test]
     fn signatures_match_shared_protocol_golden_vectors() {

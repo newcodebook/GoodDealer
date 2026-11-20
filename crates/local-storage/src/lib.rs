@@ -185,8 +185,11 @@ pub use active_workspace::business::{
     DesktopSellerHubBinApproval, DesktopSellerHubBinApproveRequest, DesktopSellerHubBinPlan,
     DesktopSellerHubBinPlanItem, DesktopSellerHubBinPlanSummary, DesktopSellerHubBinPreviewRequest,
     DesktopSellerHubBinStatusRequest, DesktopSellerHubBinTarget, DesktopSellerHubConnectionSummary,
+    DesktopSellerHubCreateApproval, DesktopSellerHubCreateApproveRequest,
+    DesktopSellerHubCreateDetail, DesktopSellerHubCreatePlanSummary, DesktopSellerHubCreatePreview,
+    DesktopSellerHubCreatePreviewRequest, DesktopSellerHubCreateStatusRequest,
     DesktopSellerHubListingFact, DesktopSellerHubListingState, DesktopSellerHubScanReceipt,
-    DesktopSpaceshipConnectionState, DesktopSpaceshipConnectionSummary,
+    DesktopSpaceshipConnectionState, DesktopSpaceshipConnectionSummary, SellerHubCreateReadback,
 };
 #[cfg(all(test, unix))]
 pub(crate) use active_workspace::business::{
@@ -233,7 +236,8 @@ pub use desktop_local_host::spaceship_registrar::{
 };
 pub use desktop_local_host::spaceship_sellerhub::{
     DesktopSellerHubBinClaim, DesktopSellerHubBinStatus, DesktopSellerHubBinWork,
-    DesktopSellerHubConnection, DesktopSellerHubStatus,
+    DesktopSellerHubConnection, DesktopSellerHubCreateClaim, DesktopSellerHubCreateStatus,
+    DesktopSellerHubCreateWork, DesktopSellerHubStatus,
 };
 #[cfg(all(test, unix))]
 pub(crate) use portfolio_projection::DomainAssetProjectionRow;

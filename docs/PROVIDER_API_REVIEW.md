@@ -76,6 +76,7 @@ Native 已组合无筛选和 `type=standard` 的双完整读取。仅当两个�
 - SellerHub 的官方 OpenAPI 1.0.0 定义固定来源 `https://spaceship.dev/api`。无筛选的 `GET /v1/sellerhub/domains` 需要 `sellerhub:read`，返回 `items` 与 `total`，按 `take/skip` 分页。Listing 由域名寻址，列表不返回独立不可变 ID。报价为 USD 十进制字符串，启用标志分别返回。Linux 对该入口的匿名 HTTPS 请求返回 401 和 `application/problem+json`；认证列表合同与账号内结果仍待实测。[官方合同](https://docs.spaceship.dev/#tag/SellerHub)
 - SellerHub 官方说明创建记录后等待 DNS 传播，系统自动验证；列表状态包含 `verifying`、`onSale`、
   `onSaleStopped`、`saleProcessing`、`failed` 等。以账户内目标 Listing 的新鲜读取确认结果。
+- 固定价上架采用官方 `POST /v1/sellerhub/domains`。Native 在认证库存中确认目标缺席后，仅提交规范域名、USD 一口价和关闭议价的条款。201 作为回执。精确 GET 必须返回同域名、`onSale` 和批准的完整条款，才确认在售。`verifying` 保留为等待所有权验证。已实现官方验证记录的 TXT 选项解析，适用选项内的全部记录共同构成一个验证条件。认证创建、待验证与在售读回仍待实测。
 - 一口价变更采用官方 `PATCH /v1/sellerhub/domains/{domain}`，需要 `sellerhub:write`。当前客户流程只提交 `binPrice.amount`，允许的输入以整数美分保存。精确 GET 必须返回同域名、在售且启用一口价，读回批准目标价才确认成功。HTTP 200 是发送回执，通用 404 保留未知。当前验收未取得获准卖家账户的认证响应。
 - 匿名读取精确域名与验证记录路径均返回 401 和 `application/problem+json`。公开合同列出精确 GET 的 404，但只规定 problem 的 `detail` 和通用错误码格式。后续下架对账仍需用获准账户区分目标缺席和其他 404，DELETE 204 作为操作回执保存。
 - Sedo 官方 `DomainListExtended` 接受 XML GET 或 POST，按 `startfrom` 偏移、`results` 上限和 `orderby=0` 的域名顺序读取。Native 使用固定 HTTPS POST，认证字段只放请求体。Linux 匿名 POST 返回 HTTP 200、`text/xml;charset=UTF-8` 和结构化 `SEDOFAULT` E1（用户名为空），证明匿名请求到达该端点。源码只接受完整校验的空 `SEDODOMAINLIST` 作为终页。通用 E15 缺少账户列表的终页证据，仍按故障处理。认证正向分页、空账户和全量边界待实测。 [官方合同](https://api.sedo.com/apidocs/v1/Basic/functions/sedoapi_DomainListExtended.html)

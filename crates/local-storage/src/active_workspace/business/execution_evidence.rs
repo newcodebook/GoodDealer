@@ -106,6 +106,7 @@ pub(crate) enum EvidenceSignaturePurpose {
     AfternicListingPlanApproval,
     AfternicOwnershipReviewApproval,
     SellerHubBinPriceApproval,
+    SellerHubCreateListingApproval,
     AtomStandardDelistApproval,
     DeviceAudit,
     ExecutionFact,

@@ -801,6 +801,24 @@
           "markdownDescription": "Enables the sellerhub_bin_price_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the sellerhub_create_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-create-approve",
+          "markdownDescription": "Enables the sellerhub_create_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sellerhub_create_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-create-preview",
+          "markdownDescription": "Enables the sellerhub_create_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sellerhub_create_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-create-status",
+          "markdownDescription": "Enables the sellerhub_create_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the sellerhub_status command without any pre-configured scope.",
           "type": "string",
           "const": "allow-sellerhub-status",
@@ -1303,6 +1321,24 @@
           "type": "string",
           "const": "deny-sellerhub-bin-price-status",
           "markdownDescription": "Denies the sellerhub_bin_price_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_create_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-create-approve",
+          "markdownDescription": "Denies the sellerhub_create_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_create_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-create-preview",
+          "markdownDescription": "Denies the sellerhub_create_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_create_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-create-status",
+          "markdownDescription": "Denies the sellerhub_create_status command without any pre-configured scope."
         },
         {
           "description": "Denies the sellerhub_status command without any pre-configured scope.",

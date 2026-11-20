@@ -1,34 +1,16 @@
 import {
-  canonicalizeDomainName, sellerHubBinPricePreviewSchema,
+  sellerHubBinPricePreviewSchema,
   type SellerHubBinPricePlan, type SellerHubBinPricePort, type SellerHubBinPriceStatus,
   type SellerHubPort,
 } from "@gooddealer/client-core";
-import { formatDate, formatMoney, getPresentationCopy, type Locale } from "@gooddealer/i18n";
+import { formatDate, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { Button, Panel } from "@gooddealer/ui";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { formatCents, parseRows } from "./sellerhub-price-input";
 import "./marketplace-batch.css";
 
 type Copy = ReturnType<typeof getPresentationCopy<"batchOperation">>;
 type Connections = Awaited<ReturnType<SellerHubPort["status"]>>["connections"];
-
-function parseRows(text: string) {
-  return text.split(/\r?\n/u).map(line => line.trim()).filter(Boolean).map(line => {
-    const comma = line.indexOf(",");
-    if (comma < 1) throw new TypeError("missing price");
-    const domain = canonicalizeDomainName(line.slice(0, comma).trim());
-    const amount = /^([0-9]{1,14})(?:\.([0-9]{1,2}))?$/u.exec(line.slice(comma + 1).trim());
-    if (!amount) throw new TypeError("invalid price");
-    const cents = BigInt(amount[1]!) * 100n + BigInt((amount[2] ?? "").padEnd(2, "0"));
-    return { domain, priceCents: Number(cents) };
-  });
-}
-
-function formatCents(locale: Locale, cents: number) {
-  const digits = String(cents).padStart(3, "0");
-  const exact = `${digits.slice(0, -2)}.${digits.slice(-2)}`;
-  const display = formatMoney(locale, exact, "USD");
-  return display === "—" ? `USD ${exact}` : display;
-}
 
 const planText = (copy: Copy, plan: SellerHubBinPricePlan["state"]) => ({
   awaiting_approval: copy.sellerHubBinAwaiting, expired: copy.sellerHubBinExpired,

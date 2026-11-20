@@ -27,6 +27,9 @@ impl DesktopExecutionContextNativePort for TestNative {
     fn sign_afternic_delist_approval(&self, t: &[u8]) -> Result<[u8; 64], Error> {
         Ok(test_signature(t))
     }
+    fn sign_sellerhub_create_listing_approval(&self, t: &[u8]) -> Result<[u8; 64], Error> {
+        Ok(test_signature(t))
+    }
     fn sign_device_audit_event(&self, t: &[u8]) -> Result<[u8; 64], Error> {
         Ok(test_signature(t))
     }

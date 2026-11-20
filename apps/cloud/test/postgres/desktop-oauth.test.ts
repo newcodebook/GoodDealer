@@ -27,6 +27,10 @@ import { PostgresDeviceAuditEvidenceReader, PostgresDeviceAuditEvidenceService }
 import { PostgresExecutionFactEvidenceReader, PostgresExecutionFactEvidenceService } from "../../src/modules/execution-ledger/index";
 import { encodeAtomStandardDelistItemApprovalEnvelope, encodeAtomStandardDelistItemApprovalSignatureTranscript,
   encodeAtomStandardDelistLocalDispatchKeyDigestInput } from "@gooddealer/protocol/execution-events";
+import {
+  encodeSellerHubCreateListingItemApprovalEnvelope, encodeSellerHubCreateListingItemApprovalSignatureTranscript,
+  encodeSellerHubCreateListingLocalDispatchKeyDigestInput,
+} from "@gooddealer/protocol/execution-events";
 import { encodeSellerHubBinPriceItemApprovalEnvelope, encodeSellerHubBinPriceItemApprovalSignatureTranscript,
   encodeSellerHubBinPriceLocalDispatchKeyDigestInput, encodeAfternicLocalDispatchKeyDigestInput,encodeAfternicDelistItemApprovalSignatureTranscript,encodeAfternicDelistItemApprovalEnvelope,encodeAfternicDelistItemApprovalJson,encodeDeviceAuditEventSignatureTranscript,encodeDeviceAuditEventHashInput,encodeExecutionFactSignatureTranscript,encodeWorkspaceDeviceAuditChainDomain,encodeDrainStreamEnvelope,deviceAuditIngestRequestSchema,executionFactIngestRequestSchema } from "@gooddealer/protocol/execution-events";
 import { PostgresHistoricalExecutionContext } from "../../src/modules/devices/historical-execution-context";
@@ -498,17 +502,17 @@ describe("PostgreSQL execution context historical evidence", () => {
     expect(await contextService().issue(request(78),active)).toBeNull();
     expect((await ownerPool.query("SELECT count(*)::int AS count FROM device_execution_contexts")).rows).toEqual([{count:1}]);
   });
-  async function executionFixture(nonce=50, action:"remove"|"create"|"update"|"plan-create"|"plan-update"|"ownership"|"ownership-linked-create"|"ownership-linked-update"|"sellerhub"|"atom"="remove", deviceId:"device-a"|"device-b"="device-a"){
+  async function executionFixture(nonce=50, action:"remove"|"create"|"update"|"plan-create"|"plan-update"|"ownership"|"ownership-linked-create"|"ownership-linked-update"|"sellerhub"|"sellerhub-create"|"atom"="remove", deviceId:"device-a"|"device-b"="device-a"){
     const deviceSigningKey=deviceId==="device-a"?deviceKeyPair:otherDeviceKeyPair;
-    const ownership=action.startsWith("ownership");const plan=action.startsWith("plan-");const sellerHub=action==="sellerhub";const atom=action==="atom";
-    const approvalTranscript=atom?encodeAtomStandardDelistItemApprovalSignatureTranscript:sellerHub?encodeSellerHubBinPriceItemApprovalSignatureTranscript:ownership?encodeAfternicOwnershipReviewItemApprovalSignatureTranscript:plan?encodeAfternicListingPlanItemApprovalSignatureTranscript:action==="remove"?encodeAfternicDelistItemApprovalSignatureTranscript:encodeAfternicListingWriteItemApprovalSignatureTranscript;
-    const approvalEnvelope=atom?encodeAtomStandardDelistItemApprovalEnvelope:sellerHub?encodeSellerHubBinPriceItemApprovalEnvelope:ownership?encodeAfternicOwnershipReviewItemApprovalEnvelope:plan?encodeAfternicListingPlanItemApprovalEnvelope:action==="remove"?encodeAfternicDelistItemApprovalEnvelope:encodeAfternicListingWriteItemApprovalEnvelope;
+    const ownership=action.startsWith("ownership");const plan=action.startsWith("plan-");const creation=action==="sellerhub-create";const sellerHub=creation||action==="sellerhub";const atom=action==="atom";
+    const approvalTranscript=atom?encodeAtomStandardDelistItemApprovalSignatureTranscript:sellerHub?creation?encodeSellerHubCreateListingItemApprovalSignatureTranscript:encodeSellerHubBinPriceItemApprovalSignatureTranscript:ownership?encodeAfternicOwnershipReviewItemApprovalSignatureTranscript:plan?encodeAfternicListingPlanItemApprovalSignatureTranscript:action==="remove"?encodeAfternicDelistItemApprovalSignatureTranscript:encodeAfternicListingWriteItemApprovalSignatureTranscript;
+    const approvalEnvelope=atom?encodeAtomStandardDelistItemApprovalEnvelope:sellerHub?creation?encodeSellerHubCreateListingItemApprovalEnvelope:encodeSellerHubBinPriceItemApprovalEnvelope:ownership?encodeAfternicOwnershipReviewItemApprovalEnvelope:plan?encodeAfternicListingPlanItemApprovalEnvelope:action==="remove"?encodeAfternicDelistItemApprovalEnvelope:encodeAfternicListingWriteItemApprovalEnvelope;
     const approvalJson=atom||sellerHub?(value:unknown)=>new TextEncoder().encode(JSON.stringify(value)):ownership?encodeAfternicOwnershipReviewItemApprovalJson:plan?encodeAfternicListingPlanItemApprovalJson:action==="remove"?encodeAfternicDelistItemApprovalJson:encodeAfternicListingWriteItemApprovalJson;
     if(nonce===50&&deviceId==="device-a")await applyEntitlementState("active",atom?"evidence-atom":sellerHub?"evidence-sellerhub":"evidence-afternic",2,
       atom?["atom:marketplace:observe","atom:marketplace:write"]:sellerHub?["spaceship:marketplace:observe","spaceship:marketplace:write"]:["afternic:marketplace:observe","afternic:marketplace:write"]);
     const principal=deviceId==="device-a"?await desktopGrantPrincipal():(await loginStandbyDevice()).principal;const response=await contextService().issue(request(nonce),principal);
     if(response===null)throw new Error("context refused");const c=response.context;
-    const marketFixture = atom ? "atom-standard-delist" : "sellerhub-bin-price";
+    const marketFixture = atom ? "atom-standard-delist" : creation ? "sellerhub-create-listing" : "sellerhub-bin-price";
     const v = atom || sellerHub ? {
       ...JSON.parse(readFileSync(new URL(`../../../../packages/protocol/test-vectors/${marketFixture}/dispatch.json`,import.meta.url),"utf8")),
       ...JSON.parse(readFileSync(new URL(`../../../../packages/protocol/test-vectors/${marketFixture}/approval.json`,import.meta.url),"utf8")),
@@ -540,7 +544,7 @@ describe("PostgreSQL execution context historical evidence", () => {
     const approvalAudit=audit({...v.approvalAudit,...auditBase,occurredAt:boundary(1000)});
     const claimAudit=audit({...v.claimAudit,...auditBase,occurredAt:boundary(2000),previousHash:approvalAudit.eventHash,payloadRedacted:{...v.claimAudit.payloadRedacted,approvalEnvelopeDigest:approvalDigest}});
     const {accountId:_account,...factBase}=base;
-    const fact=executionFactIngestRequestSchema.parse({schemaVersion:1,fact:{...v.fact,...factBase,authorizationHash:c.authorizationGrantDigest,idempotencyKeyHash:hash((atom?encodeAtomStandardDelistLocalDispatchKeyDigestInput:sellerHub?encodeSellerHubBinPriceLocalDispatchKeyDigestInput:encodeAfternicLocalDispatchKeyDigestInput)({schemaVersion:1,operationId:approval.operationId,operationItemId:approval.operationItemId,attemptNo:1,localOperationKey:approval.planId})),occurredAt:boundary(2000),requestStartBoundary:boundary(2000),executionAuthorizationEvidence:{...v.fact.executionAuthorizationEvidence,signingKeyId:c.signingKeyId,signingKeyVersion:c.signingKeyVersion,credentialEpoch:c.credentialEpoch,approvedOperationDigest:approvalDigest,approvedOperationEnvelope:Buffer.from(approvalJson(approval)).toString("base64url")},auditEventHash:claimAudit.eventHash,payloadRedacted:{...v.fact.payloadRedacted,approvalEnvelopeDigest:approvalDigest}}}).fact;
+    const fact=executionFactIngestRequestSchema.parse({schemaVersion:1,fact:{...v.fact,...factBase,authorizationHash:c.authorizationGrantDigest,idempotencyKeyHash:hash((atom?encodeAtomStandardDelistLocalDispatchKeyDigestInput:sellerHub?creation?encodeSellerHubCreateListingLocalDispatchKeyDigestInput:encodeSellerHubBinPriceLocalDispatchKeyDigestInput:encodeAfternicLocalDispatchKeyDigestInput)({schemaVersion:1,operationId:approval.operationId,operationItemId:approval.operationItemId,attemptNo:1,localOperationKey:approval.planId})),occurredAt:boundary(2000),requestStartBoundary:boundary(2000),executionAuthorizationEvidence:{...v.fact.executionAuthorizationEvidence,signingKeyId:c.signingKeyId,signingKeyVersion:c.signingKeyVersion,credentialEpoch:c.credentialEpoch,approvedOperationDigest:approvalDigest,approvedOperationEnvelope:Buffer.from(approvalJson(approval)).toString("base64url")},auditEventHash:claimAudit.eventHash,payloadRedacted:{...v.fact.payloadRedacted,approvalEnvelopeDigest:approvalDigest}}}).fact;
     const signFact=(draft:typeof fact)=>({...draft,deviceSignature:sign(null,encodeExecutionFactSignatureTranscript(draft),deviceSigningKey.privateKey).toString("base64url")});
     const authority=new PostgresExecutionEvidenceAuthority(identityTransactions,new PostgresDefaultWorkspaceTenantResolver(identityTransactions));
     const contexts=new PostgresHistoricalExecutionContext();
@@ -601,6 +605,37 @@ describe("PostgreSQL execution context historical evidence", () => {
           operationId:first.fact.operationId,operationItemId:first.fact.operationItemId,attemptId:first.fact.attemptId,
           originalExecutionFactId:first.fact.executionFactId,originalExecutionFactDigest:hash(encodeDrainStreamEnvelope("execution_fact",first.fact)),
           originalSourceDeviceId:first.fact.sourceDeviceId,originalActiveLeaseEpoch:first.fact.activeLeaseEpoch,outcome:"matched",reason:null}});
+      expect(event.activeLeaseEpoch).toBeGreaterThan(first.fact.activeLeaseEpoch);
+      const missing=current.audit({...event,payloadRedacted:{...event.payloadRedacted,originalSourceDeviceId:"another-device"}});
+      await expect(current.audits.ingest({schemaVersion:1,event:missing},current.principal))
+        .resolves.toMatchObject({outcome:"pending",code:"ORIGINAL_FACT_MISSING"});
+      await expect(current.audits.ingest({schemaVersion:1,event},current.principal))
+        .resolves.toMatchObject({outcome:"accepted"});
+      await expect(current.facts.ingest({schemaVersion:1,fact:current.fact},current.principal))
+        .resolves.toMatchObject({outcome:"quarantined",receipt:{reason:"authorization"}});
+      expect((await ownerPool.query("SELECT count(*)::int AS count FROM execution_fact_drain_records")).rows).toEqual([{count:1}]);
+    });
+  });
+  describe("SellerHub creation evidence",()=>{
+    it("accepts a signed claim once and a new device's exact prior-source reconciliation under observe authority",async()=>{
+      const first=await executionFixture(50,"sellerhub-create");
+      await expect(first.facts.ingest({schemaVersion:1,fact:first.fact},first.principal))
+        .resolves.toMatchObject({outcome:"pending",code:"APPROVAL_AUDIT_MISSING"});
+      for(const event of [first.approvalAudit,first.claimAudit])
+        await expect(first.audits.ingest({schemaVersion:1,event},first.principal)).resolves.toMatchObject({outcome:"accepted"});
+      const accepted=await first.facts.ingest({schemaVersion:1,fact:first.fact},first.principal);
+      expect(accepted).toMatchObject({outcome:"accepted"});
+      await expect(first.facts.ingest({schemaVersion:1,fact:first.fact},first.principal)).resolves.toEqual(accepted);
+      await releaseHeldLease();
+      await applyEntitlementState("active","evidence-sellerhub-observe",3,["spaceship:marketplace:observe"]);
+      const current=await executionFixture(51,"sellerhub-create","device-b");
+      const event=current.audit({...current.approvalAudit, occurredAt:current.claimAudit.occurredAt,
+        monotonicDeltaMs:current.claimAudit.monotonicDeltaMs, actorKind:"device_service",eventType:"runtime_security_lifecycle",
+        authorizationSource:"runtime_security_context",targetType:"sellerhub_create_listing_attempt",targetRef:first.fact.attemptId,
+        payloadRedacted:{schemaVersion:1,provider:"spaceship",action:"create_listing",stage:"reconciled",
+          operationId:first.fact.operationId,operationItemId:first.fact.operationItemId,attemptId:first.fact.attemptId,
+          originalExecutionFactId:first.fact.executionFactId,originalExecutionFactDigest:hash(encodeDrainStreamEnvelope("execution_fact",first.fact)),
+          originalSourceDeviceId:first.fact.sourceDeviceId,originalActiveLeaseEpoch:first.fact.activeLeaseEpoch,outcome:"ownership_pending",reason:"ownership_verifying"}});
       expect(event.activeLeaseEpoch).toBeGreaterThan(first.fact.activeLeaseEpoch);
       const missing=current.audit({...event,payloadRedacted:{...event.payloadRedacted,originalSourceDeviceId:"another-device"}});
       await expect(current.audits.ingest({schemaVersion:1,event:missing},current.principal))

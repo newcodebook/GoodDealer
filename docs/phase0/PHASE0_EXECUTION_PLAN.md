@@ -614,3 +614,10 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 官方匿名 POST 实测 HTTP 200、`text/xml;charset=UTF-8` 与 E1 认证错误。独立复验通过 Native、SQLCipher/Host、严格 IPC、设置回显和权限合同。隔离 Linux GTK 实跑两个原生录入窗口，隔离 PostgreSQL 186 项通过，覆盖明确的 Sedo 只读权益。[审查记录](../reviews/2026-11-20-sedo-marketplace-inventory-review.md)
 - 最终根 `pnpm check` 和本机三 crate 全目标严格 Clippy 通过。含 Desktop 439 项、Tauri 197 项、SQLCipher 699 项及 Core 157 项。
 - 下一项真实验收需要 Basic API 卖家账号，核对成功分页、空账户及末页，并用设置和重开确认本机回执。Sedo 写入、自动验证、Windows/macOS 实机与发行资格继续推进。
+
+## 2026-11-20 SellerHub 固定价批量上架
+
+- 「批量操作」可保存既有资产的固定 USD 一口价预览、核对条款后确认一次，并从计划历史查看各域名结果。每项在完整认证库存中检查目标缺席，先持久认领再发送官方 POST。响应丢失、退出及重开均以同账户精确 GET 对账。平台正在验证时保存待验证，读到同域名在售且条款一致时记为已核实，并排队刷新销售投影。
+- SQLCipher 追加 `202611200014`，Cloud 追加 `202611200005` 与 `202611200006`。独立审查发现迁移目录断言遗漏，以及创建技术资格撤回时阻断既有只读对账。修订后独立复验通过，隔离 PostgreSQL 升级及 187 项通过。[独立审查](../reviews/2026-11-20-sellerhub-fixed-price-creation-review.md)
+- 官方 TXT 验证选项已在 Native 严格解析。下一步为批准 DNS 范围、确认权威 DNS 连接、只新增所需 TXT、精确读回并等待 SellerHub 确认。真实卖家认证创建、实机与发行待单独验收。
+- 最终根 `pnpm check` 通过，含 Desktop 441 项、Cloud 858 项、Tauri 198 项、SQLCipher 701 项和 Core 162 项。Linux 三个受影响 crate 的全目标严格 Clippy 通过。

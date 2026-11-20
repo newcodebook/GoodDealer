@@ -10,6 +10,8 @@ use zeroize::Zeroizing;
 mod credentials;
 #[path = "spaceship/registrar_wire.rs"]
 mod registrar_wire;
+#[path = "spaceship/sellerhub_verification_wire.rs"]
+mod sellerhub_verification_wire;
 #[path = "spaceship/sellerhub_wire.rs"]
 mod sellerhub_wire;
 pub use credentials::{
@@ -17,11 +19,15 @@ pub use credentials::{
     publish_spaceship_credential_guarded, purge_spaceship_credential_guarded,
 };
 use registrar_wire::{InventoryScan, valid_hostname};
+pub use sellerhub_verification_wire::{SpaceshipSellerHubTxtOption, SpaceshipSellerHubTxtRecord};
 use sellerhub_wire::SellerHubScan;
-pub use sellerhub_wire::{SpaceshipSellerHubListing, SpaceshipSellerHubStatus};
+pub use sellerhub_wire::{
+    SpaceshipSellerHubCreateObservation, SpaceshipSellerHubListing, SpaceshipSellerHubStatus,
+};
 
 const DOMAINS: &str = "https://spaceship.dev/api/v1/domains";
 const SELLERHUB_DOMAINS: &str = "https://spaceship.dev/api/v1/sellerhub/domains";
+const SELLERHUB_VERIFICATION: &str = "https://spaceship.dev/api/v1/sellerhub/verification-records";
 const PAGE_SIZE: usize = 100;
 const MAX_REGISTRATIONS: usize = 10_000;
 const MAX_REGISTRAR_BODY: usize = 512 * 1024;
@@ -209,6 +215,74 @@ impl SpaceshipClient {
         Ok(())
     }
 
+    /// Sends a claimed fixed-price `SellerHub` creation once.
+    ///
+    /// # Errors
+    /// Rejects stale authority or any reply outside the official 201 contract.
+    /// The caller must reconcile every dispatch outcome with a separate read.
+    pub async fn send_sellerhub_listing_create(
+        &self,
+        credential: &SpaceshipCredential,
+        domain: &str,
+        cents: u64,
+        guard: &mut SpaceshipGuard<'_>,
+    ) -> Result<(), SpaceshipError> {
+        guard()?;
+        let request = self.sellerhub_create_request(credential, domain, cents)?;
+        guard()?;
+        let body = self
+            .fetch_json(
+                request,
+                StatusCode::CREATED,
+                MAX_SELLERHUB_LISTING_BODY,
+                guard,
+            )
+            .await?;
+        sellerhub_wire::parse_exact_listing(&body, domain)?;
+        guard()
+    }
+
+    /// Observes the exact terms and publication state after a `SellerHub` creation claim.
+    ///
+    /// # Errors
+    /// Returns unavailable or unconfirmed on any failed exact account read.
+    pub async fn observe_sellerhub_listing_create(
+        &self,
+        credential: &SpaceshipCredential,
+        domain: &str,
+        cents: u64,
+        guard: &mut SpaceshipGuard<'_>,
+    ) -> Result<SpaceshipSellerHubCreateObservation, SpaceshipError> {
+        let listing = self
+            .observe_sellerhub_listing(credential, domain, guard)
+            .await?;
+        Ok(sellerhub_wire::observe_create(&listing, cents))
+    }
+
+    /// Reads complete TXT-only verification options under the current `SellerHub` account.
+    /// An empty result means the account returned other valid verification methods.
+    ///
+    /// # Errors
+    /// Refuses stale authority, authentication failure and invalid or unfamiliar response data.
+    pub async fn read_sellerhub_txt_verification_options(
+        &self,
+        credential: &SpaceshipCredential,
+        guard: &mut SpaceshipGuard<'_>,
+    ) -> Result<Vec<SpaceshipSellerHubTxtOption>, SpaceshipError> {
+        guard()?;
+        let request = self.get(credential, SELLERHUB_VERIFICATION.to_owned())?;
+        let body = self
+            .fetch_page(
+                request,
+                sellerhub_verification_wire::MAX_VERIFICATION_BODY,
+                guard,
+            )
+            .await?;
+        let options = sellerhub_verification_wire::parse_txt_options(&body)?;
+        guard()?;
+        Ok(options)
+    }
+
     fn registrar_request(
         &self,
         credential: &SpaceshipCredential,
@@ -261,6 +335,22 @@ impl SpaceshipClient {
         )
     }
 
+    fn sellerhub_create_request(
+        &self,
+        credential: &SpaceshipCredential,
+        domain: &str,
+        cents: u64,
+    ) -> Result<Request, SpaceshipError> {
+        let body = sellerhub_wire::encode_listing_create(domain, cents)?;
+        Self::keyed_request(
+            credential,
+            self.client
+                .post(SELLERHUB_DOMAINS)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(body),
+        )
+    }
+
     fn get(
         &self,
         credential: &SpaceshipCredential,
@@ -287,10 +377,21 @@ impl SpaceshipClient {
         max_body: usize,
         guard: &mut SpaceshipGuard<'_>,
     ) -> Result<Zeroizing<Vec<u8>>, SpaceshipError> {
+        self.fetch_json(request, StatusCode::OK, max_body, guard)
+            .await
+    }
+
+    async fn fetch_json(
+        &self,
+        request: Request,
+        expected_status: StatusCode,
+        max_body: usize,
+        guard: &mut SpaceshipGuard<'_>,
+    ) -> Result<Zeroizing<Vec<u8>>, SpaceshipError> {
         let response = self.client.execute(request).await;
         guard()?;
         let response = response.map_err(|_| SpaceshipError::Unavailable)?;
-        read_page(response, max_body, guard).await
+        read_page(response, expected_status, max_body, guard).await
     }
 }
 
@@ -310,12 +411,13 @@ fn secret_header(value: &str) -> Result<header::HeaderValue, SpaceshipError> {
 
 async fn read_page(
     response: reqwest::Response,
+    expected_status: StatusCode,
     max_body: usize,
     guard: &mut SpaceshipGuard<'_>,
 ) -> Result<Zeroizing<Vec<u8>>, SpaceshipError> {
     let invalid = SpaceshipError::ProtocolRejected;
     match response.status() {
-        StatusCode::OK => {}
+        status if status == expected_status => {}
         StatusCode::UNAUTHORIZED => return Err(SpaceshipError::AuthenticationRequired),
         StatusCode::FORBIDDEN => return Err(SpaceshipError::Forbidden),
         StatusCode::TOO_MANY_REQUESTS => return Err(SpaceshipError::RateLimited),
@@ -458,5 +560,46 @@ mod tests {
                 SpaceshipError::InputRejected,
             );
         }
+    }
+
+    #[test]
+    fn sellerhub_create_posts_only_the_approved_fixed_price_to_the_collection() {
+        let client = SpaceshipClient::production().unwrap();
+        let credential = SpaceshipCredential {
+            key: Zeroizing::new("synthetic-key".to_owned()),
+            secret: Zeroizing::new("synthetic-secret".to_owned()),
+        };
+        let request = client
+            .sellerhub_create_request(&credential, "xn--bcher-kva.de", 20_305)
+            .unwrap();
+        assert_eq!(request.method(), reqwest::Method::POST);
+        assert_eq!(request.url().as_str(), SELLERHUB_DOMAINS);
+        assert!(request.headers()["x-api-key"].is_sensitive());
+        assert!(request.headers()["x-api-secret"].is_sensitive());
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(
+                request.body().and_then(reqwest::Body::as_bytes).unwrap()
+            )
+            .unwrap(),
+            serde_json::json!({
+                "name": "bücher.de",
+                "binPriceEnabled": true,
+                "binPrice": {"amount": "203.05", "currency": "USD"},
+                "minPriceEnabled": false,
+            })
+        );
+        for domain in ["EXAMPLE.com", "example.com/other", "bücher.de", "127.0.0.1"] {
+            assert_eq!(
+                client
+                    .sellerhub_create_request(&credential, domain, 20_305)
+                    .unwrap_err(),
+                SpaceshipError::InputRejected
+            );
+        }
+        assert!(
+            client
+                .sellerhub_create_request(&credential, "example.com", 0)
+                .is_err()
+        );
     }
 }

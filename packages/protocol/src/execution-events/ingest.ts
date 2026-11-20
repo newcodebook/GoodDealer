@@ -1,3 +1,7 @@
+import {
+  sellerHubCreateListingAuditPayloadSchema,
+  sellerHubCreateListingClaimPayloadSchema,
+} from "./sellerhub-create-listing-evidence";
 import { atomStandardDelistAuditPayloadSchema, atomStandardDelistClaimPayloadSchema } from "./atom-standard-delist-evidence";
 import { sellerHubBinPriceAuditPayloadSchema, sellerHubBinPriceClaimPayloadSchema } from "./sellerhub-bin-price-evidence";
 import { afternicListingPlanApprovalAuditPayloadSchema, afternicListingPlanClaimAuditPayloadSchema, afternicListingPlanReconciledAuditPayloadSchema,
@@ -101,6 +105,7 @@ export const executionFactIngestRequestSchema = z
           ctx.addIssue({ code: "custom", path: [field], message: "expected opaque business UUID" });
       if (
         fact.eventType !== (fact.payloadRedacted.action === "remove_standard" ? "atom_standard_delist_dispatch_claimed"
+          : fact.payloadRedacted.action === "create_listing" ? "sellerhub_create_listing_dispatch_claimed"
           : fact.payloadRedacted.action === "set_bin_price" ? "sellerhub_bin_price_dispatch_claimed"
           : fact.payloadRedacted.action === "remove" ? "afternic_delist_dispatch_claimed"
           : fact.payloadRedacted.action === "reactivate_ownership_review" ? "afternic_ownership_review_dispatch_claimed"
@@ -110,7 +115,7 @@ export const executionFactIngestRequestSchema = z
         fact.signatureTranscriptVersion !== 1 ||
         !signature.safeParse(fact.deviceSignature).success ||
         !digest.safeParse(fact.trustedTimeAnchorId).success ||
-        !z.union([afternicDelistClaimPayloadSchema,afternicListingWriteClaimPayloadSchema,afternicListingPlanClaimPayloadSchema,afternicOwnershipReviewClaimPayloadSchema,sellerHubBinPriceClaimPayloadSchema,atomStandardDelistClaimPayloadSchema]).safeParse(fact.payloadRedacted).success
+        !z.union([afternicDelistClaimPayloadSchema,afternicListingWriteClaimPayloadSchema,afternicListingPlanClaimPayloadSchema,afternicOwnershipReviewClaimPayloadSchema,sellerHubBinPriceClaimPayloadSchema, sellerHubCreateListingClaimPayloadSchema, atomStandardDelistClaimPayloadSchema]).safeParse(fact.payloadRedacted).success
       )
         ctx.addIssue({ code: "custom", message: "unsupported execution evidence" });
     }),
@@ -129,7 +134,7 @@ export const deviceAuditIngestRequestSchema = z
           afternicListingWriteApprovalAuditPayloadSchema,afternicListingWriteClaimAuditPayloadSchema,afternicListingWriteReconciledAuditPayloadSchema,afternicListingWritePreflightRefusedAuditPayloadSchema, afternicListingPlanApprovalAuditPayloadSchema, afternicListingPlanClaimAuditPayloadSchema, afternicListingPlanReconciledAuditPayloadSchema,
   afternicListingPlanPreflightRefusedAuditPayloadSchema, afternicOwnershipReviewClaimAuditPayloadSchema,
   afternicOwnershipReviewReconciledAuditPayloadSchema, afternicOwnershipReviewPreflightRefusedAuditPayloadSchema,
-  afternicOwnershipReviewPreflightSatisfiedAuditPayloadSchema, sellerHubBinPriceAuditPayloadSchema, atomStandardDelistAuditPayloadSchema,
+  afternicOwnershipReviewPreflightSatisfiedAuditPayloadSchema, sellerHubBinPriceAuditPayloadSchema, sellerHubCreateListingAuditPayloadSchema, atomStandardDelistAuditPayloadSchema,
         ])
         .safeParse(event.payloadRedacted);
       if (
@@ -142,13 +147,14 @@ export const deviceAuditIngestRequestSchema = z
         !payload.success
       )
         ctx.addIssue({ code: "custom", message: "unsupported workspace execution audit" });
-      if (payload.success && (payload.data.action === "set_bin_price" || payload.data.action === "remove_standard")) {
+      if (payload.success && (payload.data.action === "set_bin_price"
+        || payload.data.action === "remove_standard" || payload.data.action === "create_listing")) {
         const p = payload.data;
         const approval = p.stage === "approved";
         const dispatch = p.stage === "dispatch_claimed";
-        const target = p.action === "remove_standard"
-          ? (approval ? "atom_standard_delist_approval" : "atom_standard_delist_attempt")
-          : (approval ? "sellerhub_bin_price_approval" : "sellerhub_bin_price_attempt");
+        const targetFamily = p.action === "remove_standard" ? "atom_standard_delist"
+          : p.action === "set_bin_price" ? "sellerhub_bin_price" : "sellerhub_create_listing";
+        const target = `${targetFamily}_${approval ? "approval" : "attempt"}`;
         if (event.targetType !== target
           || event.targetRef !== (approval ? p.approvedOperationId : p.attemptId)
           || event.actorKind !== (approval ? "user" : "device_service")
@@ -158,7 +164,11 @@ export const deviceAuditIngestRequestSchema = z
         }
         return;
       }
-      if (["sellerhub_bin_price_approval", "sellerhub_bin_price_attempt", "atom_standard_delist_approval", "atom_standard_delist_attempt"].includes(event.targetType)) {
+      if ([
+        "sellerhub_bin_price_approval", "sellerhub_bin_price_attempt",
+        "sellerhub_create_listing_approval", "sellerhub_create_listing_attempt",
+        "atom_standard_delist_approval", "atom_standard_delist_attempt",
+      ].includes(event.targetType)) {
         ctx.addIssue({ code: "custom", message: "marketplace audit requires its bound payload" });
       }
       if (payload.success && payload.data.schemaVersion !== 2 && payload.data.action !== "reactivate_ownership_review"

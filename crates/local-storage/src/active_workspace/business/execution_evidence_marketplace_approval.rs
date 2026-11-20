@@ -1,4 +1,4 @@
-//! Device evidence for Atom Standard removal and `SellerHub` BIN updates, each with one claim.
+//! Purpose-specific signed evidence for marketplace writes with one dispatch claim.
 use super::{
     ApprovalEnvelope, ApprovalTarget, EvidenceSignaturePurpose, EvidenceSigner,
     ExecutionEvidenceContext, FACT_DOMAIN, MAX_SEQUENCE, Result, URL_SAFE_NO_PAD, advance, audit,
@@ -15,6 +15,7 @@ use serde_json::json;
 #[derive(Clone, Copy)]
 pub(in crate::active_workspace::business) enum ApprovalPurpose {
     SellerHubBinPrice,
+    SellerHubCreateListing,
     AtomStandardDelist,
 }
 
@@ -51,6 +52,21 @@ impl ApprovalPurpose {
                 envelope_domain: "GOODDEALER-SELLERHUB-BIN-PRICE-ITEM-APPROVAL-ENVELOPE-V1",
                 target_set_domain: "GOODDEALER-SELLERHUB-BIN-PRICE-TARGET-SET-V1",
                 signing_purpose: EvidenceSignaturePurpose::SellerHubBinPriceApproval,
+            },
+            Self::SellerHubCreateListing => ApprovalScope {
+                provider: "spaceship",
+                capability: SPACESHIP_MARKETPLACE_WRITE,
+                action: "create_listing",
+                audit_target: "sellerhub_create_listing_approval",
+                plan_kind: "sellerhub_create_listing",
+                attempt_target: "sellerhub_create_listing_attempt",
+                claim_event: "sellerhub_create_listing_dispatch_claimed",
+                dispatch_key_domain: "GOODDEALER-SELLERHUB-CREATE-LISTING-LOCAL-DISPATCH-KEY-V1",
+                approval_type: "gd.sellerhub-create-listing-item-approval.v1",
+                signature_domain: "GOODDEALER-SELLERHUB-CREATE-LISTING-ITEM-APPROVAL-V1",
+                envelope_domain: "GOODDEALER-SELLERHUB-CREATE-LISTING-ITEM-APPROVAL-ENVELOPE-V1",
+                target_set_domain: "GOODDEALER-SELLERHUB-CREATE-LISTING-TARGET-SET-V1",
+                signing_purpose: EvidenceSignaturePurpose::SellerHubCreateListingApproval,
             },
             Self::AtomStandardDelist => ApprovalScope {
                 provider: "atom",
@@ -368,11 +384,14 @@ pub(in crate::active_workspace::business) fn record_preflight_refusal(
 pub(in crate::active_workspace::business) enum ReconciliationOutcome {
     Matched,
     Different,
+    OwnershipPending,
+    StateBlocked,
     ReadFailed,
 }
 
 #[expect(
     clippy::too_many_arguments,
+    clippy::too_many_lines,
     reason = "evidence binds the exact marketplace purpose and request identity"
 )]
 pub(in crate::active_workspace::business) fn record_reconciliation(
@@ -448,9 +467,30 @@ pub(in crate::active_workspace::business) fn record_reconciliation(
     let (outcome, reason) = match outcome {
         ReconciliationOutcome::Matched => match purpose {
             ApprovalPurpose::SellerHubBinPrice => ("matched", None),
+            ApprovalPurpose::SellerHubCreateListing => ("published", None),
             ApprovalPurpose::AtomStandardDelist => return Err(rejected()),
         },
-        ReconciliationOutcome::Different => ("different", Some("postcondition_pending")),
+        ReconciliationOutcome::Different => {
+            let result = if matches!(purpose, ApprovalPurpose::SellerHubCreateListing) {
+                "terms_unconfirmed"
+            } else {
+                "different"
+            };
+            (result, Some("postcondition_pending"))
+        }
+        ReconciliationOutcome::OwnershipPending
+            if matches!(purpose, ApprovalPurpose::SellerHubCreateListing) =>
+        {
+            ("ownership_pending", Some("ownership_verifying"))
+        }
+        ReconciliationOutcome::StateBlocked
+            if matches!(purpose, ApprovalPurpose::SellerHubCreateListing) =>
+        {
+            ("state_blocked", Some("not_on_sale"))
+        }
+        ReconciliationOutcome::OwnershipPending | ReconciliationOutcome::StateBlocked => {
+            return Err(rejected());
+        }
         ReconciliationOutcome::ReadFailed => ("read_failed", Some("read_failed")),
     };
     audit(
@@ -475,6 +515,11 @@ pub(in crate::active_workspace::business) fn has_unattested_attempt(
 ) -> Result<bool> {
     Ok(
         has_unattested_attempt_for(ApprovalPurpose::SellerHubBinPrice, conn, workspace)?
+            || has_unattested_attempt_for(
+                ApprovalPurpose::SellerHubCreateListing,
+                conn,
+                workspace,
+            )?
             || has_unattested_attempt_for(ApprovalPurpose::AtomStandardDelist, conn, workspace)?,
     )
 }

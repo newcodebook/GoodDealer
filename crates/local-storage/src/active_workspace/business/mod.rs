@@ -117,6 +117,7 @@ mod sedo_marketplace;
 mod spaceship_registrar;
 mod spaceship_sellerhub;
 mod spaceship_sellerhub_bin;
+mod spaceship_sellerhub_create;
 pub(crate) use aliyun_registrar::{AliyunConnectionSeed, AliyunInventoryCommit};
 pub use aliyun_registrar::{DesktopAliyunConnectionState, DesktopAliyunConnectionSummary};
 pub(crate) use atom_marketplace::{AtomConnectionSeed, AtomInventoryCommit};
@@ -1548,4 +1549,12 @@ pub use afternic_listing_plan_wire::{
     DesktopAfternicListingPlanPreviewRequest, DesktopAfternicListingPlanStatus,
     DesktopAfternicListingPlanStatusRequest, DesktopAfternicListingPlanSummary,
     DesktopAfternicListingPlanWrite,
+};
+
+pub(crate) use spaceship_sellerhub_create::SellerHubCreateWork;
+pub use spaceship_sellerhub_create::{
+    DesktopSellerHubCreateApproval, DesktopSellerHubCreateApproveRequest,
+    DesktopSellerHubCreateDetail, DesktopSellerHubCreatePlanSummary, DesktopSellerHubCreatePreview,
+    DesktopSellerHubCreatePreviewRequest, DesktopSellerHubCreateStatusRequest,
+    SellerHubCreateReadback,
 };

@@ -41,6 +41,35 @@ pub enum SpaceshipSellerHubStatus {
     Sold,
 }
 
+/// The precise readback of a planned one-price `SellerHub` creation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpaceshipSellerHubCreateObservation {
+    Published,
+    WaitingForOwnership,
+    NotPublished(SpaceshipSellerHubStatus),
+    TermsUnconfirmed,
+}
+
+pub(super) fn observe_create(
+    listing: &SpaceshipSellerHubListing,
+    cents: u64,
+) -> SpaceshipSellerHubCreateObservation {
+    use SpaceshipSellerHubCreateObservation::{
+        NotPublished, Published, TermsUnconfirmed, WaitingForOwnership,
+    };
+    if listing.bin_price_enabled != Some(true)
+        || listing.min_price_enabled != Some(false)
+        || listing.bin_price_usd.as_deref().and_then(approved_cents) != Some(cents)
+    {
+        return TermsUnconfirmed;
+    }
+    match listing.status {
+        SpaceshipSellerHubStatus::OnSale => Published,
+        SpaceshipSellerHubStatus::Verifying => WaitingForOwnership,
+        status => NotPublished(status),
+    }
+}
+
 #[derive(Default)]
 pub(super) struct SellerHubScan {
     total: Option<usize>,
@@ -179,6 +208,51 @@ fn approved_cents(amount: &str) -> Option<u64> {
     (1..=MAX_APPROVED_CENTS).contains(&cents).then_some(cents)
 }
 
+fn approved_price_amount(cents: u64) -> Result<String, SpaceshipError> {
+    if !(1..=MAX_APPROVED_CENTS).contains(&cents) {
+        return Err(SpaceshipError::InputRejected);
+    }
+    Ok(format!("{}.{:02}", cents / 100, cents % 100))
+}
+
+pub(super) fn encode_listing_create(
+    canonical_domain: &str,
+    cents: u64,
+) -> Result<Vec<u8>, SpaceshipError> {
+    #[derive(Serialize)]
+    struct FixedPrice {
+        amount: String,
+        currency: &'static str,
+    }
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CreateListing {
+        name: String,
+        bin_price_enabled: bool,
+        bin_price: FixedPrice,
+        min_price_enabled: bool,
+    }
+    if !valid_hostname(canonical_domain) {
+        return Err(SpaceshipError::InputRejected);
+    }
+    // Creation documents Unicode names. Retain the canonical A-label as the
+    // execution identity and check that the exact outbound name round-trips.
+    let name = url::quirks::domain_to_unicode(canonical_domain);
+    if !same_domain(&name, canonical_domain) {
+        return Err(SpaceshipError::InputRejected);
+    }
+    serde_json::to_vec(&CreateListing {
+        name,
+        bin_price_enabled: true,
+        bin_price: FixedPrice {
+            amount: approved_price_amount(cents)?,
+            currency: "USD",
+        },
+        min_price_enabled: false,
+    })
+    .map_err(|_| SpaceshipError::InputRejected)
+}
+
 pub(super) fn encode_bin_price_update(cents: u64) -> Result<Vec<u8>, SpaceshipError> {
     #[derive(Serialize)]
     struct PriceUpdate {
@@ -189,14 +263,11 @@ pub(super) fn encode_bin_price_update(cents: u64) -> Result<Vec<u8>, SpaceshipEr
     struct BinUpdate {
         bin_price: PriceUpdate,
     }
-    if !(1..=MAX_APPROVED_CENTS).contains(&cents) {
-        return Err(SpaceshipError::InputRejected);
-    }
     // The account currency is already USD. Omitting other settings keeps this write
     // confined to the approved BIN amount.
     serde_json::to_vec(&BinUpdate {
         bin_price: PriceUpdate {
-            amount: format!("{}.{:02}", cents / 100, cents % 100),
+            amount: approved_price_amount(cents)?,
         },
     })
     .map_err(|_| SpaceshipError::InputRejected)
@@ -340,5 +411,37 @@ mod tests {
         assert_eq!(scan.accept(first_page.to_string().as_bytes()), Ok(false));
         assert_eq!(scan.accept(last_page.to_string().as_bytes()), Ok(true));
         assert_eq!(scan.into_listings().len(), PAGE_SIZE + 1);
+    }
+
+    #[test]
+    fn create_readback_distinguishes_waiting_and_published_from_incomplete_terms() {
+        use SpaceshipSellerHubCreateObservation::{
+            NotPublished, Published, TermsUnconfirmed, WaitingForOwnership,
+        };
+        let mut remote = listing("example.com", "verifying");
+        remote["binPrice"] = json!({"amount": "203.05", "currency": "USD"});
+        remote["binPriceEnabled"] = json!(true);
+        remote["minPriceEnabled"] = json!(false);
+        let observe = |remote: &serde_json::Value| {
+            let listing =
+                parse_exact_listing(&serde_json::to_vec(remote).unwrap(), "example.com").unwrap();
+            observe_create(&listing, 20_305)
+        };
+        assert_eq!(observe(&remote), WaitingForOwnership);
+        remote["status"] = json!("onSale");
+        assert_eq!(observe(&remote), Published);
+        remote["status"] = json!("privateSale");
+        assert_eq!(
+            observe(&remote),
+            NotPublished(SpaceshipSellerHubStatus::PrivateSale)
+        );
+        remote["status"] = json!("onSale");
+        remote["minPriceEnabled"] = json!(true);
+        assert_eq!(observe(&remote), TermsUnconfirmed);
+        remote.as_object_mut().unwrap().remove("minPriceEnabled");
+        assert_eq!(observe(&remote), TermsUnconfirmed);
+        remote["minPriceEnabled"] = json!(false);
+        remote["binPrice"]["amount"] = json!("203.06");
+        assert_eq!(observe(&remote), TermsUnconfirmed);
     }
 }

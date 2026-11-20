@@ -41,7 +41,7 @@ pub(crate) async fn sellerhub_bin_price_approve(
 ) -> Result<DesktopSellerHubBinApproval, &'static str> {
     let request: DesktopSellerHubBinApproveRequest =
         decode_provider_request(&request, 512).map_err(|_| REJECTED)?;
-    if !cloud.sellerhub_bin_execution_available() {
+    if !cloud.sellerhub_write_lane_available() {
         return Err(REJECTED);
     }
     let host = Arc::clone(host.inner());
@@ -60,7 +60,7 @@ pub(crate) async fn sellerhub_bin_price_approve(
     })
     .await
     .map_err(|_| REJECTED)??;
-    cloud.wake_sellerhub_bin();
+    cloud.wake_sellerhub_operations();
     Ok(approval)
 }
 
@@ -78,9 +78,8 @@ pub(crate) async fn sellerhub_bin_price_status(
             .await
             .map_err(|_| REJECTED)?
             .map_err(|_| REJECTED)?;
-    status.execution_available = status.write_qualified
-        && status.write_entitled
-        && cloud.sellerhub_bin_execution_available();
+    status.execution_available =
+        status.write_qualified && status.write_entitled && cloud.sellerhub_write_lane_available();
     Ok(status)
 }
 

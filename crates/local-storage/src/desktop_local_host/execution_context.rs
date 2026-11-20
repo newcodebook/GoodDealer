@@ -157,6 +157,16 @@ pub trait DesktopExecutionContextNativePort: Send + Sync {
         Err(Error::Unavailable)
     }
 
+    /// Signs only a `SellerHub` fixed-price creation item approval.
+    /// # Errors
+    /// Rejects an unavailable purpose-specific signer.
+    fn sign_sellerhub_create_listing_approval(
+        &self,
+        _transcript: &[u8],
+    ) -> Result<[u8; 64], Error> {
+        Err(Error::Unavailable)
+    }
+
     /// Signs only an Atom Standard removal item approval.
     /// # Errors
     /// Rejects an unavailable purpose-specific signer.
@@ -908,6 +918,9 @@ impl DesktopLocalHost {
             }
             EvidenceSignaturePurpose::SellerHubBinPriceApproval => {
                 native.sign_sellerhub_bin_price_approval(transcript)
+            }
+            EvidenceSignaturePurpose::SellerHubCreateListingApproval => {
+                native.sign_sellerhub_create_listing_approval(transcript)
             }
             EvidenceSignaturePurpose::AtomStandardDelistApproval => {
                 native.sign_atom_standard_delist_approval(transcript)
