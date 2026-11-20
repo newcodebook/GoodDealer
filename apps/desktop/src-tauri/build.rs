@@ -43,6 +43,8 @@ fn main() {
             "spaceship_registrar_submit",
             "aliyun_registrar_status",
             "aliyun_registrar_submit",
+            "cloudflare_registrar_account_status",
+            "cloudflare_registrar_account_submit",
             "atom_marketplace_status",
             "atom_marketplace_submit",
             "local_business_status",

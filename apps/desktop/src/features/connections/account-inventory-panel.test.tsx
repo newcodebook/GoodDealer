@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-import type { AliyunRegistrarStatus, AtomMarketplaceStatus, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
+import { parseCloudflareRegistrarAccountStatus, type AliyunRegistrarStatus, type AtomMarketplaceStatus, type CloudflareRegistrarAccountStatus, type SpaceshipRegistrarStatus } from "@gooddealer/client-core";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
-import { AliyunRegistrarPanel, AtomMarketplacePanel, SpaceshipRegistrarPanel } from "./account-inventory-panel";
+import { AliyunRegistrarPanel, AtomMarketplacePanel, CloudflareRegistrarAccountPanel, SpaceshipRegistrarPanel } from "./account-inventory-panel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -113,6 +113,41 @@ it("shows Atom portfolio results and only sends bound seller inventory intents",
     const refresh = container.querySelector<HTMLButtonElement>('button[aria-label="刷新卖家库存 Atom"]')!;
     await act(async () => { refresh.click(); });
     expect(submit).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 1, action: "refresh", connectionId });
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("connects a Cloudflare account without a Zone, and refreshes only a published slot", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const connectionId = "11111111-1111-4111-a111-111111111111";
+  const summary: CloudflareRegistrarAccountStatus = {
+    schemaVersion: 1, laneState: "ready", observeQualified: true, observeEntitled: true, capturable: true,
+    lastOperation: null, connections: [{ connectionId, state: "prepared", lastScan: null, scanPending: false }],
+  };
+  const scan: CloudflareRegistrarAccountStatus = {
+    ...summary, lastOperation: { kind: "cloudflare_registrar_account_connect", outcome: "confirmed" },
+    connections: [{ connectionId, state: "active", scanPending: false,
+      lastScan: { observed: 2, imported: 1, skipped: 0, completedAt: "2026-11-20T00:00:00Z" } }],
+  };
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const status = vi.fn<() => Promise<CloudflareRegistrarAccountStatus>>().mockResolvedValueOnce(summary).mockResolvedValue(scan);
+  const button = (label: string) => [...container.querySelectorAll("button")].find((node) => node.textContent === label);
+  expect(parseCloudflareRegistrarAccountStatus(summary)).toEqual(summary);
+  expect(() => parseCloudflareRegistrarAccountStatus({ ...summary, accountId: "forbidden" })).toThrow();
+  try {
+    await act(async () => {
+      root.render(<CloudflareRegistrarAccountPanel locale="zh-CN" port={{ status, submit }} writable onChanged={() => {}} />);
+    });
+    expect(container.querySelector("input")).toBeNull();
+    expect(button("刷新注册域名")).toBeUndefined();
+    await act(async () => { button("连接 Cloudflare Registrar")!.click(); });
+    expect(submit).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 1, action: "connect" });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("归集结果已保存");
+    await act(async () => { button("刷新注册域名")!.click(); });
+    expect(submit).toHaveBeenLastCalledWith({ schemaVersion: 1, action: "refresh", connectionId });
   } finally {
     await act(async () => root.unmount());
     container.remove();

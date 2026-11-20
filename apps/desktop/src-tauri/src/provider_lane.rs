@@ -62,6 +62,13 @@ pub(crate) enum ProviderOperation {
     CloudflareRegistrarRefresh {
         connection_id: String,
     },
+    CloudflareRegistrarAccountConnect,
+    CloudflareRegistrarAccountRefresh {
+        connection_id: String,
+    },
+    CloudflareRegistrarAccountRevoke {
+        connection_id: String,
+    },
     /// Revokes the connection's credential. It shares the single in-flight slot so it never races
     /// a provision of the same custody, but it is never rate limited: withdrawing access must
     /// always be possible.
@@ -102,6 +109,7 @@ impl ProviderOperation {
             Self::SpaceshipConnect => "spaceship:new-connection",
             Self::AliyunConnect => "aliyun:new-connection",
             Self::AtomConnect => "atom:new-connection",
+            Self::CloudflareRegistrarAccountConnect => "cloudflare-registrar:new-connection",
             Self::AfternicRefresh { connection_id } | Self::AfternicRevoke { connection_id } => {
                 connection_id
             }
@@ -113,6 +121,8 @@ impl ProviderOperation {
             | Self::AliyunRevoke { connection_id }
             | Self::AtomRevoke { connection_id }
             | Self::CloudflareRegistrarRefresh { connection_id }
+            | Self::CloudflareRegistrarAccountRefresh { connection_id }
+            | Self::CloudflareRegistrarAccountRevoke { connection_id }
             | Self::Revoke { connection_id }
             | Self::Purge { connection_id, .. }
             | Self::Observe { connection_id, .. } => connection_id,
@@ -161,6 +171,7 @@ impl From<bool> for ProviderRecovery {
 #[derive(Clone, Copy)]
 pub(crate) struct ProviderRecoveryOutcome {
     pub(crate) cloudflare: ProviderRecovery,
+    pub(crate) cloudflare_registrar_account: ProviderRecovery,
     pub(crate) afternic: ProviderRecovery,
     pub(crate) spaceship: ProviderRecovery,
     pub(crate) aliyun: ProviderRecovery,
@@ -170,6 +181,11 @@ pub(crate) struct ProviderRecoveryOutcome {
 impl ProviderRecoveryOutcome {
     fn for_operation(self, operation: &ProviderOperation) -> ProviderRecovery {
         match operation {
+            ProviderOperation::CloudflareRegistrarAccountConnect
+            | ProviderOperation::CloudflareRegistrarAccountRefresh { .. }
+            | ProviderOperation::CloudflareRegistrarAccountRevoke { .. } => {
+                self.cloudflare_registrar_account
+            }
             ProviderOperation::SpaceshipConnect
             | ProviderOperation::SpaceshipRefresh { .. }
             | ProviderOperation::SpaceshipRevoke { .. } => self.spaceship,
@@ -190,6 +206,7 @@ impl From<bool> for ProviderRecoveryOutcome {
         let recovery = ProviderRecovery::from(complete);
         Self {
             cloudflare: recovery,
+            cloudflare_registrar_account: recovery,
             afternic: recovery,
             spaceship: recovery,
             aliyun: recovery,
@@ -237,6 +254,7 @@ impl ProviderAdmissionState {
                         | ProviderOperation::AfternicRevoke { .. }
                         | ProviderOperation::SpaceshipRevoke { .. }
                         | ProviderOperation::AliyunRevoke { .. }
+                        | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
                         | ProviderOperation::AtomRevoke { .. }
                 ))
         {
@@ -247,6 +265,7 @@ impl ProviderAdmissionState {
                 operation,
                 ProviderOperation::Observe { .. }
                     | ProviderOperation::CloudflareRegistrarRefresh { .. }
+                    | ProviderOperation::CloudflareRegistrarAccountRefresh { .. }
                     | ProviderOperation::AfternicRefresh { .. }
                     | ProviderOperation::SpaceshipRefresh { .. }
                     | ProviderOperation::AliyunRefresh { .. }
@@ -274,6 +293,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::AfternicConnect { .. }
             | ProviderOperation::SpaceshipConnect
             | ProviderOperation::AliyunConnect
+            | ProviderOperation::CloudflareRegistrarAccountConnect
             | ProviderOperation::AtomConnect => {
                 if rate
                     .last_activation
@@ -285,6 +305,7 @@ impl ProviderAdmissionState {
             }
             ProviderOperation::Observe { .. }
             | ProviderOperation::CloudflareRegistrarRefresh { .. }
+            | ProviderOperation::CloudflareRegistrarAccountRefresh { .. }
             | ProviderOperation::SpaceshipRefresh { .. }
             | ProviderOperation::AliyunRefresh { .. }
             | ProviderOperation::AtomRefresh { .. }
@@ -312,6 +333,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::Purge { .. }
             | ProviderOperation::SpaceshipRevoke { .. }
             | ProviderOperation::AliyunRevoke { .. }
+            | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
             | ProviderOperation::AtomRevoke { .. }
             | ProviderOperation::AfternicRevoke { .. } => {}
         }
@@ -355,6 +377,9 @@ pub(crate) struct ProviderLaneHandle {
 impl ProviderLaneHandle {
     pub(crate) fn status(&self) -> ProviderStatus {
         self.status_for(|state| state.recovery.cloudflare)
+    }
+    pub(crate) fn cloudflare_registrar_account_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.cloudflare_registrar_account)
     }
     pub(crate) fn afternic_status(&self) -> ProviderStatus {
         self.status_for(|state| state.recovery.afternic)
@@ -400,6 +425,18 @@ impl ProviderLaneHandle {
     ) -> ProviderSubmission {
         self.submit_at_after(
             &ProviderOperation::CloudflareRegistrarRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_registrar_account_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::CloudflareRegistrarAccountRefresh { connection_id },
             Instant::now(),
             persist,
         )
@@ -588,6 +625,7 @@ impl ProviderLane {
                             ProviderOperation::AfternicRevoke { .. }
                                 | ProviderOperation::SpaceshipRevoke { .. }
                                 | ProviderOperation::AliyunRevoke { .. }
+                                | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
                                 | ProviderOperation::AtomRevoke { .. }
                         )
                     {
@@ -759,6 +797,7 @@ mod tests {
                 afternic: false.into(),
                 spaceship: true.into(),
                 aliyun: true.into(),
+                cloudflare_registrar_account: true.into(),
                 atom: true.into(),
             },
         );
@@ -780,6 +819,7 @@ mod tests {
                 afternic: true.into(),
                 spaceship: true.into(),
                 aliyun: true.into(),
+                cloudflare_registrar_account: true.into(),
                 atom: true.into(),
             },
         );
@@ -818,6 +858,7 @@ mod tests {
                 afternic: true.into(),
                 spaceship: true.into(),
                 aliyun: false.into(),
+                cloudflare_registrar_account: true.into(),
                 atom: false.into(),
             },
         );

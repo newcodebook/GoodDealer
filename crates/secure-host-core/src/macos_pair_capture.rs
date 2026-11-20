@@ -3,6 +3,7 @@ use zeroize::Zeroizing;
 
 pub(super) enum Purpose {
     Afternic,
+    CloudflareRegistrar,
     Spaceship,
     Aliyun,
     Atom,
@@ -28,6 +29,11 @@ pub(super) fn capture(
             r#"set apiKey to text returned of (display dialog "Afternic API key" default answer "" with hidden answer)
 set apiSecret to text returned of (display dialog "Afternic API secret" default answer "" with hidden answer)
 return apiKey & linefeed & apiSecret"#
+        }
+        Purpose::CloudflareRegistrar => {
+            r#"set accountId to text returned of (display dialog "Cloudflare Account ID" default answer "" with hidden answer)
+set apiToken to text returned of (display dialog "Cloudflare user API token" default answer "" with hidden answer)
+return accountId & linefeed & apiToken"#
         }
         Purpose::Spaceship => {
             r#"set apiKey to text returned of (display dialog "Spaceship API key" default answer "" with hidden answer)

@@ -21,6 +21,7 @@ const INPUT_TIMEOUT: Duration = Duration::from_secs(120);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Purpose {
     Cloudflare,
+    CloudflareRegistrar,
     Afternic,
     Spaceship,
     Aliyun,
@@ -30,6 +31,7 @@ impl Purpose {
     const fn title(self) -> &'static str {
         match self {
             Self::Cloudflare => "GoodDealer — Connect Cloudflare",
+            Self::CloudflareRegistrar => "GoodDealer — Connect Cloudflare Registrar",
             Self::Afternic => "GoodDealer — Connect Afternic",
             Self::Spaceship => "GoodDealer — Connect Spaceship",
             Self::Aliyun => "GoodDealer — Connect Alibaba Cloud",
@@ -176,6 +178,11 @@ fn capture_controls(purpose: Purpose, form: &Form) -> (gtk::Grid, gtk::Button, g
             "Cloudflare _Zone ID",
             "Cloudflare API _token",
             "Connect Cloudflare",
+        ),
+        Purpose::CloudflareRegistrar => (
+            "Cloudflare _Account ID",
+            "Cloudflare user API _token",
+            "Connect Cloudflare Registrar",
         ),
         Purpose::Spaceship => (
             "Spaceship API _key",
@@ -446,7 +453,7 @@ mod tests {
                 Purpose::Afternic | Purpose::Spaceship => {
                     ("native_canary_key_1234", "native_canary_secret_1234")
                 }
-                Purpose::Cloudflare => (
+                Purpose::Cloudflare | Purpose::CloudflareRegistrar => (
                     "0123456789abcdef0123456789abcdef",
                     "native_canary_token_1234",
                 ),
@@ -529,6 +536,23 @@ mod tests {
         }
     }
 
+    fn run_cloudflare_registrar_case(worker_revoked: &AtomicBool, case: NativeCase) -> bool {
+        use crate::{CloudflareRegistrarCredential, CloudflareRegistrarCredentialError as Fault};
+        let result = CloudflareRegistrarCredential::capture_guarded(&mut || {
+            if worker_revoked.load(Ordering::SeqCst) {
+                Err(Fault::AuthorityStale)
+            } else {
+                Ok(())
+            }
+        });
+        match case {
+            NativeCase::Submit => result.is_ok(),
+            NativeCase::Cancel => matches!(result, Err(Fault::CaptureCancelled)),
+            NativeCase::Revoke => matches!(result, Err(Fault::AuthorityStale)),
+            NativeCase::Invalid => matches!(result, Err(Fault::InputRejected)),
+        }
+    }
+
     fn run_native_case(purpose: Purpose, case: NativeCase) {
         let revoked = Arc::new(AtomicBool::new(false));
         let worker_revoked = Arc::clone(&revoked);
@@ -587,6 +611,9 @@ mod tests {
                         }
                     }
                 }
+                Purpose::CloudflareRegistrar => {
+                    run_cloudflare_registrar_case(&worker_revoked, case)
+                }
             };
             assert!(sender.send(accepted).is_ok());
         });
@@ -640,6 +667,7 @@ mod tests {
         for purpose in [
             Purpose::Afternic,
             Purpose::Cloudflare,
+            Purpose::CloudflareRegistrar,
             Purpose::Spaceship,
             Purpose::Aliyun,
             Purpose::Atom,

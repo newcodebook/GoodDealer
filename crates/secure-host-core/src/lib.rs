@@ -91,7 +91,11 @@ pub use cloudflare_provider::{
     CloudflareCredentialObservationPlan, CloudflareProviderClient, CloudflareProviderError,
     CloudflareProviderGuard, CloudflareProviderObservation, CloudflareProviderRecord,
     CloudflareProviderZone, CloudflareProviderZoneStatus, CloudflareRecordType,
-    CloudflareRegistration, CloudflareRegistrationInventory, CloudflareRegistrationStanding,
+    CloudflareRegistrarCredential, CloudflareRegistrarCredentialError,
+    CloudflareRegistrarCredentialGuard, CloudflareRegistrarCredentialPlan, CloudflareRegistration,
+    CloudflareRegistrationInventory, CloudflareRegistrationStanding,
+    load_cloudflare_registrar_credential, publish_cloudflare_registrar_credential,
+    purge_cloudflare_registrar_credential,
 };
 pub use desktop_authorization_verifier::{
     AuthorizationVerificationKeyError, DesktopAuthorizationCredentialPurpose,

@@ -38,6 +38,8 @@ function createFixture() {
     "cloudflare_connection_revoke",
     "cloudflare_connection_status",
     "cloudflare_observation_read",
+    "cloudflare_registrar_account_status",
+    "cloudflare_registrar_account_submit",
     "cloudflare_registrar_inventory_refresh",
     "cloudflare_retirement_candidates",
     "cloudflare_zone_observe",
@@ -167,7 +169,7 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
   writeFile(
     root,
     "apps/desktop/src/adapters/tauri/index.ts",
-    commands.filter((command) => !command.startsWith("local_backup_") && !command.startsWith("afternic_") && !command.startsWith("forced_takeover_") && !command.startsWith("spaceship_") && !command.startsWith("aliyun_") && !command.startsWith("atom_") && command !== "local_portable_backup")
+    commands.filter((command) => !command.startsWith("local_backup_") && !command.startsWith("afternic_") && !command.startsWith("forced_takeover_") && !command.startsWith("spaceship_") && !command.startsWith("aliyun_") && !command.startsWith("atom_") && !command.startsWith("cloudflare_registrar_account_") && command !== "local_portable_backup")
       .map((command) => `invoke("${command}")`)
       .join("\n"),
   );
@@ -181,6 +183,8 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
     commands.includes("local_portable_backup") ? 'invoke("local_portable_backup")' : "");
   writeFile(root, "apps/desktop/src/adapters/tauri/atom-marketplace.ts",
     commands.filter(command => command.startsWith("atom_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/cloudflare-registrar-account.ts",
+    commands.filter(command => command.startsWith("cloudflare_registrar_account_")).map(command => `invoke("${command}")`).join("\n"));
   writeFile(
     root,
     "apps/desktop/src/adapters/tauri/afternic.ts",

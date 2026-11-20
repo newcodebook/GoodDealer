@@ -4,6 +4,9 @@
 
 ## 适用状态
 
+以下 generation、intent 与账本规则适用于从 Zone 建立的 Cloudflare 连接，包括该连接衍生的 Registrar 角色。
+独立 Registrar 账户凭据没有 Zone 或轮换操作，适用文末不可变槽位规则。
+
 凭据留在 Native custody，每个连接 incarnation 对应一个槽位；Host 从已准入工作区与 incarnation 派生
 `connection_digest`，调用方不能选择工作区、账户名或路径。清理按四种状态处理：
 
@@ -100,3 +103,9 @@
 无基线删除只针对已在事务中永久拒绝、没有执行中 intent、永不复用的槽位；删除不写入新凭据。
 迁移必须保留身份、phase、marker 配对和 live-intent 唯一约束。故障测试覆盖每一步崩溃、Unknown 重试、
 晚到回调、并发写入、非法工作区/槽位与退役单调性，最终原生后端须独立验证。
+
+## 独立 Registrar 账户的不可变槽位
+
+- 独立 Registrar 连接由 Cloudflare Service 持有 Account ID 和用户 API Token。它不取得 DNS 角色，也不创建 Zone root、generation 或 intent。完整账户只读预检成功后才允许写入单一不可变槽位，回读确认后由 Host 提交连接和业务观察。新凭据需经新连接和 incarnation 录入。
+- Host 记录工作区、连接、incarnation、公开 proof 和原待扫描请求。槽位键由这些 Host 身份派生，账户 ID、Token 与分页 cursor 留在 Native。仅保存限定当前槽位的账户承诺。刷新请求绑定当前设备和 Lease；交接屏障、撤销或授权变化会拒绝迟到结果。
+- 用户在设置断开连接后，Host 先不可逆停用槽位、清空待扫描请求，再准入固定用途元数据删除。成功确认不存在才隐藏连接。未知结果在可写重开或用户重试时重复同一删除，保留历史回执。删除不解码槽位内容，不接触 Cloudflare，也不准入其他连接。

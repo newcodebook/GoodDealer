@@ -190,6 +190,7 @@ impl BusinessDatabase {
             .query_row(
                 "SELECT c.connection_id,c.display_label FROM local_provider_connections c
                   WHERE c.workspace_id=?1 AND c.provider_kind='cloudflare'
+                    AND json(c.capabilities_json)<>'[\"registrar\"]'
                     AND c.credential_use_state='inactive'
                     AND c.active_credential_generation IS NULL
                     AND c.lifecycle_status='invalid'
@@ -816,6 +817,7 @@ fn cloudflare_credential_seed(
                 "SELECT connection_incarnation_id,display_label,active_credential_generation
                    FROM local_provider_connections
                   WHERE workspace_id=?1 AND connection_id=?2 AND provider_kind='cloudflare'
+                    AND json(capabilities_json)<>'[\"registrar\"]'
                     AND connection_incarnation_id IS NOT NULL
                     AND (credential_use_state IN ('inactive','active')
                       OR (?3 AND (

@@ -1821,7 +1821,9 @@ fn cloudflare_stored_credential(
     Ok((seed.connection_incarnation_id, credential))
 }
 
-fn require_registrar_dispatch(database: &BusinessDatabase) -> Result<(), DesktopSyncError> {
+pub(crate) fn require_registrar_dispatch(
+    database: &BusinessDatabase,
+) -> Result<(), DesktopSyncError> {
     if database
         .device_handoff_barrier()
         .map_err(map_database_error)?

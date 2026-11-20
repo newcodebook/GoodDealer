@@ -336,6 +336,11 @@ impl NativeCloudCoordinator {
                             )
                             .await
                             .is_ok();
+                            let cloudflare_registrar_account = Arc::new(
+                                crate::provider_credential_orchestrator::cloudflare_registrar_account::Run::new(
+                                    Arc::clone(&host), Arc::clone(&cancel_fence), power.clone(), true,
+                                ),
+                            ).recover().await.is_ok();
                             let afternic =
                                 crate::provider_credential_orchestrator::afternic::recover(
                                     Arc::clone(&host),
@@ -361,6 +366,7 @@ impl NativeCloudCoordinator {
                             ).recover().await.is_ok();
                             ProviderRecoveryOutcome {
                                 cloudflare: cloudflare.into(),
+                                cloudflare_registrar_account: cloudflare_registrar_account.into(),
                                 afternic: afternic.into(),
                                 spaceship: spaceship.into(),
                                 aliyun: aliyun.into(),
@@ -514,6 +520,34 @@ impl NativeCloudCoordinator {
             })
     }
 
+    pub(crate) fn submit_cloudflare_registrar_account_refresh(
+        &self,
+        host: &DesktopLocalHost,
+        connection_id: &str,
+    ) -> ProviderSubmission {
+        if self.cancel_fence.is_cancelled() {
+            return ProviderSubmission::Unavailable;
+        }
+        let epoch = self.power.snapshot().epoch;
+        self.provider
+            .submit_registrar_account_after(connection_id.to_owned(), || {
+                let Ok(_power) = self.power.hold_write_epoch(epoch) else {
+                    return false;
+                };
+                self.cancel_fence
+                    .commit(|| {
+                        host.begin_native_cloud_run().and_then(|admission| {
+                            host.queue_cloudflare_registrar_account_scan(&admission, connection_id)
+                        })
+                    })
+                    .is_some_and(|result| result.is_ok())
+            })
+    }
+
+    pub(crate) fn cloudflare_registrar_account_status(&self) -> ProviderStatus {
+        self.provider.cloudflare_registrar_account_status()
+    }
+
     pub(crate) fn provider_status(&self) -> ProviderStatus {
         self.provider.status()
     }
@@ -636,7 +670,7 @@ async fn run_provider_operation(
     power: gooddealer_secure_host_core::NativePowerGate,
 ) {
     use crate::provider_credential_orchestrator::{
-        RevocationOutcome, afternic, aliyun, atom, spaceship,
+        RevocationOutcome, afternic, aliyun, atom, cloudflare_registrar_account, spaceship,
     };
     // The outcome is recorded for the connection status as a closed value only. Every operation
     // may have committed before it ended, whatever it returned: activation imports the Zone and
@@ -762,6 +796,48 @@ async fn run_provider_operation(
             Some(ProviderOperationRecord::of(
                 "registrar_refresh",
                 result.as_ref().map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::CloudflareRegistrarAccountConnect => {
+            let run = Arc::new(cloudflare_registrar_account::Run::new(
+                host,
+                cancel_fence,
+                power,
+                false,
+            ));
+            Some(ProviderOperationRecord::of(
+                "cloudflare_registrar_account_connect",
+                run.connect().await.as_ref().map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::CloudflareRegistrarAccountRefresh { connection_id } => {
+            let run = Arc::new(cloudflare_registrar_account::Run::new(
+                host,
+                cancel_fence,
+                power,
+                false,
+            ));
+            Some(ProviderOperationRecord::of(
+                "cloudflare_registrar_account_refresh",
+                run.refresh(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::CloudflareRegistrarAccountRevoke { connection_id } => {
+            let run = Arc::new(cloudflare_registrar_account::Run::new(
+                host,
+                cancel_fence,
+                power,
+                false,
+            ));
+            Some(ProviderOperationRecord::of(
+                "cloudflare_registrar_account_revoke",
+                run.revoke(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
             ))
         }
         ProviderOperation::Activate { connection_id } => {

@@ -2,8 +2,9 @@
 
 use super::{
     API_PREFIX, CloudflareCredentialObservationPlan, CloudflareProviderClient,
-    CloudflareProviderError, CloudflareProviderGuard, canonicalize_timestamp, is_control_or_format,
-    is_lower_hex_id, load_observation_credential, normalize_fqdn, parse_bounded_json,
+    CloudflareProviderError, CloudflareProviderGuard, CloudflareRegistrarCredential,
+    canonicalize_timestamp, is_control_or_format, is_lower_hex_id, load_observation_credential,
+    normalize_fqdn, parse_bounded_json,
 };
 use ring::hmac;
 use serde::Deserialize;
@@ -146,6 +147,27 @@ fn project_registration(
 }
 
 impl CloudflareProviderClient {
+    /// Reads the complete Registrar inventory for the exact account entered through Native.
+    ///
+    /// # Errors
+    /// Refuses stale admission, scope mismatch, untrusted pages, or incomplete inventory.
+    pub async fn scan_account_registrations_guarded(
+        &mut self,
+        credential: &CloudflareRegistrarCredential,
+        connection_digest: &str,
+        expected_account_digest: Option<&str>,
+        guard: &mut CloudflareProviderGuard<'_>,
+    ) -> Result<CloudflareRegistrationInventory, CloudflareProviderError> {
+        self.scan_account_registrations(
+            credential.account_id(),
+            credential.token(),
+            connection_digest,
+            expected_account_digest,
+            guard,
+        )
+        .await
+    }
+
     /// Reads the complete Registrar inventory of the account owning the exact stored Zone.
     /// The calling Host must grant a separate Registrar read admission and bind its account digest.
     ///
@@ -193,12 +215,31 @@ impl CloudflareProviderClient {
         if !is_lower_hex_id(&account.id) {
             return Err(invalid);
         }
+        self.scan_account_registrations(
+            &account.id,
+            token,
+            connection_digest,
+            expected_account_digest,
+            guard,
+        )
+        .await
+    }
+
+    async fn scan_account_registrations(
+        &mut self,
+        account_id: &str,
+        token: &str,
+        connection_digest: &str,
+        expected_account_digest: Option<&str>,
+        guard: &mut CloudflareProviderGuard<'_>,
+    ) -> Result<CloudflareRegistrationInventory, CloudflareProviderError> {
+        guard()?;
         // The receipt stores a slot-specific commitment, not a reusable account identifier.
         let key = hmac::Key::new(hmac::HMAC_SHA256, token.as_bytes());
         let mut digest = hmac::Context::with_key(&key);
         digest.update(b"GoodDealer/Cloudflare/RegistrarAccount/v1\0");
         digest.update(connection_digest.as_bytes());
-        digest.update(account.id.as_bytes());
+        digest.update(account_id.as_bytes());
         let account_digest =
             digest
                 .sign()
@@ -209,10 +250,10 @@ impl CloudflareProviderClient {
                     hex
                 });
         if expected_account_digest.is_some_and(|expected| expected != account_digest) {
-            return Err(invalid);
+            return Err(CloudflareProviderError::InvalidResponse);
         }
         let mut registrations = self
-            .read_registration_pages(&account.id, token, guard)
+            .read_registration_pages(account_id, token, guard)
             .await?;
         registrations.sort_unstable_by(|a, b| a.domain.cmp(&b.domain));
         guard()?;

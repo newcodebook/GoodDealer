@@ -24,8 +24,16 @@ use crate::{
 
 #[path = "cloudflare_registrar.rs"]
 mod registrar;
+#[path = "cloudflare_registrar_credential.rs"]
+mod registrar_credential;
 pub use registrar::{
     CloudflareRegistration, CloudflareRegistrationInventory, CloudflareRegistrationStanding,
+};
+pub use registrar_credential::{
+    CloudflareRegistrarCredential, CloudflareRegistrarCredentialError,
+    CloudflareRegistrarCredentialGuard, CloudflareRegistrarCredentialPlan,
+    load_cloudflare_registrar_credential, publish_cloudflare_registrar_credential,
+    purge_cloudflare_registrar_credential,
 };
 
 const API_PREFIX: &str = "/client/v4";
@@ -1106,9 +1114,18 @@ mod tests {
         CloudflareProviderClient,
         Arc<Mutex<Vec<CloudflareProviderRequest>>>,
     ) {
+        registrar_response_client(std::iter::once(registrar_zone_body(account)).chain(pages))
+    }
+
+    fn registrar_response_client(
+        pages: impl IntoIterator<Item = Vec<u8>>,
+    ) -> (
+        CloudflareProviderClient,
+        Arc<Mutex<Vec<CloudflareProviderRequest>>>,
+    ) {
         let requests = Arc::new(Mutex::new(Vec::new()));
-        let responses = std::iter::once(registrar_zone_body(account))
-            .chain(pages)
+        let responses = pages
+            .into_iter()
             .map(|body| CloudflareProviderResponse {
                 status: 200,
                 content_type: Some("application/json".to_owned()),
@@ -1120,6 +1137,46 @@ mod tests {
             responses,
         });
         (client, requests)
+    }
+
+    #[test]
+    fn registrar_direct_account_needs_no_zone_and_refuses_a_scope_change_before_io() {
+        let credential = CloudflareRegistrarCredential::decode_capture(
+            format!("{ACCOUNT_ID}\nfixture-token").as_bytes(),
+        )
+        .unwrap();
+        let other = CloudflareRegistrarCredential::decode_capture(
+            format!("{ZONE_ID}\nfixture-token").as_bytes(),
+        )
+        .unwrap();
+        let (mut client, requests) = registrar_response_client([registrar_page(&[], "")]);
+        let inventory = runtime()
+            .block_on(client.scan_account_registrations_guarded(
+                &credential,
+                REGISTRAR_CONNECTION,
+                None,
+                &mut || Ok(()),
+            ))
+            .unwrap();
+        assert!(inventory.registrations.is_empty());
+        let result = runtime().block_on(client.scan_account_registrations_guarded(
+            &other,
+            REGISTRAR_CONNECTION,
+            Some(&inventory.account_digest),
+            &mut || Ok(()),
+        ));
+        assert!(matches!(
+            result,
+            Err(CloudflareProviderError::InvalidResponse)
+        ));
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].path(),
+            format!("/client/v4/accounts/{ACCOUNT_ID}/registrar/registrations")
+        );
+        assert_eq!(requests[0].origin(), ORIGIN);
+        assert_eq!(requests[0].method(), CloudflareProviderMethod::Get);
     }
 
     #[test]

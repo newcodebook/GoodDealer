@@ -4,6 +4,7 @@ import {
   type AfternicConnectionPort,
   type SpaceshipRegistrarPort,
   type AliyunRegistrarPort,
+  type CloudflareRegistrarAccountPort,
   type AtomMarketplacePort,
   type AfternicDelistPort,
   type AfternicListingPlanPort,
@@ -72,6 +73,7 @@ export interface AuthoritativeWorkspacePorts {
   readonly afternic: AfternicConnectionPort;
   readonly spaceship?: SpaceshipRegistrarPort;
   readonly aliyun?: AliyunRegistrarPort;
+  readonly cloudflareRegistrarAccount?: CloudflareRegistrarAccountPort;
   readonly atom?: AtomMarketplacePort;
   readonly afternicDelist: AfternicDelistPort;
   readonly afternicListingPlan?: AfternicListingPlanPort;

@@ -71,6 +71,7 @@ impl RegistrarInventoryRead {
     ) -> Result<Self, PortfolioReadError> {
         let has_history: bool = connection.query_row(
             "SELECT EXISTS(SELECT 1 FROM cloudflare_registrar_inventory_scans WHERE workspace_id=?1)
+                 OR EXISTS(SELECT 1 FROM cloudflare_registrar_account_scans WHERE workspace_id=?1)
                  OR EXISTS(SELECT 1 FROM spaceship_registrar_scans WHERE workspace_id=?1)
                  OR EXISTS(SELECT 1 FROM aliyun_registrar_scans WHERE workspace_id=?1)",
             [workspace], |row| row.get(0),

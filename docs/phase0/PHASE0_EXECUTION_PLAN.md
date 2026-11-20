@@ -541,3 +541,11 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 独立复验通过两项跨读取与代次场景和资产列表查询计划。根 `pnpm check` 通过，含 Tauri 186 项和 SQLCipher 664 项。Linux 与 Windows GNU 严格 Clippy 通过。Release 的 1 万资产基准最慢 102 ms，低于 150 ms 门槛。10 万资产续费末页为 194 ms；资产库末页为 1.060 s，未达 1 s 门槛，前一提交同机实测也为 1.031–1.058 s。
 
 - 后续资产库修复在同一读取事务中先取得有序页键，再查找目标价和注册资料。资产库 1 万资产末页 96 ms，10 万资产末页 985 ms，两个 Release 基准均通过。独立 SQL 查询计划复验通过，根 `pnpm check` 通过。
+
+## 2026-11-20 Cloudflare Registrar 独立账户连接
+
+- 设置中的 Cloudflare Registrar 账户入口使用固定 Native 控件录入账户 ID 和用户 API Token。官方账户注册列表不需要 Zone。完整预检后写入不可变槽位，同一 SQLCipher 事务发布连接、注册商观察、资产与 Outbox。追加迁移 `202611200004`，既有 Zone 连接的权限与代次隔离。
+- 显式刷新经原 ProviderLane 受理前持久化请求；重开只恢复相同设备及 Lease 的原请求。完成扫描原子消费请求。旧 Lease 的准备行可断开，迟到结果、账户范围不符和交接期间的请求均拒绝。断开先永久禁止使用，后按固定槽位精确清理并确认，保留历史扫描和资产。
+- 独立审查复现 SQLCipher 三项，覆盖原子发布、与 DNS 连接隔离、重开及交接栅栏、错账户和 Lease、撤销及迟到结果。Linux 在独立 GTK 显示复验提交、取消、撤销、非法输入和迟到回调；独立 D-Bus Secret Service 清理了损坏的重复条目并保留邻近用途槽位。设置与 Native 权限组合测试 10 项通过，Linux Core、Storage、Tauri 和 Windows GNU Core、Storage 严格 Clippy 通过。
+- 最终根 `pnpm check` 通过，含 Desktop 433 项、Tauri 187 项、SQLCipher 667 项和 Core 131 项；已应用迁移 SQL 保持原字节。
+- Windows 的 Tauri 交叉构建需要本机缺失的 MinGW 资源编译器，macOS Core 交叉构建未找到支持 Apple 目标的 C 工具链。真实 Cloudflare 账户、Windows/macOS 实机和发行资格继续单独验收。

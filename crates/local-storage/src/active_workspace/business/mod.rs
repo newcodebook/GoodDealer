@@ -102,6 +102,7 @@ mod aliyun_registrar;
 mod atom_marketplace;
 mod cloudflare_credential;
 mod cloudflare_registrar;
+mod cloudflare_registrar_account;
 mod cloudflare_retirement;
 mod registrar_inventory;
 mod spaceship_registrar;
@@ -119,6 +120,10 @@ pub use cloudflare_registrar::{
     DesktopCloudflareRegistrarScanReceipt, DesktopCloudflareRegistrationFact,
     DesktopCloudflareRegistrationStanding,
 };
+pub use cloudflare_registrar_account::{
+    DesktopCloudflareRegistrarAccountState, DesktopCloudflareRegistrarAccountSummary,
+};
+pub(crate) use cloudflare_registrar_account::{RegistrarAccountCommit, RegistrarAccountSeed};
 pub use registrar_inventory::{
     DesktopRegistrarScanReceipt, DesktopRegistrationFact, DesktopRegistrationStanding,
 };
@@ -458,7 +463,8 @@ impl BusinessDatabase {
         &self,
     ) -> Result<(Option<String>, Option<String>), BusinessDatabaseError> {
         let row: Option<(String, String)> = self.store.raw_connection().query_row(
-            "SELECT connection_id, display_label FROM local_provider_connections WHERE workspace_id=?1 AND provider_kind='cloudflare' AND lifecycle_status='active' AND validation_status='valid' ORDER BY connection_id LIMIT 1",
+            "SELECT connection_id, display_label FROM local_provider_connections WHERE workspace_id=?1 AND provider_kind='cloudflare' AND lifecycle_status='active' AND validation_status='valid'
+             AND json(capabilities_json)<>'[\"registrar\"]' ORDER BY connection_id LIMIT 1",
             [&self.workspace_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         ).optional().map_err(|_| BusinessDatabaseError::StorageRejected)?;

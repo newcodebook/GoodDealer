@@ -1,4 +1,4 @@
-import type { AliyunRegistrarPort, AliyunRegistrarStatus, AtomMarketplacePort, AtomMarketplaceStatus, SpaceshipRegistrarIntent, SpaceshipRegistrarPort, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
+import type { AliyunRegistrarPort, AliyunRegistrarStatus, AtomMarketplacePort, AtomMarketplaceStatus, CloudflareRegistrarAccountPort, CloudflareRegistrarAccountStatus, SpaceshipRegistrarIntent, SpaceshipRegistrarPort, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
 import { formatDate, formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { Badge, Button, Panel } from "@gooddealer/ui";
 import { useEffect, useRef, useState } from "react";
@@ -22,16 +22,20 @@ export function AtomMarketplacePanel(props: InventoryPanelProps<AtomMarketplaceP
   return <AccountInventoryPanel provider="atom" {...props} />;
 }
 
+export function CloudflareRegistrarAccountPanel(props: InventoryPanelProps<CloudflareRegistrarAccountPort>) {
+  return <AccountInventoryPanel provider="cloudflare_registrar_account" {...props} />;
+}
+
 function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
-  InventoryPanelProps<SpaceshipRegistrarPort | AliyunRegistrarPort | AtomMarketplacePort> & {
-    readonly provider: "spaceship" | "aliyun" | "atom";
+  InventoryPanelProps<SpaceshipRegistrarPort | AliyunRegistrarPort | AtomMarketplacePort | CloudflareRegistrarAccountPort> & {
+    readonly provider: "spaceship" | "aliyun" | "atom" | "cloudflare_registrar_account";
   }) {
   const copy = getPresentationCopy(locale, "settings");
-  const providerName = { spaceship: "Spaceship", aliyun: copy.aliyunRegistrarName, atom: "Atom" }[provider];
-  const copyPrefix = { spaceship: "spaceshipRegistrar", aliyun: "aliyunRegistrar", atom: "atomMarketplace" } as const;
+  const providerName = { spaceship: "Spaceship", aliyun: copy.aliyunRegistrarName, atom: "Atom", cloudflare_registrar_account: "Cloudflare Registrar" }[provider];
+  const copyPrefix = { spaceship: "spaceshipRegistrar", aliyun: "aliyunRegistrar", atom: "atomMarketplace", cloudflare_registrar_account: "cloudflareRegistrarAccount" } as const;
   const prefix = copyPrefix[provider];
   const refresh = provider === "atom" ? copy.atomMarketplaceRefresh : copy.spaceshipRegistrarRefresh;
-  const [view, setView] = useState<SpaceshipRegistrarStatus | AliyunRegistrarStatus | AtomMarketplaceStatus | null>(null);
+  const [view, setView] = useState<SpaceshipRegistrarStatus | AliyunRegistrarStatus | AtomMarketplaceStatus | CloudflareRegistrarAccountStatus | null>(null);
   const [retry, setRetry] = useState(0);
   const [readFailed, setReadFailed] = useState(false);
   const [submission, setSubmission] = useState<"pending" | "failed" | null>(null);
@@ -128,7 +132,7 @@ function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
             {scan === null ? null : <p>{formatDate(locale, Date.parse(scan.completedAt), { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" })} UTC</p>}
           </div>
           {writable ? <div>
-            {connection.state === "revoked" ? null : <Button type="button" size="sm" disabled={!canScan}
+            {connection.state === "revoked" || (provider === "cloudflare_registrar_account" && connection.state === "prepared") ? null : <Button type="button" size="sm" disabled={!canScan}
               aria-label={`${refresh} ${name}`}
               onClick={() => submit({ schemaVersion: 1, action: "refresh", connectionId: connection.connectionId })}>{refresh}</Button>}
             <Button type="button" size="sm" disabled={readFailed || busy || view.laneState === "blocked"}

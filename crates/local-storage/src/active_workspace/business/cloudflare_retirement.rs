@@ -70,6 +70,7 @@ impl BusinessDatabase {
             .prepare(
                 "SELECT connection_id FROM local_provider_connections
                   WHERE workspace_id=?1 AND provider_kind='cloudflare' AND deleted_at IS NULL
+                    AND json(capabilities_json)<>'[\"registrar\"]'
                     AND lifecycle_status<>'deleted'
                     AND credential_use_state IN ('revocation_pending','revoked')
                   ORDER BY connection_id LIMIT 65",

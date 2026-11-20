@@ -804,7 +804,7 @@ const fn map_comparison(
 /// refusal (rate limit or server error), and a refusal of the credential (401 or 403). Every
 /// other failure (any other non-retryable status, malformed input or response, a response over
 /// its limit, stale authority) stays one closed outcome.
-const fn provider_error(error: CloudflareProviderError) -> ProviderCredentialError {
+pub(super) const fn provider_error(error: CloudflareProviderError) -> ProviderCredentialError {
     match error {
         CloudflareProviderError::Transport => ProviderCredentialError::ProviderUnreachable,
         CloudflareProviderError::Retryable => ProviderCredentialError::ProviderRetryLater,

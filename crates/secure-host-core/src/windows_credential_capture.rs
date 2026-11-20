@@ -16,6 +16,7 @@ const MAX_CHARACTERS: usize = 512;
 #[derive(Clone, Copy)]
 pub(crate) enum Purpose {
     Cloudflare,
+    CloudflareRegistrar,
     Afternic,
     Spaceship,
     Aliyun,
@@ -29,6 +30,12 @@ impl Purpose {
                 "Zone ID",
                 "API token",
                 false,
+            ),
+            Self::CloudflareRegistrar => (
+                "Connect Cloudflare Registrar - GoodDealer",
+                "Cloudflare Account ID",
+                "Cloudflare user API token",
+                true,
             ),
             Self::Afternic => (
                 "Connect Afternic - GoodDealer",

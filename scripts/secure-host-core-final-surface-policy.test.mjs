@@ -29,6 +29,7 @@ const expectedSourceFiles = [
   "cloudflare_keychain.rs",
   "cloudflare_provider.rs",
   "cloudflare_registrar.rs",
+  "cloudflare_registrar_credential.rs",
   "desktop_authorization_verifier.rs",
   "desktop_device_identity.rs",
   "desktop_device_identity/execution_evidence.rs",
@@ -110,9 +111,16 @@ const expectedCloudflareProviderExports = [
   "CloudflareProviderZone",
   "CloudflareProviderZoneStatus",
   "CloudflareRecordType",
+  "CloudflareRegistrarCredential",
+  "CloudflareRegistrarCredentialError",
+  "CloudflareRegistrarCredentialGuard",
+  "CloudflareRegistrarCredentialPlan",
   "CloudflareRegistration",
   "CloudflareRegistrationInventory",
   "CloudflareRegistrationStanding",
+  "load_cloudflare_registrar_credential",
+  "publish_cloudflare_registrar_credential",
+  "purge_cloudflare_registrar_credential",
 ];
 const expectedNativePowerExports = [
   "NativePowerMonitor", "NativePowerGate", "NativePowerSnapshot",
@@ -273,6 +281,7 @@ const expectedLocalStorageExportModules = [
   "desktop_local_host::afternic",
   "desktop_local_host::aliyun_registrar",
   "desktop_local_host::atom_marketplace",
+  "desktop_local_host::cloudflare_registrar_account",
   "desktop_local_host::spaceship_registrar",
   "portfolio_projection",
   "application_root",
@@ -381,6 +390,10 @@ const expectedLocalStoragePublicExports = [
   "DesktopCloudflareRecoveryPlan",
   "DesktopCloudflareRecoveryScan",
   "DesktopCloudflareRegistrarScanReceipt",
+  "DesktopCloudflareRegistrarAccount",
+  "DesktopCloudflareRegistrarAccountState",
+  "DesktopCloudflareRegistrarAccountStatus",
+  "DesktopCloudflareRegistrarAccountSummary",
   "DesktopCloudflareRegistrationFact",
   "DesktopCloudflareRegistrationStanding",
   "DesktopRegistrarScanReceipt",
@@ -803,8 +816,8 @@ test("rejects extra source files and public exports", (t) => {
   writeFileSync(
     rawProviderExportPath,
     readFileSync(rawProviderExportPath, "utf8").replace(
-      "    CloudflareRegistration, CloudflareRegistrationInventory, CloudflareRegistrationStanding,\n};",
-      "    CloudflareRegistration, CloudflareRegistrationInventory, CloudflareRegistrationStanding, CloudflareProviderTransport,\n};",
+      /^pub use cloudflare_provider::\{/mu,
+      "pub use cloudflare_provider::{\n    CloudflareProviderTransport,",
     ),
   );
   assert.ok(secureHostCoreFinalSurfaceErrors({ coreRoot: rawProviderExportFixture }).some(

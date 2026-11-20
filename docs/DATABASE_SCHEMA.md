@@ -60,7 +60,7 @@ Desired State 与 Observed State 永远分离。Provider 观察不能直接覆�
 
 | 表 | 职责 | 是否允许同步 |
 | --- | --- | --- |
-| `local_provider_connections` | Provider 类型、账号别名、Provider Account ID、能力和连接生命周期。 | 否 |
+| `local_provider_connections` | Provider 类型、本机显示标签、能力和连接生命周期。Provider 账户身份由 Native 持有。 | 否 |
 | `cloudflare_credential_roots` / `cloudflare_credential_intents` / `cloudflare_credential_generation_ledger` / `cloudflare_credential_schema_guard` | 仅保存非秘密的凭据根、`prepared → prewrite_inspection_started → keychain_write_started → consumed` 主路径，以及 `cancelled` 和 `recovery_required → consumed` 闭合路径；同时保存单调 generation ledger、schema guard、授权快照摘要与激活证明。Cloudflare token 只保存在操作系统 Keychain。 | 否 |
 | `cloudflare_dns_staged_batches` / `cloudflare_dns_staged_records` | 保存凭据切换期间的非秘密 DNS 观察 custody：batch 绑定 workspace/connection incarnation、来源 intent、observation/run/entity、Lease Epoch、scope/Zone/observation digest、观察时间、Zone/Nameserver/DNSSEC/可用性/Provider version 事实及规范化记录；`visibility` 仅允许 `staged`、`committed`、`discarded`，credential intent 通过 batch ID 与完整 observation digest 精确绑定后才可提交或丢弃。 | 否；仅成功提交后另行产生 count-only Cloud 投影 |
 | `cloudflare_dns_source_heads` / `cloudflare_dns_projection_outbox` / `cloudflare_dns_projection_heads` | 保存 Cloudflare DNS 观察的单调来源序列、count-only Cloud 投影及其 durable delivery lease、重试截止时间和 ACK 头。 | 仅同步 count-only 投影；不含凭据或 Provider 原始记录 |
@@ -72,6 +72,7 @@ Desired State 与 Observed State 永远分离。Provider 观察不能直接覆�
 | `provider_observation_targets` | 每次读取的逐资产 requested/succeeded/failed/missing 结果，用于部分失败和有界重试。 | 否；含本地运行 FK |
 | `registrar_observations` / `registrar_inventory_read_facts` | Registrar、注册/到期、续费、锁定和置信状态。账户归集记录资产代次，读取按同一代次和当前连接的最后完整扫描生成字段。冲突、缺席或撤销时保留历史并显示未知。 | 归集观察和读取事实留在本机。新增资产通过普通 Outbox 同步 |
 | `cloudflare_registrar_pending_scans` | 设置受理前保存的请求，与当前连接、凭据代次、设备和 Lease 绑定。完整导入消费请求。撤销移除待执行记录。 | 否 |
+| `cloudflare_registrar_account_slots` / `cloudflare_registrar_account_scans` | 独立 Registrar 槽位的不可变 incarnation 和 proof、当前设备和 Lease 的持久请求、撤销确认和完整账户扫描回执。回执仅保存槽位专用账户承诺。 | 否；Account ID 与用户 API Token 留在 Native |
 | `dns_zone_observations` | Zone、NS、DNSSEC、Provider 修改时间和证据状态。 | 仅显式脱敏字段 |
 | `dns_record_observations` | 规范化 DNS RR 观察。 | 仅显式脱敏字段 |
 | `marketplace_listing_observations` | 市场状态和价格观察，不保存第三方账号身份。 | 仅显式脱敏字段 |

@@ -172,7 +172,8 @@ pub use active_workspace::business::{
     DesktopAfternicInventoryReceipt, DesktopAfternicListingObservation, DesktopAfternicScanSummary,
     DesktopAliyunConnectionState, DesktopAliyunConnectionSummary, DesktopAtomConnectionState,
     DesktopAtomConnectionSummary, DesktopAtomInventoryReceipt, DesktopAtomListingFact,
-    DesktopAtomListingState, DesktopCloudflareRegistrarScanReceipt,
+    DesktopAtomListingState, DesktopCloudflareRegistrarAccountState,
+    DesktopCloudflareRegistrarAccountSummary, DesktopCloudflareRegistrarScanReceipt,
     DesktopCloudflareRegistrationFact, DesktopCloudflareRegistrationStanding,
     DesktopRegistrarScanReceipt, DesktopRegistrationFact, DesktopRegistrationStanding,
     DesktopSpaceshipConnectionState, DesktopSpaceshipConnectionSummary,
@@ -206,6 +207,9 @@ pub use desktop_local_host::aliyun_registrar::{
 };
 pub use desktop_local_host::atom_marketplace::{
     DesktopAtomConnection, DesktopAtomMarketplaceStatus,
+};
+pub use desktop_local_host::cloudflare_registrar_account::{
+    DesktopCloudflareRegistrarAccount, DesktopCloudflareRegistrarAccountStatus,
 };
 pub use desktop_local_host::spaceship_registrar::{
     DesktopSpaceshipConnection, DesktopSpaceshipRegistrarStatus,

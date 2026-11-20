@@ -8,6 +8,7 @@ pub(super) enum Service {
     Spaceship,
     Aliyun,
     Atom,
+    CloudflareRegistrar,
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
@@ -18,11 +19,56 @@ impl Service {
             Self::Spaceship => "com.gooddealer.desktop.spaceship.registrar.v1",
             Self::Aliyun => "com.gooddealer.desktop.aliyun.registrar.v1",
             Self::Atom => "com.gooddealer.desktop.atom.marketplace.v1",
+            Self::CloudflareRegistrar => "com.gooddealer.desktop.cloudflare.registrar.v1",
         }
     }
 }
 
 pub(super) struct CustodyUnavailable;
+
+/// Retires a fixed Registrar account slot and confirms absence without reading its value.
+#[cfg(target_os = "linux")]
+pub(super) fn purge_cloudflare_registrar(account: &str) -> Result<(), CustodyUnavailable> {
+    crate::secret_service_custody::delete_exact_items(Service::CloudflareRegistrar.name(), account)
+        .map(|_| ())
+        .map_err(|_| CustodyUnavailable)
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn purge_cloudflare_registrar(account: &str) -> Result<(), CustodyUnavailable> {
+    use security_framework::item::{CloudSync, ItemClass, ItemSearchOptions};
+    let service = Service::CloudflareRegistrar;
+    delete(service, account)?;
+    let mut query = ItemSearchOptions::new();
+    query
+        .class(ItemClass::generic_password())
+        .service(service.name())
+        .account(account)
+        .cloud_sync(CloudSync::MatchSyncNo)
+        .ignore_legacy_keychains()
+        .load_attributes(true)
+        .limit(1);
+    match query.search() {
+        Ok(items) if items.is_empty() => Ok(()),
+        Err(error) if error.code() == -25300 => Ok(()),
+        _ => Err(CustodyUnavailable),
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub(super) fn purge_cloudflare_registrar(account: &str) -> Result<(), CustodyUnavailable> {
+    let service = Service::CloudflareRegistrar;
+    delete(service, account)?;
+    match crate::windows_custody::exists(service.name(), account) {
+        Ok(false) => Ok(()),
+        _ => Err(CustodyUnavailable),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+pub(super) const fn purge_cloudflare_registrar(_: &str) -> Result<(), CustodyUnavailable> {
+    Err(CustodyUnavailable)
+}
 
 #[cfg(target_os = "linux")]
 pub(super) fn load(

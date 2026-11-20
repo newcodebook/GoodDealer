@@ -83,6 +83,8 @@ describe("Desktop native policy", () => {
       "allow-spaceship-registrar-submit",
       "allow-aliyun-registrar-status",
       "allow-aliyun-registrar-submit",
+      "allow-cloudflare-registrar-account-status",
+      "allow-cloudflare-registrar-account-submit",
       "allow-atom-marketplace-status",
       "allow-atom-marketplace-submit",
       "allow-afternic-listing-plan-approve",

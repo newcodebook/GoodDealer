@@ -27,6 +27,8 @@ const reviewedCommands = [
   "cloudflare_connection_revoke",
   "cloudflare_connection_status",
   "cloudflare_observation_read",
+  "cloudflare_registrar_account_status",
+  "cloudflare_registrar_account_submit",
   "cloudflare_registrar_inventory_refresh",
   "cloudflare_retirement_candidates",
   "cloudflare_zone_observe",
@@ -323,6 +325,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     "apps/desktop/src/adapters/tauri/spaceship-registrar.ts",
     "apps/desktop/src/adapters/tauri/aliyun-registrar.ts",
     "apps/desktop/src/adapters/tauri/atom-marketplace.ts",
+    "apps/desktop/src/adapters/tauri/cloudflare-registrar-account.ts",
     "apps/desktop/src/adapters/tauri/portable-backup.ts",
   ].map((path) => requiredRegularFile(root, path, errors));
   const desktopManifest = requiredRegularFile(root, "apps/desktop/src-tauri/Cargo.toml", errors);
