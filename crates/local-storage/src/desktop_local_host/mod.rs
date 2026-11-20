@@ -19,6 +19,7 @@ pub(crate) mod continuity;
 pub(crate) mod execution_context;
 pub(crate) mod execution_evidence_delivery;
 pub(crate) mod forced_takeover;
+pub(crate) mod godaddy_registrar;
 mod native_backup;
 mod normal_handoff;
 mod portable_backup;

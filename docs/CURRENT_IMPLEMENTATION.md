@@ -16,14 +16,16 @@
 | Atom | 官方 Seller API 库存读取 | 首次连接预检后才建槽并原子导入清单。设置刷新在回执前提交，重开时以同一凭据 incarnation、设备和 Lease 从首面续读。上架、下架、DNS 与私有验证继续开发 | 匿名认证错误已取证，账号读取和实际平台资格待验收 |
 | Namecheap | 未实现实际 Service | 未实现 | 未取得 |
 | Dynadot | 未实现实际 Service | 未实现 | 未取得 |
-| GoDaddy | 未实现实际 Service；Afternic 不替代它 | 账户归集未实现 | 未取得 |
+| GoDaddy | 官方 Domains v3 账户列表，Native PAT 与受限游标 | 设置中预检完整库存后托管、原子导入、持久刷新和重开续读；注册资料供资产及续费读取 | OTE 匿名 401 已核实；生产真实账户待验收 |
 | Porkbun | 未实现实际 Service | 未实现 | 未取得 |
 | Sedo | 未实现实际 Service | Listing 旅程未实现 | 未取得 |
 | 易名 | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 | 阿里云 | 官方 `QueryDomainList`，ACS3 签名 | 中国站账户通过 Native 预检全量库存后托管凭据并原子导入。刷新受理前提交，重开使用同一连接、设备和 Lease 续读。本地断开可清理凭据。卖家上下架和所有权验证待实现 | 未取得 |
 | 22.cn | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 
-六个资产来源尚无已通过真实账户验收的账户级归集。Cloudflare 已组合设置中的独立 Registrar 账户连接与原有 Zone 衍生读取。独立入口会在受限 Native 窗口接收 Account ID 与用户 API Token，完整分页预检后发布凭据并在同事务保存资产、注册资料和回执。显式刷新持久绑定当前设备与 Lease，重开从首面续读。旧 Lease 的准备行可断开清理，需要新流程时重新连接。已组合 Linux GTK、Windows Win32 与 macOS 固定录入后端；受控授权、真实账户和目标系统资格仍待取得。Spaceship 的 Registrar 连接先用 Native 候选凭据预检全量库存，精确确认托管后才发布资产。追加迁移 `202611200006`，设置刷新受理前保存工作区、连接 incarnation、设备与 Lease。重开用同一请求从首面续读，完成时原子消费请求并保存观察、资产、Outbox 和回执。旧版待扫描位可通过显式刷新重新准入。仍需具名开发验收范围和真实 `domains:read` 账户。Afternic 的归集对象为市场库存。Linux 受控验收使用 Native 托管的真实 Afternic 凭据，读入 188 个库存域名并新增 188 个本地资产，重开复读仍为 188 个且新增 0。真实 Listing 写入待验收。Afternic 官方复核已进入源码组合，资格清单未开放。`OWNERSHIP_UNVERIFIED` 的私有会话、DNS 与自动验证闭环仍在实施。[所有权复核工作包](phase0/AFTERNIC_OWNERSHIP_REVIEW_TASK_FRAME.md)
+六个资产来源中，Cloudflare、Spaceship、阿里云和 GoDaddy 已组合账户级归集。四者仍待真实账户验收。Cloudflare 已组合设置中的独立 Registrar 账户连接与原有 Zone 衍生读取。独立入口会在受限 Native 窗口接收 Account ID 与用户 API Token，完整分页预检后发布凭据并在同事务保存资产、注册资料和回执。显式刷新持久绑定当前设备与 Lease，重开从首面续读。旧 Lease 的准备行可断开清理，需要新流程时重新连接。已组合 Linux GTK、Windows Win32 与 macOS 固定录入后端；受控授权、真实账户和目标系统资格仍待取得。Spaceship 的 Registrar 连接先用 Native 候选凭据预检全量库存，精确确认托管后才发布资产。追加迁移 `202611200006`，设置刷新受理前保存工作区、连接 incarnation、设备与 Lease。重开用同一请求从首面续读，完成时原子消费请求并保存观察、资产、Outbox 和回执。旧版待扫描位可通过显式刷新重新准入。仍需具名开发验收范围和真实 `domains:read` 账户。Afternic 的归集对象为市场库存。Linux 受控验收使用 Native 托管的真实 Afternic 凭据，读入 188 个库存域名并新增 188 个本地资产，重开复读仍为 188 个且新增 0。真实 Listing 写入待验收。Afternic 官方复核已进入源码组合，资格清单未开放。`OWNERSHIP_UNVERIFIED` 的私有会话、DNS 与自动验证闭环仍在实施。[所有权复核工作包](phase0/AFTERNIC_OWNERSHIP_REVIEW_TASK_FRAME.md)
+
+GoDaddy 按官方 Domains v3 读取 PAT 所属账户。追加迁移 `202611200008`，在刷新回执前记录当前工作区、连接 incarnation、设备和 Lease，并由同一 SQLCipher 事务发布注册观察、资产、Outbox 和回执。完整扫描缺席时，历史资料在资产与续费台中降为未知。断开先撤销使用权，再按固定系统槽清理。未取得实际账户验收或发行资格。
 
 ## 丢机强制接管与首次云恢复
 
@@ -100,9 +102,9 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
   撤销先持久阻止使用，再清除 Native slot，确认清除后隐藏连接，保留资产和审计历史。未获得平台权限仍允许本地清理。
   Linux/macOS/Windows 均有受限原生掩码录入与 custody 源码。Linux 已用真实账号导入 188 项，并在重开后复核相同数量。Windows/macOS 实机验收待完成。
 - Linux debug 的显式 `afternic-controlled-acceptance` 构建接入了设置、批准和重开恢复。追加迁移 `202611190007` 原子绑定真实账户、工作区、设备、Lease epoch 与唯一凭据槽，读同一连接完整市场库存，写入限 `wecin.com` 的三个 Listing 动作。截止取已验签执行上下文的连续时间投影。Host 向设置和批量页投影受控范围，使用当前 Grant、Lease 和商业权益。见[受控验收工作包](phase0/AFTERNIC_CONTROLLED_ACCEPTANCE_TASK_FRAME.md)。
-- Active Grant 的 commercialAuthority v2 是封闭 capability 集合，包含 Afternic observe/write、Atom 市场 observe、Cloudflare DNS/Registrar observe、Spaceship Registrar observe 和阿里云 Registrar observe。Afternic write 必须含 observe。空集合仍允许有授权的本地业务。
+- Active Grant 的 commercialAuthority v2 是封闭 capability 集合，包含 Afternic observe/write、Atom 市场 observe、Cloudflare DNS/Registrar observe、GoDaddy、Spaceship 和阿里云 Registrar observe。Afternic write 必须含 observe。空集合仍允许有授权的本地业务。
   Cloud 只取锁定 Licensing 快照的精确交集；Host floor/runtime/最终提交栅栏包括集合，权限变化不能复用旧 admission。逻辑 Grant 签名用途仍为 `.v3`，不随 wire 升版创建新用途。
-- 十二平台角色、能力目录和不可执行 manifest 已存在。Cloudflare、Afternic、Spaceship、阿里云和 Atom 已有 Native Service，其余七个平台仍需实现。各平台的完整能力与发行资格继续逐项推进。
+- 十二平台角色、能力目录和不可执行 manifest 已存在。Cloudflare、Afternic、Spaceship、GoDaddy、阿里云和 Atom 已有 Native Service，其余六个平台仍需实现。各平台的完整能力与发行资格继续逐项推进。
   Rust 与 TypeScript 读取合同按 [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)一致扩展；
   名录和展示名称不授予 Provider 执行能力，销售聚合的临时位图也已扩容以保留全部平台。
 - [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)已明确已确认官方能力使用官方 API，当前其余缺口全部自研私有 HTTP 接口；

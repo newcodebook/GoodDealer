@@ -40,6 +40,7 @@ mod desktop_authorization_verifier;
 mod desktop_device_directory;
 mod desktop_device_identity;
 mod desktop_oauth;
+mod godaddy;
 #[cfg(target_os = "linux")]
 mod linux_credential_capture;
 mod local_workspace_binding;
@@ -60,6 +61,13 @@ pub use atom::{
     AtomCapture, AtomCredential, AtomCredentialPlan, AtomError, AtomGuard, AtomListing,
     AtomListingState, AtomPortfolioClient, load_atom_credential_guarded,
     publish_atom_credential_guarded, purge_atom_credential_guarded,
+};
+
+pub use godaddy::{
+    GoDaddyCapture, GoDaddyCredential, GoDaddyCredentialPlan, GoDaddyError, GoDaddyGuard,
+    GoDaddyRegistrarClient, GoDaddyRegistration, GoDaddyRegistrationStanding,
+    load_godaddy_credential_guarded, publish_godaddy_credential_guarded,
+    purge_godaddy_credential_guarded,
 };
 
 pub use spaceship::{

@@ -251,6 +251,8 @@ fn main() {
             command_handlers::spaceship_registrar::spaceship_registrar_submit,
             command_handlers::aliyun_registrar::aliyun_registrar_status,
             command_handlers::aliyun_registrar::aliyun_registrar_submit,
+            command_handlers::godaddy_registrar::godaddy_registrar_status,
+            command_handlers::godaddy_registrar::godaddy_registrar_submit,
             command_handlers::cloudflare_registrar_account::cloudflare_registrar_account_status,
             command_handlers::cloudflare_registrar_account::cloudflare_registrar_account_submit,
             command_handlers::atom_marketplace::atom_marketplace_status,

@@ -21,6 +21,7 @@ pub(crate) enum Purpose {
     Spaceship,
     Aliyun,
     Atom,
+    GoDaddy,
 }
 impl Purpose {
     const fn dialog_labels(self) -> (&'static str, &'static str, &'static str, bool) {
@@ -61,6 +62,12 @@ impl Purpose {
                 "Atom Seller API token",
                 true,
             ),
+            Self::GoDaddy => (
+                "Connect GoDaddy Registrar - GoodDealer",
+                "",
+                "GoDaddy Personal Access Token",
+                true,
+            ),
         }
     }
 }
@@ -73,7 +80,7 @@ pub(crate) enum CaptureError {
     AuthorityStale,
 }
 struct Pair {
-    first: Zeroizing<String>,
+    first: Option<Zeroizing<String>>,
     second: Zeroizing<String>,
 }
 
@@ -117,27 +124,38 @@ pub(crate) fn capture(
         return Err(CaptureError::AuthorityStale);
     }
     let pair = result?;
-    if pair.first.is_empty()
-        || pair.second.is_empty()
-        || pair.first.len() > MAX_CHARACTERS
-        || pair.second.len() > MAX_CHARACTERS
-        || !pair.first.is_ascii()
-        || !pair.second.is_ascii()
-        || pair.first.contains(['\r', '\n'])
-        || pair.second.contains(['\r', '\n'])
+    if pair
+        .first
+        .as_ref()
+        .is_some_and(|value| !valid_capture_field(value, MAX_CHARACTERS))
+        || !valid_capture_field(&pair.second, second_field_limit(pair.first.is_none()))
     {
         return Err(CaptureError::Cancelled);
     }
-    let mut bytes = Zeroizing::new(Vec::with_capacity(pair.first.len() + pair.second.len() + 1));
-    bytes.extend_from_slice(pair.first.as_bytes());
-    bytes.push(b'\n');
+    let mut bytes = Zeroizing::new(Vec::new());
+    if let Some(first) = pair.first {
+        bytes.extend_from_slice(first.as_bytes());
+        bytes.push(b'\n');
+    }
     bytes.extend_from_slice(pair.second.as_bytes());
     Ok(bytes)
 }
 
+fn valid_capture_field(value: &str, limit: usize) -> bool {
+    (1..=limit).contains(&value.len()) && value.is_ascii() && !value.contains(['\r', '\n'])
+}
+
+fn second_field_limit(single: bool) -> usize {
+    if single {
+        crate::godaddy::MAX_GODADDY_PAT_BYTES
+    } else {
+        MAX_CHARACTERS
+    }
+}
+
 struct Dialog {
     window: gui::WindowMain,
-    first: gui::Edit,
+    first: Option<gui::Edit>,
     second: gui::Edit,
     confirm: gui::Button,
     cancel: gui::Button,
@@ -145,52 +163,56 @@ struct Dialog {
 impl Dialog {
     fn build(purpose: Purpose) -> Self {
         let (title, first_label, second_label, mask_first) = purpose.dialog_labels();
+        let paired = !first_label.is_empty();
+        let second_offset = if paired { 68 } else { 0 };
         let window = gui::WindowMain::new(gui::WindowMainOpts {
             class_name: "GoodDealer.NativeCredentialCapture.V1",
             title,
-            size: gui::dpi(420, 240),
+            size: gui::dpi(420, 172 + second_offset),
             style: co::WS::CAPTION | co::WS::SYSMENU,
             ..Default::default()
         });
         // Explicit IDs avoid the GUI library's process-global auto-ID allocator.
-        let _ = gui::Label::new(
-            &window,
-            gui::LabelOpts {
-                text: first_label,
-                position: gui::dpi(20, 20),
-                size: gui::dpi(380, 22),
-                ctrl_id: 101,
-                ..Default::default()
-            },
-        );
+        let first = paired.then(|| {
+            let _ = gui::Label::new(
+                &window,
+                gui::LabelOpts {
+                    text: first_label,
+                    position: gui::dpi(20, 20),
+                    size: gui::dpi(380, 22),
+                    ctrl_id: 101,
+                    ..Default::default()
+                },
+            );
+            let mut style = co::ES::AUTOHSCROLL;
+            if mask_first {
+                style |= co::ES::PASSWORD;
+            }
+            gui::Edit::new(
+                &window,
+                gui::EditOpts {
+                    position: gui::dpi(20, 46),
+                    width: gui::dpi_x(380),
+                    control_style: style,
+                    ctrl_id: 103,
+                    ..Default::default()
+                },
+            )
+        });
         let _ = gui::Label::new(
             &window,
             gui::LabelOpts {
                 text: second_label,
-                position: gui::dpi(20, 88),
+                position: gui::dpi(20, 20 + second_offset),
                 size: gui::dpi(380, 22),
                 ctrl_id: 102,
-                ..Default::default()
-            },
-        );
-        let mut first_style = co::ES::AUTOHSCROLL;
-        if mask_first {
-            first_style |= co::ES::PASSWORD;
-        }
-        let first = gui::Edit::new(
-            &window,
-            gui::EditOpts {
-                position: gui::dpi(20, 46),
-                width: gui::dpi_x(380),
-                control_style: first_style,
-                ctrl_id: 103,
                 ..Default::default()
             },
         );
         let second = gui::Edit::new(
             &window,
             gui::EditOpts {
-                position: gui::dpi(20, 114),
+                position: gui::dpi(20, 46 + second_offset),
                 width: gui::dpi_x(380),
                 control_style: co::ES::AUTOHSCROLL | co::ES::PASSWORD,
                 ctrl_id: 104,
@@ -201,7 +223,7 @@ impl Dialog {
             &window,
             gui::ButtonOpts {
                 text: "Connect",
-                position: gui::dpi(190, 174),
+                position: gui::dpi(190, 106 + second_offset),
                 width: gui::dpi_x(100),
                 height: gui::dpi_y(32),
                 ctrl_id: 105,
@@ -212,7 +234,7 @@ impl Dialog {
             &window,
             gui::ButtonOpts {
                 text: "Cancel",
-                position: gui::dpi(300, 174),
+                position: gui::dpi(300, 106 + second_offset),
                 width: gui::dpi_x(100),
                 height: gui::dpi_y(32),
                 ctrl_id: 106,
@@ -233,7 +255,9 @@ impl Drop for Dialog {
         // Also cover message-loop error exits. Normal WM_CLOSE destroys the child controls
         // and clears the library's event closures before run_main returns.
         if self.window.hwnd().IsWindow() {
-            let _ = self.first.set_text("");
+            if let Some(first) = &self.first {
+                let _ = first.set_text("");
+            }
             let _ = self.second.set_text("");
             let _ = self.window.hwnd().DestroyWindow();
         }
@@ -249,8 +273,12 @@ fn run_dialog(purpose: Purpose, cancelled: Arc<AtomicBool>) -> Result<Pair, Capt
     let second = ui.second.clone();
     let window = ui.window.clone();
     ui.window.on().wm_create(move |_| {
-        first.limit_text(Some(512));
-        second.limit_text(Some(512));
+        if let Some(first) = &first {
+            first.limit_text(Some(512));
+        }
+        second.limit_text(Some(
+            u32::try_from(second_field_limit(first.is_none())).expect("fixed credential bound"),
+        ));
         window.hwnd().SetTimer(1, 10, None)?;
         Ok(0)
     });
@@ -258,7 +286,9 @@ fn run_dialog(purpose: Purpose, cancelled: Arc<AtomicBool>) -> Result<Pair, Capt
     let second = ui.second.clone();
     ui.window.on().wm_destroy(move || {
         // Clear while the child controls still exist; WM_NCDESTROY then releases callbacks.
-        let _ = first.set_text("");
+        if let Some(first) = &first {
+            let _ = first.set_text("");
+        }
         let _ = second.set_text("");
         Ok(())
     });
@@ -275,12 +305,17 @@ fn run_dialog(purpose: Purpose, cancelled: Arc<AtomicBool>) -> Result<Pair, Capt
     let callback_result = Rc::clone(&result);
     ui.confirm.on().bn_clicked(move || {
         // Never return platform error strings or retain non-zeroizing copies of captured text.
-        let first_value = first.text().map(Zeroizing::new);
+        let first_value = first
+            .as_ref()
+            .map(|field| field.text().map(Zeroizing::new))
+            .transpose();
         let second_value = second.text().map(Zeroizing::new);
         if let (Ok(first), Ok(second)) = (first_value, second_value) {
             *callback_result.borrow_mut() = Some(Pair { first, second });
         }
-        let _ = first.set_text("");
+        if let Some(first) = &first {
+            let _ = first.set_text("");
+        }
         let _ = second.set_text("");
         window.close();
         Ok(())

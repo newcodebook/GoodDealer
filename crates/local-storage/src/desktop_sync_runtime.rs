@@ -1867,6 +1867,7 @@ pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
         "atom:marketplace:observe",
         "cloudflare:dns:observe",
         "cloudflare:registrar:observe",
+        "godaddy:registrar:observe",
         "spaceship:registrar:observe",
     ];
     values.len() <= CAPABILITIES.len()

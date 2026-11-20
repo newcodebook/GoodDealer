@@ -127,7 +127,33 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "godaddy_registrar_connections",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "credential_proof",
+            "state",
+            "scan_pending",
+            "created_at",
+            "purged_at",
+        ],
+    ),
+    (
         "aliyun_registrar_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "observation_run_id",
+            "observed_count",
+            "imported_count",
+            "skipped_count",
+            "completed_at",
+        ],
+    ),
+    (
+        "godaddy_registrar_scans",
         &[
             "workspace_id",
             "scan_id",
@@ -189,6 +215,17 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
     ),
     (
         "aliyun_registrar_pending_scans",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "device_id",
+            "lease_epoch",
+            "request_id",
+        ],
+    ),
+    (
+        "godaddy_registrar_pending_scans",
         &[
             "workspace_id",
             "connection_id",

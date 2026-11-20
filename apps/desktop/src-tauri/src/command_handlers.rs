@@ -7,6 +7,7 @@ pub(crate) mod aliyun_registrar;
 pub(crate) mod atom_marketplace;
 pub(crate) mod cloudflare_registrar_account;
 pub(crate) mod forced_takeover;
+pub(crate) mod godaddy_registrar;
 pub(crate) mod spaceship_registrar;
 pub(crate) mod target_bootstrap;
 pub(crate) mod target_installation;

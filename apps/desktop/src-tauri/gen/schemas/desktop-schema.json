@@ -597,6 +597,18 @@
           "markdownDescription": "Enables the forced_takeover_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the godaddy_registrar_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-godaddy-registrar-status",
+          "markdownDescription": "Enables the godaddy_registrar_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the godaddy_registrar_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-godaddy-registrar-submit",
+          "markdownDescription": "Enables the godaddy_registrar_submit command without any pre-configured scope."
+        },
+        {
           "description": "Enables the local_asset_library_read command without any pre-configured scope.",
           "type": "string",
           "const": "allow-local-asset-library-read",
@@ -1027,6 +1039,18 @@
           "type": "string",
           "const": "deny-forced-takeover-status",
           "markdownDescription": "Denies the forced_takeover_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the godaddy_registrar_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-godaddy-registrar-status",
+          "markdownDescription": "Denies the godaddy_registrar_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the godaddy_registrar_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-godaddy-registrar-submit",
+          "markdownDescription": "Denies the godaddy_registrar_submit command without any pre-configured scope."
         },
         {
           "description": "Denies the local_asset_library_read command without any pre-configured scope.",

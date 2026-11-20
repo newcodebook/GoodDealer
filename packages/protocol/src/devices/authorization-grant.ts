@@ -23,6 +23,7 @@ export const DESKTOP_COMMERCIAL_CAPABILITIES = [
   "atom:marketplace:observe",
   "cloudflare:dns:observe",
   "cloudflare:registrar:observe",
+  "godaddy:registrar:observe",
   "spaceship:registrar:observe",
 ] as const;
 export const desktopCommercialCapabilitySchema = z.enum(DESKTOP_COMMERCIAL_CAPABILITIES);

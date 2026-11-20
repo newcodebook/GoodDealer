@@ -57,6 +57,8 @@ function createFixture() {
     "forced_takeover_preview",
     "forced_takeover_reauthenticate",
     "forced_takeover_status",
+    "godaddy_registrar_status",
+    "godaddy_registrar_submit",
     "local_business_status",
     "local_backup_artifact_select",
     "local_backup_export",
@@ -169,7 +171,7 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
   writeFile(
     root,
     "apps/desktop/src/adapters/tauri/index.ts",
-    commands.filter((command) => !command.startsWith("local_backup_") && !command.startsWith("afternic_") && !command.startsWith("forced_takeover_") && !command.startsWith("spaceship_") && !command.startsWith("aliyun_") && !command.startsWith("atom_") && !command.startsWith("cloudflare_registrar_account_") && command !== "local_portable_backup")
+    commands.filter((command) => !command.startsWith("local_backup_") && !command.startsWith("afternic_") && !command.startsWith("forced_takeover_") && !command.startsWith("spaceship_") && !command.startsWith("aliyun_") && !command.startsWith("godaddy_") && !command.startsWith("atom_") && !command.startsWith("cloudflare_registrar_account_") && command !== "local_portable_backup")
       .map((command) => `invoke("${command}")`)
       .join("\n"),
   );
@@ -179,6 +181,8 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
     commands.filter(command => command.startsWith("spaceship_")).map(command => `invoke("${command}")`).join("\n"));
   writeFile(root, "apps/desktop/src/adapters/tauri/aliyun-registrar.ts",
     commands.filter(command => command.startsWith("aliyun_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/godaddy-registrar.ts",
+    commands.filter(command => command.startsWith("godaddy_")).map(command => `invoke("${command}")`).join("\n"));
   writeFile(root, "apps/desktop/src/adapters/tauri/portable-backup.ts",
     commands.includes("local_portable_backup") ? 'invoke("local_portable_backup")' : "");
   writeFile(root, "apps/desktop/src/adapters/tauri/atom-marketplace.ts",

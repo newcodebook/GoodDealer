@@ -26,6 +26,7 @@ pub(super) enum Purpose {
     Spaceship,
     Aliyun,
     Atom,
+    GoDaddy,
 }
 impl Purpose {
     const fn title(self) -> &'static str {
@@ -36,6 +37,7 @@ impl Purpose {
             Self::Spaceship => "GoodDealer — Connect Spaceship",
             Self::Aliyun => "GoodDealer — Connect Alibaba Cloud",
             Self::Atom => "GoodDealer — Connect Atom",
+            Self::GoDaddy => "GoodDealer — Connect GoDaddy Registrar",
         }
     }
 }
@@ -199,15 +201,18 @@ fn capture_controls(purpose: Purpose, form: &Form) -> (gtk::Grid, gtk::Button, g
             "Atom Seller API _token",
             "Connect Atom",
         ),
+        Purpose::GoDaddy => ("", "GoDaddy Personal Access _Token", "Connect GoDaddy"),
     };
-    let key_label = gtk::Label::new(Some(first_label));
-    key_label.set_use_underline(true);
-    key_label.set_mnemonic_widget(Some(&form.key));
+    if !first_label.is_empty() {
+        let key_label = gtk::Label::new(Some(first_label));
+        key_label.set_use_underline(true);
+        key_label.set_mnemonic_widget(Some(&form.key));
+        grid.attach(&key_label, 0, 0, 1, 1);
+        grid.attach(&form.key, 1, 0, 1, 1);
+    }
     let secret_label = gtk::Label::new(Some(second_label));
     secret_label.set_use_underline(true);
     secret_label.set_mnemonic_widget(Some(&form.secret));
-    grid.attach(&key_label, 0, 0, 1, 1);
-    grid.attach(&form.key, 1, 0, 1, 1);
     grid.attach(&secret_label, 0, 1, 1, 1);
     grid.attach(&form.secret, 1, 1, 1, 1);
     let cancel = gtk::Button::with_label("Cancel");
@@ -215,6 +220,14 @@ fn capture_controls(purpose: Purpose, form: &Form) -> (gtk::Grid, gtk::Button, g
     grid.attach(&cancel, 0, 2, 1, 1);
     grid.attach(&connect, 1, 2, 1, 1);
     (grid, cancel, connect)
+}
+
+fn second_field_limit(purpose: Purpose) -> i32 {
+    if purpose == Purpose::GoDaddy {
+        i32::try_from(crate::godaddy::MAX_GODADDY_PAT_BYTES).expect("fixed credential bound")
+    } else {
+        512
+    }
 }
 
 fn open_capture(purpose: Purpose, sender: SyncSender<Event>, cancelled: Arc<AtomicBool>) {
@@ -233,7 +246,7 @@ fn open_capture(purpose: Purpose, sender: SyncSender<Event>, cancelled: Arc<Atom
                 512
             },
         ),
-        secret: entry(true, 512),
+        secret: entry(true, second_field_limit(purpose)),
         sender,
         cancelled,
         completed: Cell::new(false),
@@ -248,9 +261,12 @@ fn open_capture(purpose: Purpose, sender: SyncSender<Event>, cancelled: Arc<Atom
         }
         // Use the full string slice: glib 0.18 GString::into_bytes truncates the last
         // byte of foreign storage. Credential bytes must be preserved exactly.
-        let mut bytes = Zeroizing::new(submitted.key.text().as_bytes().to_vec());
+        let mut bytes = Zeroizing::new(Vec::new());
+        if purpose != Purpose::GoDaddy {
+            bytes.extend_from_slice(submitted.key.text().as_bytes());
+            bytes.push(b'\n');
+        }
         let secret = Zeroizing::new(submitted.secret.text().as_bytes().to_vec());
-        bytes.push(b'\n');
         bytes.extend_from_slice(&secret);
         submitted.finish(Ok(bytes));
         if let Some(window) = weak.upgrade() {
@@ -301,7 +317,11 @@ fn open_capture(purpose: Purpose, sender: SyncSender<Event>, cancelled: Arc<Atom
         return;
     }
     window.show_all();
-    form.key.grab_focus();
+    if purpose == Purpose::GoDaddy {
+        form.secret.grab_focus();
+    } else {
+        form.key.grab_focus();
+    }
 }
 
 #[cfg(test)]
@@ -391,7 +411,7 @@ mod tests {
         purpose: Purpose,
         case: NativeCase,
         revoked: &AtomicBool,
-    ) -> Option<(gtk::Entry, gtk::Entry)> {
+    ) -> Option<(Option<gtk::Entry>, gtk::Entry)> {
         for widget in gtk::Window::list_toplevels() {
             let Ok(window) = widget.downcast::<gtk::Window>() else {
                 continue;
@@ -405,51 +425,54 @@ mod tests {
                 .expect("fixed capture grid");
             let key = grid
                 .child_at(1, 0)
-                .and_then(|child| child.downcast::<gtk::Entry>().ok())
-                .expect("masked key entry");
+                .and_then(|child| child.downcast::<gtk::Entry>().ok());
             let secret = grid
                 .child_at(1, 1)
                 .and_then(|child| child.downcast::<gtk::Entry>().ok())
                 .expect("masked secret entry");
-            assert_eq!(
-                gtk::prelude::EntryExt::is_visible(&key),
-                purpose == Purpose::Cloudflare
-            );
             assert!(!gtk::prelude::EntryExt::is_visible(&secret));
-            assert_eq!(
-                key.max_length(),
-                if purpose == Purpose::Cloudflare {
-                    32
-                } else {
-                    512
-                }
-            );
-            assert_eq!(secret.max_length(), 512);
-            let key_label = grid
-                .child_at(0, 0)
-                .and_then(|child| child.downcast::<gtk::Label>().ok())
-                .expect("key label");
+            assert_eq!(secret.max_length(), second_field_limit(purpose));
             let secret_label = grid
                 .child_at(0, 1)
                 .and_then(|child| child.downcast::<gtk::Label>().ok())
-                .expect("secret label");
-            assert_eq!(key_label.mnemonic_widget(), Some(key.clone().upcast()));
+                .unwrap();
             assert_eq!(
                 secret_label.mnemonic_widget(),
                 Some(secret.clone().upcast())
             );
-            assert_eq!(
-                key.input_purpose(),
-                if purpose == Purpose::Cloudflare {
-                    gtk::InputPurpose::FreeForm
-                } else {
-                    gtk::InputPurpose::Password
-                }
-            );
             assert_eq!(secret.input_purpose(), gtk::InputPurpose::Password);
+            assert_eq!(key.is_none(), purpose == Purpose::GoDaddy);
+            if let Some(key) = &key {
+                assert_eq!(
+                    gtk::prelude::EntryExt::is_visible(key),
+                    purpose == Purpose::Cloudflare
+                );
+                assert_eq!(
+                    key.max_length(),
+                    if purpose == Purpose::Cloudflare {
+                        32
+                    } else {
+                        512
+                    }
+                );
+                let key_label = grid
+                    .child_at(0, 0)
+                    .and_then(|child| child.downcast::<gtk::Label>().ok())
+                    .unwrap();
+                assert_eq!(key_label.mnemonic_widget(), Some(key.clone().upcast()));
+                assert_eq!(
+                    key.input_purpose(),
+                    if purpose == Purpose::Cloudflare {
+                        gtk::InputPurpose::FreeForm
+                    } else {
+                        gtk::InputPurpose::Password
+                    }
+                );
+            }
             let (first, second) = match purpose {
                 Purpose::Aliyun => ("NativeCanaryAccessKeyId", "native_canary_secret_1234"),
                 Purpose::Atom => ("123", "native_canary_token_1234"),
+                Purpose::GoDaddy => ("", "native_canary_token_1234"),
                 Purpose::Afternic | Purpose::Spaceship => {
                     ("native_canary_key_1234", "native_canary_secret_1234")
                 }
@@ -458,7 +481,9 @@ mod tests {
                     "native_canary_token_1234",
                 ),
             };
-            key.set_text(first);
+            if let Some(key) = &key {
+                key.set_text(first);
+            }
             secret.set_text(if matches!(case, NativeCase::Invalid) {
                 "invalid secret with spaces"
             } else {
@@ -553,6 +578,27 @@ mod tests {
         }
     }
 
+    fn run_godaddy_case(worker_revoked: &AtomicBool, case: NativeCase) -> bool {
+        use crate::{GoDaddyCapture, GoDaddyError};
+        let result = GoDaddyCapture::capture_guarded(&mut || {
+            if worker_revoked.load(Ordering::SeqCst) {
+                Err(GoDaddyError::AuthorityStale)
+            } else {
+                Ok(())
+            }
+        });
+        match case {
+            NativeCase::Submit => result.is_ok(),
+            NativeCase::Cancel => matches!(result, Err(GoDaddyError::CaptureCancelled)),
+            NativeCase::Revoke => matches!(result, Err(GoDaddyError::AuthorityStale)),
+            NativeCase::Invalid => matches!(result, Err(GoDaddyError::InputRejected)),
+        }
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the GTK canary verifies one complete Native input lifecycle"
+    )]
     fn run_native_case(purpose: Purpose, case: NativeCase) {
         let revoked = Arc::new(AtomicBool::new(false));
         let worker_revoked = Arc::clone(&revoked);
@@ -564,6 +610,7 @@ mod tests {
                 Purpose::Spaceship => run_spaceship_case(&worker_revoked, case),
                 Purpose::Aliyun => run_aliyun_case(&worker_revoked, case),
                 Purpose::Atom => run_atom_case(&worker_revoked, case),
+                Purpose::GoDaddy => run_godaddy_case(&worker_revoked, case),
                 Purpose::Afternic => {
                     use crate::afternic_provider::AfternicError;
                     let result = crate::AfternicCapture::capture_guarded(&mut || {
@@ -624,7 +671,7 @@ mod tests {
         let inspected_result = Rc::clone(&inspected);
         let accepted_result = Rc::clone(&accepted);
         let started = Instant::now();
-        let mut entries: Option<(gtk::Entry, gtk::Entry)> = None;
+        let mut entries: Option<(Option<gtk::Entry>, gtk::Entry)> = None;
         glib::timeout_add_local(Duration::from_millis(10), move || {
             if entries.is_none() {
                 entries = perform_native_input(purpose, case, &revoked);
@@ -635,9 +682,9 @@ mod tests {
             // Revocation returns on the worker before the next GTK clearing tick. Inspect
             // the retained real entries only after that tick has actually cleared them.
             if accepted_result.get()
-                && entries
-                    .as_ref()
-                    .is_some_and(|(key, secret)| key.text().is_empty() && secret.text().is_empty())
+                && entries.as_ref().is_some_and(|(key, secret)| {
+                    key.as_ref().is_none_or(|key| key.text().is_empty()) && secret.text().is_empty()
+                })
             {
                 inspected_result.set(true);
                 exit_loop.quit();
@@ -671,6 +718,7 @@ mod tests {
             Purpose::Spaceship,
             Purpose::Aliyun,
             Purpose::Atom,
+            Purpose::GoDaddy,
         ] {
             assert!(matches!(
                 capture(purpose, &mut || true),

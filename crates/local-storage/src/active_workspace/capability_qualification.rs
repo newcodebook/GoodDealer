@@ -30,6 +30,7 @@ pub(crate) const CLOUDFLARE_DNS_OBSERVE: &str = "cloudflare:dns:observe";
 
 pub(crate) const CLOUDFLARE_REGISTRAR_OBSERVE: &str = "cloudflare:registrar:observe";
 pub(crate) const ALIYUN_REGISTRAR_OBSERVE: &str = "aliyun:registrar:observe";
+pub(crate) const GODADDY_REGISTRAR_OBSERVE: &str = "godaddy:registrar:observe";
 pub(crate) const ATOM_MARKETPLACE_OBSERVE: &str = "atom:marketplace:observe";
 pub(crate) const SPACESHIP_REGISTRAR_OBSERVE: &str = "spaceship:registrar:observe";
 

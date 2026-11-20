@@ -428,6 +428,59 @@
       "transcriptSha256": "caf61961b88cc3710109fd63c39772305d99bc903b08b3684c2890b8deacfdee"
     },
     {
+      "name": "godaddy-registrar-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "godaddy:registrar:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "39aa68a5cdfe4516c6a57ac66acac50bcdd2f364953e9a589c8daa4198696fd9"
+    },
+    {
       "name": "spaceship-registrar-only",
       "accepted": true,
       "grant": {
@@ -532,12 +585,13 @@
             "atom:marketplace:observe",
             "cloudflare:dns:observe",
             "cloudflare:registrar:observe",
+            "godaddy:registrar:observe",
             "spaceship:registrar:observe"
           ]
         },
         "signature": "fixture-grant-signature"
       },
-      "transcriptSha256": "ad14498d9a26e44570af11f64dabef0f6bfb582570c441e5149aec434d797781"
+      "transcriptSha256": "c571422995e34511190538ef59b6bac02331162e44030a253e306eeb059f5535"
     },
     {
       "name": "unrecognized-spaceship-write",

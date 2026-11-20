@@ -8,6 +8,7 @@ pub(crate) mod aliyun;
 pub(crate) mod atom;
 mod cloudflare;
 pub(crate) mod cloudflare_registrar_account;
+pub(crate) mod godaddy;
 pub(crate) mod spaceship;
 
 pub(crate) use cloudflare::{

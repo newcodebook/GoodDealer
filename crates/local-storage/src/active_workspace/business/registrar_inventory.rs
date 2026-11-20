@@ -39,6 +39,7 @@ pub(super) enum RegistrarInventorySource {
     Cloudflare,
     Spaceship,
     Aliyun,
+    GoDaddy,
 }
 
 impl RegistrarInventorySource {
@@ -47,6 +48,7 @@ impl RegistrarInventorySource {
             Self::Cloudflare => "Cloudflare",
             Self::Spaceship => "Spaceship",
             Self::Aliyun => "Aliyun",
+            Self::GoDaddy => "GoDaddy",
         }
     }
 
@@ -55,6 +57,7 @@ impl RegistrarInventorySource {
             Self::Cloudflare => "cloudflare-registrar-v4",
             Self::Spaceship => "spaceship-registrar-v1",
             Self::Aliyun => "aliyun-registrar-v1",
+            Self::GoDaddy => "godaddy-registrar-v3",
         }
     }
 }

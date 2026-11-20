@@ -95,6 +95,7 @@ impl ProviderOperationRecord {
                 if kind.starts_with("afternic_")
                     || kind.starts_with("spaceship_")
                     || kind.starts_with("aliyun_")
+                    || kind.starts_with("godaddy_")
                     || kind.starts_with("atom_") =>
             {
                 "credential_store_unavailable"
@@ -103,6 +104,7 @@ impl ProviderOperationRecord {
                 if kind.starts_with("afternic_")
                     || kind.starts_with("spaceship_")
                     || kind.starts_with("aliyun_")
+                    || kind.starts_with("godaddy_")
                     || kind.starts_with("atom_") =>
             {
                 "local_operation_blocked"
@@ -110,7 +112,7 @@ impl ProviderOperationRecord {
             Err(ProviderCredentialError::Capture)
                 if matches!(
                     kind,
-                    "spaceship_connect" | "aliyun_connect" | "atom_connect"
+                    "spaceship_connect" | "aliyun_connect" | "atom_connect" | "godaddy_connect"
                 ) =>
             {
                 "capture_incomplete"
@@ -359,6 +361,11 @@ impl NativeCloudCoordinator {
                                     Arc::clone(&host), Arc::clone(&cancel_fence), power.clone(), true,
                                 ),
                             ).recover().await.is_ok();
+                            let godaddy = Arc::new(
+                                crate::provider_credential_orchestrator::godaddy::Run::new(
+                                    Arc::clone(&host), Arc::clone(&cancel_fence), power.clone(), true,
+                                ),
+                            ).recover().await.is_ok();
                             let atom = Arc::new(
                                 crate::provider_credential_orchestrator::atom::Run::new(
                                     host, cancel_fence, power, true,
@@ -370,6 +377,7 @@ impl NativeCloudCoordinator {
                                 afternic: afternic.into(),
                                 spaceship: spaceship.into(),
                                 aliyun: aliyun.into(),
+                                godaddy: godaddy.into(),
                                 atom: atom.into(),
                             }
                         }
@@ -620,6 +628,30 @@ impl NativeCloudCoordinator {
             })
     }
 
+    pub(crate) fn submit_godaddy_inventory_refresh(
+        &self,
+        host: &DesktopLocalHost,
+        connection_id: &str,
+    ) -> ProviderSubmission {
+        if self.cancel_fence.is_cancelled() {
+            return ProviderSubmission::Unavailable;
+        }
+        let epoch = self.power.snapshot().epoch;
+        self.provider
+            .submit_godaddy_refresh_after(connection_id.to_owned(), || {
+                let Ok(_power) = self.power.hold_write_epoch(epoch) else {
+                    return false;
+                };
+                self.cancel_fence
+                    .commit(|| {
+                        host.begin_native_cloud_run().and_then(|admission| {
+                            host.queue_godaddy_inventory_refresh(&admission, connection_id)
+                        })
+                    })
+                    .is_some_and(|result| result.is_ok())
+            })
+    }
+
     pub(crate) fn provider_status(&self) -> ProviderStatus {
         self.provider.status()
     }
@@ -632,6 +664,10 @@ impl NativeCloudCoordinator {
 
     pub(crate) fn aliyun_provider_status(&self) -> ProviderStatus {
         self.provider.aliyun_status()
+    }
+
+    pub(crate) fn godaddy_provider_status(&self) -> ProviderStatus {
+        self.provider.godaddy_status()
     }
 
     pub(crate) fn atom_provider_status(&self) -> ProviderStatus {
@@ -742,7 +778,7 @@ async fn run_provider_operation(
     power: gooddealer_secure_host_core::NativePowerGate,
 ) {
     use crate::provider_credential_orchestrator::{
-        RevocationOutcome, afternic, aliyun, atom, cloudflare_registrar_account, spaceship,
+        RevocationOutcome, afternic, aliyun, atom, cloudflare_registrar_account, godaddy, spaceship,
     };
     // The outcome is recorded for the connection status as a closed value only. Every operation
     // may have committed before it ended, whatever it returned: activation imports the Zone and
@@ -823,6 +859,33 @@ async fn run_provider_operation(
             let run = Arc::new(aliyun::Run::new(host, cancel_fence, power, false));
             Some(ProviderOperationRecord::of(
                 "aliyun_revoke",
+                run.revoke(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::GoDaddyConnect => {
+            let run = Arc::new(godaddy::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "godaddy_connect",
+                run.connect().await.as_ref().map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::GoDaddyRefresh { connection_id } => {
+            let run = Arc::new(godaddy::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "godaddy_refresh",
+                run.refresh(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::GoDaddyRevoke { connection_id } => {
+            let run = Arc::new(godaddy::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "godaddy_revoke",
                 run.revoke(connection_id)
                     .await
                     .as_ref()

@@ -9,6 +9,7 @@ pub(super) enum Service {
     Aliyun,
     Atom,
     CloudflareRegistrar,
+    GoDaddy,
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
@@ -20,24 +21,29 @@ impl Service {
             Self::Aliyun => "com.gooddealer.desktop.aliyun.registrar.v1",
             Self::Atom => "com.gooddealer.desktop.atom.marketplace.v1",
             Self::CloudflareRegistrar => "com.gooddealer.desktop.cloudflare.registrar.v1",
+            Self::GoDaddy => "com.gooddealer.desktop.godaddy.registrar.v3",
         }
     }
 }
 
+#[derive(Debug)]
 pub(super) struct CustodyUnavailable;
+
+pub(super) fn purge_cloudflare_registrar(account: &str) -> Result<(), CustodyUnavailable> {
+    purge_exact(Service::CloudflareRegistrar, account)
+}
 
 /// Retires a fixed Registrar account slot and confirms absence without reading its value.
 #[cfg(target_os = "linux")]
-pub(super) fn purge_cloudflare_registrar(account: &str) -> Result<(), CustodyUnavailable> {
-    crate::secret_service_custody::delete_exact_items(Service::CloudflareRegistrar.name(), account)
+pub(super) fn purge_exact(service: Service, account: &str) -> Result<(), CustodyUnavailable> {
+    crate::secret_service_custody::delete_exact_items(service.name(), account)
         .map(|_| ())
         .map_err(|_| CustodyUnavailable)
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn purge_cloudflare_registrar(account: &str) -> Result<(), CustodyUnavailable> {
+pub(super) fn purge_exact(service: Service, account: &str) -> Result<(), CustodyUnavailable> {
     use security_framework::item::{CloudSync, ItemClass, ItemSearchOptions};
-    let service = Service::CloudflareRegistrar;
     delete(service, account)?;
     let mut query = ItemSearchOptions::new();
     query
@@ -56,8 +62,7 @@ pub(super) fn purge_cloudflare_registrar(account: &str) -> Result<(), CustodyUna
 }
 
 #[cfg(target_os = "windows")]
-pub(super) fn purge_cloudflare_registrar(account: &str) -> Result<(), CustodyUnavailable> {
-    let service = Service::CloudflareRegistrar;
+pub(super) fn purge_exact(service: Service, account: &str) -> Result<(), CustodyUnavailable> {
     delete(service, account)?;
     match crate::windows_custody::exists(service.name(), account) {
         Ok(false) => Ok(()),
@@ -66,7 +71,7 @@ pub(super) fn purge_cloudflare_registrar(account: &str) -> Result<(), CustodyUna
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-pub(super) const fn purge_cloudflare_registrar(_: &str) -> Result<(), CustodyUnavailable> {
+pub(super) const fn purge_exact(_: Service, _: &str) -> Result<(), CustodyUnavailable> {
     Err(CustodyUnavailable)
 }
 

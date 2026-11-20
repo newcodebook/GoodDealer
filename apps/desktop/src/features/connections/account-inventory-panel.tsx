@@ -1,4 +1,4 @@
-import type { AliyunRegistrarPort, AliyunRegistrarStatus, AtomMarketplacePort, AtomMarketplaceStatus, CloudflareRegistrarAccountPort, CloudflareRegistrarAccountStatus, SpaceshipRegistrarIntent, SpaceshipRegistrarPort, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
+import type { AliyunRegistrarPort, AliyunRegistrarStatus, GoDaddyRegistrarPort, GoDaddyRegistrarStatus, AtomMarketplacePort, AtomMarketplaceStatus, CloudflareRegistrarAccountPort, CloudflareRegistrarAccountStatus, SpaceshipRegistrarIntent, SpaceshipRegistrarPort, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
 import { formatDate, formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { Badge, Button, Panel } from "@gooddealer/ui";
 import { useEffect, useRef, useState } from "react";
@@ -18,6 +18,10 @@ export function AliyunRegistrarPanel(props: InventoryPanelProps<AliyunRegistrarP
   return <AccountInventoryPanel provider="aliyun" {...props} />;
 }
 
+export function GoDaddyRegistrarPanel(props: InventoryPanelProps<GoDaddyRegistrarPort>) {
+  return <AccountInventoryPanel provider="godaddy" {...props} />;
+}
+
 export function AtomMarketplacePanel(props: InventoryPanelProps<AtomMarketplacePort>) {
   return <AccountInventoryPanel provider="atom" {...props} />;
 }
@@ -27,15 +31,15 @@ export function CloudflareRegistrarAccountPanel(props: InventoryPanelProps<Cloud
 }
 
 function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
-  InventoryPanelProps<SpaceshipRegistrarPort | AliyunRegistrarPort | AtomMarketplacePort | CloudflareRegistrarAccountPort> & {
-    readonly provider: "spaceship" | "aliyun" | "atom" | "cloudflare_registrar_account";
+  InventoryPanelProps<SpaceshipRegistrarPort | AliyunRegistrarPort | GoDaddyRegistrarPort | AtomMarketplacePort | CloudflareRegistrarAccountPort> & {
+    readonly provider: "spaceship" | "aliyun" | "godaddy" | "atom" | "cloudflare_registrar_account";
   }) {
   const copy = getPresentationCopy(locale, "settings");
-  const providerName = { spaceship: "Spaceship", aliyun: copy.aliyunRegistrarName, atom: "Atom", cloudflare_registrar_account: "Cloudflare Registrar" }[provider];
-  const copyPrefix = { spaceship: "spaceshipRegistrar", aliyun: "aliyunRegistrar", atom: "atomMarketplace", cloudflare_registrar_account: "cloudflareRegistrarAccount" } as const;
+  const providerName = { spaceship: "Spaceship", aliyun: copy.aliyunRegistrarName, godaddy: "GoDaddy", atom: "Atom", cloudflare_registrar_account: "Cloudflare Registrar" }[provider];
+  const copyPrefix = { spaceship: "spaceshipRegistrar", aliyun: "aliyunRegistrar", godaddy: "godaddyRegistrar", atom: "atomMarketplace", cloudflare_registrar_account: "cloudflareRegistrarAccount" } as const;
   const prefix = copyPrefix[provider];
   const refresh = provider === "atom" ? copy.atomMarketplaceRefresh : copy.spaceshipRegistrarRefresh;
-  const [view, setView] = useState<SpaceshipRegistrarStatus | AliyunRegistrarStatus | AtomMarketplaceStatus | CloudflareRegistrarAccountStatus | null>(null);
+  const [view, setView] = useState<SpaceshipRegistrarStatus | AliyunRegistrarStatus | GoDaddyRegistrarStatus | AtomMarketplaceStatus | CloudflareRegistrarAccountStatus | null>(null);
   const [retry, setRetry] = useState(0);
   const [readFailed, setReadFailed] = useState(false);
   const [submission, setSubmission] = useState<"pending" | "failed" | null>(null);

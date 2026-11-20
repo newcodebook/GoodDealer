@@ -104,6 +104,7 @@ mod cloudflare_credential;
 mod cloudflare_registrar;
 mod cloudflare_registrar_account;
 mod cloudflare_retirement;
+mod godaddy_registrar;
 mod registrar_inventory;
 mod spaceship_registrar;
 pub(crate) use aliyun_registrar::{AliyunConnectionSeed, AliyunInventoryCommit};
@@ -124,6 +125,8 @@ pub use cloudflare_registrar_account::{
     DesktopCloudflareRegistrarAccountState, DesktopCloudflareRegistrarAccountSummary,
 };
 pub(crate) use cloudflare_registrar_account::{RegistrarAccountCommit, RegistrarAccountSeed};
+pub use godaddy_registrar::{DesktopGoDaddyConnectionState, DesktopGoDaddyConnectionSummary};
+pub(crate) use godaddy_registrar::{GoDaddyConnectionSeed, GoDaddyInventoryCommit};
 pub use registrar_inventory::{
     DesktopRegistrarScanReceipt, DesktopRegistrationFact, DesktopRegistrationStanding,
 };

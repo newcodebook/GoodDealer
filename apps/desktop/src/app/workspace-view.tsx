@@ -11,7 +11,7 @@ import { AfternicDelistPanel, AfternicListingWritePanel, BatchList } from "../fe
 import { ManualTaskInbox } from "../features/operations/manual-tasks";
 import { OperationHistory } from "../features/operations/operation-history";
 import { RenewalDesk, type RenewalListView } from "../features/registration";
-import { AfternicPanel, CloudflareRegistrarAccountPanel, CloudflareRegistrarPanel, CloudflareRetirementPanel, SpaceshipRegistrarPanel, AliyunRegistrarPanel, AtomMarketplacePanel, cloudflareNoticeCopyKey, readCloudflareNotice } from "../features/connections";
+import { AfternicPanel, CloudflareRegistrarAccountPanel, CloudflareRegistrarPanel, CloudflareRetirementPanel, SpaceshipRegistrarPanel, AliyunRegistrarPanel, GoDaddyRegistrarPanel, AtomMarketplacePanel, cloudflareNoticeCopyKey, readCloudflareNotice } from "../features/connections";
 import { DeviceDirectoryPanel, SettingsPanel } from "../features/settings";
 import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
@@ -280,6 +280,7 @@ function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepai
           if (connection.providerKind === "cloudflare") return copy[cloudflareNoticeCopyKey[cloudflare.notice]];
           if (connection.providerKind === "spaceship") return copy.spaceshipRegistrarHelp;
           if (connection.providerKind === "aliyun") return copy.aliyunRegistrarHelp;
+          if (connection.providerKind === "godaddy") return copy.godaddyRegistrarHelp;
           if (connection.providerKind === "atom") return copy.atomMarketplaceHelp;
           return copy.capabilityPendingSummary;
         };
@@ -310,6 +311,7 @@ function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepai
         {ports.cloudflareRegistrarAccount === undefined ? null : <CloudflareRegistrarAccountPanel locale={locale} port={ports.cloudflareRegistrarAccount} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}
         {ports.spaceship === undefined ? null : <SpaceshipRegistrarPanel locale={locale} port={ports.spaceship} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}
         {ports.aliyun === undefined ? null : <AliyunRegistrarPanel locale={locale} port={ports.aliyun} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}
+        {ports.godaddy === undefined ? null : <GoDaddyRegistrarPanel locale={locale} port={ports.godaddy} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}
         {ports.atom === undefined ? null : <AtomMarketplacePanel locale={locale} port={ports.atom} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}
         {writable ? <CloudflareRetirementPanel locale={locale} port={ports.cloudflare} onChanged={() => setAttempt((current) => current + 1)} /> : null}
       </>}

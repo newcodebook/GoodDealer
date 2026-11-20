@@ -7,6 +7,7 @@ pub(super) enum Purpose {
     Spaceship,
     Aliyun,
     Atom,
+    GoDaddy,
 }
 
 pub(super) enum CaptureError {
@@ -23,6 +24,11 @@ pub(super) fn capture(
         io::Read,
         process::{Command, Stdio},
         time::{Duration, Instant},
+    };
+    let output_bound = match purpose {
+        Purpose::GoDaddy => u64::try_from(crate::godaddy::MAX_GODADDY_PAT_BYTES + 2)
+            .expect("fixed credential bound"),
+        _ => 1027,
     };
     let script = match purpose {
         Purpose::Afternic => {
@@ -50,6 +56,9 @@ return apiKey & linefeed & apiSecret"#
 set apiToken to text returned of (display dialog "Atom Seller API token" default answer "" with hidden answer)
 return sellerId & linefeed & apiToken"#
         }
+        Purpose::GoDaddy => {
+            r#"return text returned of (display dialog "GoDaddy Personal Access Token" default answer "" with hidden answer)"#
+        }
     };
     let mut child = Command::new("/usr/bin/osascript")
         .args(["-e", script])
@@ -62,7 +71,10 @@ return sellerId & linefeed & apiToken"#
     let stdout = child.stdout.take().ok_or(CaptureError::Unavailable)?;
     let reader = std::thread::spawn(move || {
         let mut bytes = Zeroizing::new(Vec::new());
-        stdout.take(1027).read_to_end(&mut bytes).map(|_| bytes)
+        stdout
+            .take(output_bound)
+            .read_to_end(&mut bytes)
+            .map(|_| bytes)
     });
     let deadline = Instant::now() + Duration::from_secs(120);
     let status = loop {

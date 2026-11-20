@@ -283,7 +283,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 
 ### 9. GoDaddy、Afternic
 
-- [ ] GoDaddy：核对事实、列出能力清单、实现 Service 与测试、取得资格证据（待实现；按当前策略的能力依赖推进）
+- [ ] GoDaddy：官方 v3 账户归集已实现，真实生产账户与双系统实机待验收，其他能力按当前策略实施
 - [ ] Afternic：核对事实、列出能力清单，实现 Portfolio API 的 Listing 与改价，取得资格证据（待实现；按当前策略的能力依赖推进）
 
 ### 10. Atom（含 AtomRegistrar）
@@ -568,3 +568,10 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 追加迁移 `202611200007`。刷新在回执前入库，按工作区、连接 incarnation、设备和 Lease 重开续读。单事务写观察、资产、Outbox 和回执并消费请求。期间失败保留先前结果；交接、撤销及代次变化后不能提交迟到结果。旧版待扫描位需显式刷新。
 - 独立复验 10 项通过，包含 Native 回执顺序、IPC、Host/SQLCipher、schema manifest 及资产读投影。Linux Storage/Tauri 严格 Clippy 通过。真实只读账户仍需具名开发准入及中国站 RAM 权限 `domain:QueryCommonInfo`，Windows/macOS 实机各自验收。卖家私有上下架与验证继续实施。
 - 两个 Registrar 切片的最终整合通过根 `pnpm check`，含 SQLCipher 675 项、Tauri 190 项、Core 131 项。Windows GNU Storage/Tauri 所有目标严格 Clippy 通过。两轮 Linux 构建曾重叠并替换测试可执行文件，导致旧轮两个子进程无法启动。两项单独复验与最终整合均通过。后续需等会启动同一测试二进制子进程的检查结束，再重建对应输出。
+
+## 2026-11-20 GoDaddy Registrar 账户归集
+
+- 官方 Domains v3.1.0 的账户清单以 Bearer PAT 和前向游标读取。核对两份独立公开副本，带上游来源的副本与记录的 SHA-256 一致。实际 OTE 匿名请求返回 401，生产连接超时。首个受控生产账户仍需明确读取授权、具名验收范围及可核对的注册域名。[接口证据](../PROVIDER_API_REVIEW.md)
+- 设置用受限 Native 窗口接收单个 PAT，完整预检后才托管凭据。原提交栅栏与追加迁移 `202611200008` 保护原子归集、资产及续费资料、刷新受理回执、重开续读和撤销。迟到结果、过期设备/Lease、外工作区和交接均不能提交。断开按专属固定槽删除并确认缺席，损坏凭据不会恢复使用权。
+- 独立复审修复并验证 Cloudflare 无 Zone 账户的现有读投影、损坏/重复 PAT 槽的撤销，以及两个 IPC 命令在 Renderer、Native 权限和证据清单中的一致性。SQLCipher/Host、Native 和 IPC 聚焦复验通过。本机 PostgreSQL 设备授权 184 项通过。Linux 的隔离 GTK 与 Secret Service canary 通过，Linux 和 Windows GNU 的相关 crate 全目标严格 Clippy 通过。真实 GoDaddy、Windows/macOS 实机和发行资格待分别验收。
+- 最终根 `pnpm check` 通过，含 SQLCipher 681 项、Tauri 192 项与 Core 136 项。新增设置文案、生成权限清单和两处独立命令策略已纳入同一完整检查。

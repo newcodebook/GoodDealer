@@ -45,6 +45,13 @@ pub(crate) enum ProviderOperation {
     AliyunRevoke {
         connection_id: String,
     },
+    GoDaddyConnect,
+    GoDaddyRefresh {
+        connection_id: String,
+    },
+    GoDaddyRevoke {
+        connection_id: String,
+    },
     AtomConnect,
     AtomRefresh {
         connection_id: String,
@@ -108,6 +115,7 @@ impl ProviderOperation {
             Self::AfternicConnect { .. } => "afternic:new-connection",
             Self::SpaceshipConnect => "spaceship:new-connection",
             Self::AliyunConnect => "aliyun:new-connection",
+            Self::GoDaddyConnect => "godaddy:new-connection",
             Self::AtomConnect => "atom:new-connection",
             Self::CloudflareRegistrarAccountConnect => "cloudflare-registrar:new-connection",
             Self::AfternicRefresh { connection_id } | Self::AfternicRevoke { connection_id } => {
@@ -116,9 +124,11 @@ impl ProviderOperation {
             Self::Activate { connection_id }
             | Self::SpaceshipRefresh { connection_id }
             | Self::AliyunRefresh { connection_id }
+            | Self::GoDaddyRefresh { connection_id }
             | Self::AtomRefresh { connection_id }
             | Self::SpaceshipRevoke { connection_id }
             | Self::AliyunRevoke { connection_id }
+            | Self::GoDaddyRevoke { connection_id }
             | Self::AtomRevoke { connection_id }
             | Self::CloudflareRegistrarRefresh { connection_id }
             | Self::CloudflareRegistrarAccountRefresh { connection_id }
@@ -175,6 +185,7 @@ pub(crate) struct ProviderRecoveryOutcome {
     pub(crate) afternic: ProviderRecovery,
     pub(crate) spaceship: ProviderRecovery,
     pub(crate) aliyun: ProviderRecovery,
+    pub(crate) godaddy: ProviderRecovery,
     pub(crate) atom: ProviderRecovery,
 }
 
@@ -192,6 +203,9 @@ impl ProviderRecoveryOutcome {
             ProviderOperation::AliyunConnect
             | ProviderOperation::AliyunRefresh { .. }
             | ProviderOperation::AliyunRevoke { .. } => self.aliyun,
+            ProviderOperation::GoDaddyConnect
+            | ProviderOperation::GoDaddyRefresh { .. }
+            | ProviderOperation::GoDaddyRevoke { .. } => self.godaddy,
             ProviderOperation::AtomConnect
             | ProviderOperation::AtomRefresh { .. }
             | ProviderOperation::AtomRevoke { .. } => self.atom,
@@ -210,6 +224,7 @@ impl From<bool> for ProviderRecoveryOutcome {
             afternic: recovery,
             spaceship: recovery,
             aliyun: recovery,
+            godaddy: recovery,
             atom: recovery,
         }
     }
@@ -254,6 +269,7 @@ impl ProviderAdmissionState {
                         | ProviderOperation::AfternicRevoke { .. }
                         | ProviderOperation::SpaceshipRevoke { .. }
                         | ProviderOperation::AliyunRevoke { .. }
+                        | ProviderOperation::GoDaddyRevoke { .. }
                         | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
                         | ProviderOperation::AtomRevoke { .. }
                 ))
@@ -290,6 +306,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::AfternicConnect { .. }
             | ProviderOperation::SpaceshipConnect
             | ProviderOperation::AliyunConnect
+            | ProviderOperation::GoDaddyConnect
             | ProviderOperation::CloudflareRegistrarAccountConnect
             | ProviderOperation::AtomConnect => {
                 if rate
@@ -305,6 +322,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::CloudflareRegistrarAccountRefresh { .. }
             | ProviderOperation::SpaceshipRefresh { .. }
             | ProviderOperation::AliyunRefresh { .. }
+            | ProviderOperation::GoDaddyRefresh { .. }
             | ProviderOperation::AtomRefresh { .. }
             | ProviderOperation::AfternicRefresh { .. } => {
                 while rate
@@ -330,6 +348,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::Purge { .. }
             | ProviderOperation::SpaceshipRevoke { .. }
             | ProviderOperation::AliyunRevoke { .. }
+            | ProviderOperation::GoDaddyRevoke { .. }
             | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
             | ProviderOperation::AtomRevoke { .. }
             | ProviderOperation::AfternicRevoke { .. } => {}
@@ -386,6 +405,9 @@ impl ProviderLaneHandle {
     }
     pub(crate) fn aliyun_status(&self) -> ProviderStatus {
         self.status_for(|state| state.recovery.aliyun)
+    }
+    pub(crate) fn godaddy_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.godaddy)
     }
     pub(crate) fn atom_status(&self) -> ProviderStatus {
         self.status_for(|state| state.recovery.atom)
@@ -470,6 +492,18 @@ impl ProviderLaneHandle {
     ) -> ProviderSubmission {
         self.submit_at_after(
             &ProviderOperation::AliyunRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_godaddy_refresh_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::GoDaddyRefresh { connection_id },
             Instant::now(),
             persist,
         )
@@ -658,6 +692,7 @@ impl ProviderLane {
                             ProviderOperation::AfternicRevoke { .. }
                                 | ProviderOperation::SpaceshipRevoke { .. }
                                 | ProviderOperation::AliyunRevoke { .. }
+                                | ProviderOperation::GoDaddyRevoke { .. }
                                 | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
                                 | ProviderOperation::AtomRevoke { .. }
                         )
@@ -855,6 +890,36 @@ mod tests {
         );
     }
 
+    #[test]
+    fn godaddy_refresh_reserves_the_lane_and_persists_before_acknowledgement() {
+        let (handle, mut lane) = ProviderLane::new();
+        lane.finish_recovery(Some(0), true);
+        assert_eq!(
+            handle.submit_godaddy_refresh_after("rejected".into(), || false),
+            ProviderSubmission::Unavailable,
+        );
+        assert!(lane.commands.try_recv().is_err());
+        assert_eq!(
+            handle.submit_godaddy_refresh_after("current".into(), || {
+                assert!(lane.commands.try_recv().is_err());
+                true
+            }),
+            ProviderSubmission::Accepted,
+        );
+        assert_eq!(
+            handle.submit_godaddy_refresh_after("current".into(), || {
+                panic!("must not persist an overlapping request")
+            }),
+            ProviderSubmission::Busy,
+        );
+        assert_eq!(
+            lane.commands.try_recv().unwrap(),
+            ProviderOperation::GoDaddyRefresh {
+                connection_id: "current".into()
+            }
+        );
+    }
+
     #[tokio::test]
     async fn background_steps_share_the_slot_yield_to_commands_and_continue_without_idle_delay() {
         let monitor = gooddealer_secure_host_core::NativePowerMonitor::start();
@@ -925,6 +990,7 @@ mod tests {
                 afternic: false.into(),
                 spaceship: true.into(),
                 aliyun: true.into(),
+                godaddy: true.into(),
                 cloudflare_registrar_account: true.into(),
                 atom: true.into(),
             },
@@ -947,6 +1013,7 @@ mod tests {
                 afternic: true.into(),
                 spaceship: true.into(),
                 aliyun: true.into(),
+                godaddy: true.into(),
                 cloudflare_registrar_account: true.into(),
                 atom: true.into(),
             },
@@ -986,6 +1053,7 @@ mod tests {
                 afternic: true.into(),
                 spaceship: true.into(),
                 aliyun: false.into(),
+                godaddy: false.into(),
                 cloudflare_registrar_account: true.into(),
                 atom: false.into(),
             },

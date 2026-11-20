@@ -74,6 +74,7 @@ describe("domain Provider coverage and financial confirmation", () => {
         "aliyun:registrar.domain.observe",
         "atom:marketplace.listing.observe",
         "cloudflare:registrar.domain.observe", "cloudflare:zone.observe", "cloudflare:dns.records.observe",
+        "godaddy:registrar.domain.observe",
         "spaceship:registrar.domain.observe",
       ]);
     expect(Object.isFrozen(domainProviderCapabilityManifest)).toBe(true);

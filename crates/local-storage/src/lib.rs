@@ -175,8 +175,9 @@ pub use active_workspace::business::{
     DesktopAtomListingState, DesktopCloudflareRegistrarAccountState,
     DesktopCloudflareRegistrarAccountSummary, DesktopCloudflareRegistrarScanReceipt,
     DesktopCloudflareRegistrationFact, DesktopCloudflareRegistrationStanding,
-    DesktopRegistrarScanReceipt, DesktopRegistrationFact, DesktopRegistrationStanding,
-    DesktopSpaceshipConnectionState, DesktopSpaceshipConnectionSummary,
+    DesktopGoDaddyConnectionState, DesktopGoDaddyConnectionSummary, DesktopRegistrarScanReceipt,
+    DesktopRegistrationFact, DesktopRegistrationStanding, DesktopSpaceshipConnectionState,
+    DesktopSpaceshipConnectionSummary,
 };
 #[cfg(all(test, unix))]
 pub(crate) use active_workspace::business::{
@@ -210,6 +211,9 @@ pub use desktop_local_host::atom_marketplace::{
 };
 pub use desktop_local_host::cloudflare_registrar_account::{
     DesktopCloudflareRegistrarAccount, DesktopCloudflareRegistrarAccountStatus,
+};
+pub use desktop_local_host::godaddy_registrar::{
+    DesktopGoDaddyConnection, DesktopGoDaddyRegistrarStatus,
 };
 pub use desktop_local_host::spaceship_registrar::{
     DesktopSpaceshipConnection, DesktopSpaceshipRegistrarStatus,
