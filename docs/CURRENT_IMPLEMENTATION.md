@@ -141,7 +141,7 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
   数据库是否实际应用这些迁移，必须依据相应环境的运行记录。
 - execution-context 已组合独立第四签名用途、锁定事务、签后期限复核及不可变历史；普通应用角色不能通过伪造
   租户变量读取该历史。设备审计/执行事实 ingest 复用原 ledger/封链表，以当前 Active 会话派生来源；严格核验历史时间、用途、批准与配对审计，精确重复返回原回执，已封链不接受新事件。真实签名语义拒绝可阻断首次封链，伪造签名不能污染猜测的流。
-  共享开发 OpenBao v2 已部署五个独立用途，经生产 signer/AppRole 完成 5 次签名和 20 次错用途拒绝；本机公开 registry 与部署生成物一致。当前 VPS 为 `f872727` / 71 条迁移，不含本轮 030/031；具体环境与备份限制见 [开发 Cloud](DEVELOPMENT_CLOUD.md)。生产 custody 资格与真实双设备验收仍独立。
+  共享开发 OpenBao v2 已部署五个独立用途，经生产 signer/AppRole 完成 5 次签名和 20 次错用途拒绝；本机公开 registry 与部署生成物一致。2026-11-20 只读核对 VPS 仍为 `f872727`，71 条迁移与当前候选前缀完全匹配，030–033 尚未应用。Afternic 的两项测试权益仍在。具体环境见 [开发 Cloud](DEVELOPMENT_CLOUD.md)。生产 custody 资格与真实双设备验收仍独立。
 - Account Web 已组合账户访问和商业旅程；已有 staging 观察与其具体限制见
   [开发 Cloud](DEVELOPMENT_CLOUD.md)。这些记录不能替代生产支付、邮件或发行证据。
 

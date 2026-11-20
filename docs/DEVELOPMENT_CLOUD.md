@@ -36,7 +36,7 @@ Desktop / developer
 | Cloud 发布目录 | `/opt/gooddealer-development/releases/<release-id>`；`/opt/gooddealer-development/current` 当前指向 `20261119T095800Z-device-authority-v2-f872727`，完整源码提交 `f872727627ebdf4a619f5607796dae0e0d72a7b2`。 |
 | Node/pnpm | Node `26.12.1`、pnpm `12.16.1`，必须与仓库 `package.json` 的 `packageManager` 和 `engines` 一致；当前 release 已使用这组精确工具链安装依赖并构建。systemd unit 固定调用 `/opt/gooddealer-development/runtime/node/bin/node`，该路径是指向 `runtime/node-26.12.1`（官方 tarball，按 `SHASUMS256.txt` 校验）的链接；Node 26 不再附带 corepack，pnpm 以 npm 安装在同一 runtime 内。上一版 `runtime/node-24.18.1` 保留，代码回滚到旧 release 时须同时把链接指回它。 |
 | PostgreSQL | `gooddealer-postgres-development` 容器；PostgreSQL `18.4`；只映射 `127.0.0.1:55433`。该版本低于仓库锁定的 18.6 资格版本，只是开发运行事实。 |
-| 数据库 | `gooddealer_development`；migrator `gooddealer_cloud_owner` 与普通 App、Account API、Identity capability issuer、Provider ingress、Provider worker 五个 runtime 登录角色相互隔离。2026-11-19 当前 ledger 为 clean `f872727` 的完整 71 条，旧 27 条前缀逐项匹配后由受限 migrator 应用余下 44 条；五个 runtime 登录隔离，12 个相关角色均为 `NOSUPERUSER NOBYPASSRLS`。Afternic Listing create/update 的 030/031 不在该 release 中，尚未部署。 |
+| 数据库 | `gooddealer_development`；migrator `gooddealer_cloud_owner` 与普通 App、Account API、Identity capability issuer、Provider ingress、Provider worker 五个 runtime 登录角色相互隔离。2026-11-20 只读复核仍为 `f872727` 的完整 71 条，与 `c0a883e` 的候选前缀逐条匹配 ID、所有者及校验值。Afternic Listing 写入及复核证据的 030–033 仍待应用。部署审查中五个 runtime 登录隔离，12 个相关角色均为 `NOSUPERUSER NOBYPASSRLS`。 |
 | PostgreSQL 持久卷 | `gooddealer-postgres-development-data`；禁止因测试、发布或排障重建。 |
 | Nginx 站点 | `/etc/nginx/conf.d/api.gooddealer.com.conf`；只拥有该域名，不得修改其他站点。 |
 | Account Nginx 站点 | `/etc/nginx/conf.d/account.gooddealer.com.conf`；Cloudflare origin lock、HSTS、CSP 与 `no-store` 已启用。 |
@@ -51,8 +51,10 @@ API、Identity capability issuer、Provider ingress、Provider worker 五个相�
 [`apps/cloud/src/db/migrations.ts`](../apps/cloud/src/db/migrations.ts) 为准，不能用本文的历史部署数量代替。
 M015 已是规范化商业 baseline，不存在 M018 compatibility migration；M019 前必须由角色管理员运行
 受控 role provisioning。当前已实际部署 clean `f872727` 的设备授权、交接、引导和强制接管源码及相应迁移；
-这不代表真实设备旅程已经验收。进行中的 Listing create/update 切片与其 030/031 尚未部署；不得
+这不代表真实设备旅程已经验收。Listing 写入及复核的 Cloud 源码与 030–033 尚未部署；不得
 通过修改 ledger 或 checksum alias 绕过漂移检查。
+
+2026-11-20 只读核对确认 Cloud、worker 均 active，migrator 为 inactive、最近结果为 success。商业配置含 Afternic observe/write，存在一份未到期且含两项能力的 Active 商业投影。当前配置未开放 Atom、Spaceship Registrar 或阿里云 Registrar 的观察能力。
 开发组合根已装配独立 Identity ingress、Argon2id 账号访问服务、loopback Mailpit outbox worker，以及
 Stripe 官方 SDK 的 test-mode catalog、Checkout、webhook 和退款 adapter；PayPal 保持失败关闭。
 同一 API 组合根只有在 `GOODDEALER_DEPLOYMENT_ENV=staging`、

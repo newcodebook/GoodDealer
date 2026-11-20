@@ -115,13 +115,24 @@ describe("PostgreSQL device switch drain submission (ADR-0032 S1c2)", () => {
     ["unreleased Lease", "UPDATE device_active_leases SET released_at = NULL, release_reason = NULL"],
     ["release time", "UPDATE device_active_leases SET released_at = released_at + interval '1 second'"],
     ["acceptance time", "UPDATE device_drain_proofs SET accepted_at = accepted_at + interval '1 second'"],
-    ["target", "UPDATE device_switch_workflows SET to_device_id = 'other-target'"],
     ["capability target", "UPDATE device_bootstrap_capabilities SET target_device_id = 'other-target'"],
   ])("does not turn inconsistent %s history into a receipt", async (_label, sql) => {
     const requestId = await openSwitch();
     await drains.submit(source, requestId, await proofFor(requestId, "proof-inconsistent"));
     await owner(sql);
     await expect(requests.read(source, requestId)).resolves.toMatchObject({ accepted: true, request: { normalHandoffReceipt: null } });
+  });
+
+  it.each([
+    ["target", "UPDATE device_switch_workflows SET to_device_id = 'other-target'"],
+    ["mode", "UPDATE device_switch_workflows SET mode = 'forced'"],
+  ])("retains the original switch %s after a normal handoff", async (_field, sql) => {
+    const requestId = await openSwitch();
+    const submitted = await drains.submit(source, requestId, await proofFor(requestId, "proof-immutable"));
+    if (!submitted?.accepted) throw new Error("handoff failed");
+    await expect(owner(sql)).rejects.toMatchObject({ code: "55000", message: "original switch identity is immutable" });
+    await expect(requests.read(source, requestId)).resolves.toMatchObject({ accepted: true,
+      request: { normalHandoffReceipt: submitted.request.normalHandoffReceipt } });
   });
 
   it("does not infer handoff from bootstrapping status or an unconsumed proof", async () => {
@@ -136,7 +147,7 @@ describe("PostgreSQL device switch drain submission (ADR-0032 S1c2)", () => {
     await expect(requests.read(source, requestId)).resolves.toMatchObject({ request: { status: "bootstrapping", normalHandoffReceipt: null } });
   });
 
-  it("refuses ambiguous consumed proofs and never exposes a normal receipt for a forced workflow", async () => {
+  it("refuses ambiguous consumed proofs", async () => {
     const requestId = await openSwitch();
     await drains.submit(source, requestId, await proofFor(requestId, "proof-first"));
     await owner(`INSERT INTO device_drain_proofs SELECT
@@ -146,9 +157,35 @@ describe("PostgreSQL device switch drain submission (ADR-0032 S1c2)", () => {
       device_audit_sequence, device_audit_digest, consumed_at, accepted_at, consumed_transaction_id, proof_schema_version
       FROM device_drain_proofs WHERE proof_id = 'proof-first'`);
     await expect(requests.read(source, requestId)).resolves.toMatchObject({ request: { normalHandoffReceipt: null } });
-    await owner("DELETE FROM device_drain_proofs WHERE proof_id = 'proof-duplicate'");
-    await owner("UPDATE device_switch_workflows SET mode = 'forced'");
-    await expect(requests.read(source, requestId)).resolves.toMatchObject({ accepted: false, code: "FORCED_SWITCH_UNAVAILABLE" });
+  });
+
+  it("never reads a forced workflow as a normal handoff", async () => {
+    const requestId = "forced-switch-fixture";
+    await owner(`INSERT INTO device_switch_workflows
+      (account_id, workspace_id, workflow_id, purpose, mode, request_digest, idempotency_key, status,
+       workflow_revision, from_device_id, to_device_id, bound_key_id, bound_key_version,
+       bound_account_security_epoch, state_deadline, source_lease_epoch, earliest_takeover_at)
+      VALUES ($1, $2, $3, 'device_switch', 'forced', $4, 'forced-switch-idem', 'waiting_expiry',
+        1, 'device-old', 'device-new', 'key-new', 1, 1, transaction_timestamp() + interval '25 hours',
+        1, transaction_timestamp() + interval '1 hour')`, [scope.accountId, scope.workspaceId, requestId, Buffer.alloc(32, 9)]);
+    // Attach misleading history without rewriting the immutable identity. All receipt evidence
+    // besides the mode matches the valid normal handoff that furnished the fixture.
+    await owner("UPDATE device_switch_workflows SET status = 'failed' WHERE workflow_id = $1", [requestId]);
+    const normalId = await openSwitch();
+    const submitted = await drains.submit(source, normalId, await proofFor(normalId, "proof-for-normal"));
+    if (!submitted?.accepted || submitted.request.normalHandoffReceipt === null) throw new Error("fixture handoff failed");
+    await owner(`INSERT INTO device_bootstrap_capabilities
+      (account_id, workspace_id, workflow_id, jti, target_device_id, issued_at, expires_at)
+      SELECT account_id, workspace_id, $1, 'forced-fixture-capability', target_device_id, issued_at, expires_at
+      FROM device_bootstrap_capabilities WHERE workflow_id = $2`, [requestId, normalId]);
+    await owner(`INSERT INTO device_drain_proofs SELECT
+      account_id, workspace_id, 'proof-forced-history', proof_digest, purpose, $1, source_device_id,
+      active_lease_epoch, signing_key_id, signing_key_version, issued_at, expires_at, verified_at,
+      device_mutation_sequence, mutation_digest, execution_fact_sequence, execution_fact_digest,
+      device_audit_sequence, device_audit_digest, consumed_at, accepted_at, consumed_transaction_id, proof_schema_version
+      FROM device_drain_proofs WHERE proof_id = 'proof-for-normal'`, [requestId]);
+    await expect(requests.read(source, requestId)).resolves.toMatchObject({ accepted: true,
+      request: { requestId, mode: "forced", status: "failed", normalHandoffReceipt: null } });
   });
 
   it("terminates a real drained bootstrap when its one-hour capability expires before the old drain deadline", async () => {

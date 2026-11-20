@@ -2036,10 +2036,10 @@ async function seedDrainRace(): Promise<void> {
     await transaction.query(`INSERT INTO device_switch_workflows
       (account_id, workspace_id, workflow_id, purpose, mode, request_digest, idempotency_key, status,
        workflow_revision, from_device_id, to_device_id, bound_key_id, bound_key_version,
-       bound_account_security_epoch, state_deadline)
+       bound_account_security_epoch, state_deadline, source_lease_epoch)
       VALUES ($1, $2, 'mutation-race-workflow', 'device_switch', 'normal', $3, 'mutation-race-idem',
         'draining', 1, 'device-1', 'device-2', 'mutation-race-target-key', 1, 1,
-        transaction_timestamp() + interval '1 hour')`, [scopeA.accountId, scopeA.workspaceId, Buffer.alloc(32, 5)]);
+        transaction_timestamp() + interval '1 hour', 1)`, [scopeA.accountId, scopeA.workspaceId, Buffer.alloc(32, 5)]);
   });
   await withOwnerTenant(scopeA, async (transaction) => {
     await transaction.query(`INSERT INTO mutation_drain_heads
