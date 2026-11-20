@@ -555,3 +555,9 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 设置的刷新由 Native 在回执前提交。追加迁移 `202611200005` 把请求固定在当前工作区、连接 incarnation、设备和 Lease。重开只恢复同一请求并从首面读取。完整库存同事务消费请求、更新资产与 Listing 观察、写入 Outbox 和回执。
 - 交接屏障、撤销和迟到结果关闭对应准入。旧版仅有 `scan_pending` 的连接可以显式刷新以建立当前范围的请求。运行中的第二次刷新返回忙碌，避免用上一请求代替新回执。
 - 独立复验 SQLCipher/Host 六项和迁移 manifest 一项，Tauri 回执顺序专项通过。根 `pnpm check` 通过，含 SQLCipher 669 项和 Tauri 188 项。Linux Storage 与 Tauri 严格 Clippy 通过。官方 Standard 筛选和匿名响应已取证，真实卖家账户与 Standard 下架仍待验收或实现。
+
+## 2026-11-20 Spaceship Registrar 首次连接与刷新续作
+
+- 设置首次连接先用内存中的 Native 候选凭据完整读取官方账户库存。预检通过后创建连接和请求，精确读回托管凭据后同事务发布观察、资产、Outbox 与回执。权限拒绝、取消、无效响应和不完整分页不会创建待验证连接。
+- 追加迁移 `202611200006`。刷新回执前持久保存当前工作区、连接 incarnation、设备与 Lease，重开从首面续读同一请求。回执原子消费请求。旧版标记可通过显式刷新重新准入。交接、撤销和代次替换禁止迟到结果。
+- 独立审查复验 10 项，覆盖 SQLCipher/Host、注册资料读投影、IPC、Native 回执顺序和 schema manifest。修复 manifest 的迁移数、表数断言并复验通过。Linux Storage/Tauri 严格 Clippy 通过。真实验收仍需要具名开发准入、Native 输入的 `domains:read` 凭据及可核对的账户库存，Windows/macOS 分别实机取证。

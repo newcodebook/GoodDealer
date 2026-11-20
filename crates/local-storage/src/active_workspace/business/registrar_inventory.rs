@@ -195,7 +195,7 @@ mod tests {
             standing: DesktopRegistrationStanding::Active,
         };
         let spaceship = db
-            .prepare_spaceship_connection("Spaceship", AT, || Ok(()))
+            .prepare_spaceship_connection("Spaceship", AT, ("device-local", 1), || Ok(()))
             .unwrap();
         db.import_spaceship_inventory(
             &SpaceshipInventoryCommit {
@@ -267,7 +267,7 @@ mod tests {
         assert_eq!(db.read_renewals(0, 10).unwrap().total_rows, 0);
 
         let spaceship = db
-            .begin_spaceship_scan(&spaceship.connection_id, || Ok(()))
+            .queue_spaceship_scan(&spaceship.connection_id, ("device-local", 1), || Ok(()))
             .unwrap();
         db.import_spaceship_inventory(
             &SpaceshipInventoryCommit {
@@ -343,7 +343,7 @@ mod tests {
         };
         pull(&mut db, 0, vec![remote("first-life", 1, 0, Some("first"))]);
         let connection = db
-            .prepare_spaceship_connection("Spaceship", AT, || Ok(()))
+            .prepare_spaceship_connection("Spaceship", AT, ("device-local", 1), || Ok(()))
             .unwrap();
         let rows = [DesktopRegistrationFact {
             domain: domain.to_owned(),
@@ -381,7 +381,7 @@ mod tests {
             (None, None, None)
         );
         let scan = db
-            .begin_spaceship_scan(&connection.connection_id, || Ok(()))
+            .queue_spaceship_scan(&connection.connection_id, ("device-local", 1), || Ok(()))
             .unwrap();
         db.import_spaceship_inventory(
             &SpaceshipInventoryCommit {

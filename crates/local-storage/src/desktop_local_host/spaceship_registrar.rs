@@ -10,7 +10,9 @@ use crate::{
         business::{SpaceshipConnectionSeed, SpaceshipInventoryCommit},
         capability_qualification::{SPACESHIP_REGISTRAR_OBSERVE as OBSERVE, capability_qualified},
     },
-    desktop_sync_runtime::{DesktopSyncError, DesktopSyncRunAdmission, DesktopSyncRuntime},
+    desktop_sync_runtime::{
+        DesktopSyncError, DesktopSyncRunAdmission, DesktopSyncRuntime, require_provider_dispatch,
+    },
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -105,6 +107,22 @@ fn require_observe(
 }
 
 impl DesktopLocalHost {
+    /// Admits Native capture and a read-only registrar scan before creating a credential slot.
+    ///
+    /// # Errors
+    /// Refuses stale authority, missing qualification or missing commercial access.
+    pub fn recheck_spaceship_connection_preparation(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+    ) -> Result<(), DesktopLocalHostError> {
+        self.with_sync_runtime(Some(&admission.inner), |sync, database, run| {
+            let run = run.ok_or(DesktopSyncError::StaleAuthority)?;
+            sync.recheck_sync_run(database, run)?;
+            require_observe(sync, run)?;
+            require_provider_dispatch(database)
+        })
+    }
+
     /// Returns only the public connection state and counts from the last complete local scan.
     ///
     /// # Errors
@@ -120,7 +138,10 @@ impl DesktopLocalHost {
                     && authority.capabilities.iter().any(|cap| cap == OBSERVE),
                 connections: runtime
                     .database_for_backup()
-                    .spaceship_connection_summaries()?,
+                    .spaceship_connection_summaries(
+                        (restriction == RuntimeRestriction::Active)
+                            .then_some((authority.device_id.as_str(), authority.lease_epoch)),
+                    )?,
             })
         })
     }
@@ -137,13 +158,20 @@ impl DesktopLocalHost {
         let at = now()?;
         let seed =
             self.with_sync_business_write(&admission.inner, |sync, business, run, fence| {
+                sync.recheck_sync_run(business.database_for_backup(), run)?;
                 require_observe(sync, run)?;
+                require_provider_dispatch(business.database_for_backup())?;
                 if !business.has_read_generation_capacity() {
                     return Err(DesktopSyncError::StorageRejected);
                 }
                 let seed = business
                     .database_for_backup_mut()
-                    .prepare_spaceship_connection(label, &at, || fence.verify(sync, run))
+                    .prepare_spaceship_connection(
+                        label,
+                        &at,
+                        (run.device_id(), run.lease_epoch()),
+                        || fence.verify(sync, run),
+                    )
                     .map_err(database_error)?;
                 business.advance_read_generation_after_sync_commit();
                 Ok(seed)
@@ -151,28 +179,52 @@ impl DesktopLocalHost {
         Ok(DesktopSpaceshipConnection::new(admission, seed))
     }
 
-    /// Durably starts or resumes a refresh before the first HTTP request.
+    /// Persists the exact refresh before the Native command acknowledges admission.
     ///
     /// # Errors
     /// Refuses revoked slots, stale authority and mismatched connection identifiers.
+    pub fn queue_spaceship_inventory_refresh(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+        id: &str,
+    ) -> Result<(), DesktopLocalHostError> {
+        self.with_sync_business_write(&admission.inner, |sync, business, run, fence| {
+            sync.recheck_sync_run(business.database_for_backup(), run)?;
+            require_observe(sync, run)?;
+            require_provider_dispatch(business.database_for_backup())?;
+            if !business.has_read_generation_capacity() {
+                return Err(DesktopSyncError::StorageRejected);
+            }
+            business
+                .database_for_backup_mut()
+                .queue_spaceship_scan(id, (run.device_id(), run.lease_epoch()), || {
+                    fence.verify(sync, run)
+                })
+                .map_err(database_error)?;
+            business.advance_read_generation_after_sync_commit();
+            Ok(())
+        })
+    }
+
+    /// Loads the previously admitted request. Recovery cannot assign a new device or Lease.
+    /// # Errors
+    /// Refuses a missing, revoked or out-of-scope request.
     pub fn resume_spaceship_connection(
         &self,
         admission: DesktopNativeCloudAdmission,
         id: &str,
     ) -> Result<DesktopSpaceshipConnection, DesktopLocalHostError> {
-        let seed =
-            self.with_sync_business_write(&admission.inner, |sync, business, run, fence| {
-                require_observe(sync, run)?;
-                if !business.has_read_generation_capacity() {
-                    return Err(DesktopSyncError::StorageRejected);
-                }
-                let seed = business
-                    .database_for_backup_mut()
-                    .begin_spaceship_scan(id, || fence.verify(sync, run))
-                    .map_err(database_error)?;
-                business.advance_read_generation_after_sync_commit();
-                Ok(seed)
-            })?;
+        let seed = self.with_sync_runtime(Some(&admission.inner), |sync, database, run| {
+            let run = run.ok_or(DesktopSyncError::StaleAuthority)?;
+            sync.recheck_sync_run(database, run)?;
+            require_observe(sync, run)?;
+            require_provider_dispatch(database)?;
+            let seed = database.spaceship_connection(id).map_err(database_error)?;
+            if !seed.has_scan_for(run.device_id(), run.lease_epoch()) {
+                return Err(DesktopSyncError::StaleAuthority);
+            }
+            Ok(seed)
+        })?;
         Ok(DesktopSpaceshipConnection::new(admission, seed))
     }
 
@@ -189,6 +241,13 @@ impl DesktopLocalHost {
             sync.recheck_sync_run(database, run)?;
             if connection.seed.state != DesktopSpaceshipConnectionState::Revoked {
                 require_observe(sync, run)?;
+                require_provider_dispatch(database)?;
+                if !connection
+                    .seed
+                    .has_scan_for(run.device_id(), run.lease_epoch())
+                {
+                    return Err(DesktopSyncError::StaleAuthority);
+                }
             }
             let current = database
                 .spaceship_connection(connection.connection_id())
@@ -211,7 +270,9 @@ impl DesktopLocalHost {
     ) -> Result<DesktopRegistrarScanReceipt, DesktopLocalHostError> {
         let at = now()?;
         self.with_sync_business_write(&connection.admission.inner, |sync, business, run, fence| {
+            sync.recheck_sync_run(business.database_for_backup(), run)?;
             require_observe(sync, run)?;
+            require_provider_dispatch(business.database_for_backup())?;
             if !business.has_read_generation_capacity() {
                 return Err(DesktopSyncError::StorageRejected);
             }
@@ -309,5 +370,99 @@ impl DesktopLocalHost {
             business.advance_read_generation_after_sync_commit();
             Ok(())
         })
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use crate::active_workspace::capability_qualification::test_qualification;
+    use crate::{BusinessDatabase, LocalDatabaseKey};
+
+    #[test]
+    fn preflight_is_read_only_and_refresh_rechecks_the_current_workspace() {
+        let directory = crate::test_tempdir::tempdir().unwrap();
+        let host = |workspace: &str, capabilities: &[&str]| {
+            let root = directory.path().join(workspace);
+            std::fs::create_dir(&root).unwrap();
+            let database = BusinessDatabase::open(
+                &root.join("workspace.db"),
+                &LocalDatabaseKey::from_bytes([0x62; 32]),
+                workspace,
+            )
+            .unwrap();
+            DesktopLocalHost::development_with_provider_capabilities(
+                database,
+                root,
+                "account-local",
+                workspace,
+                "device-local",
+                capabilities,
+            )
+            .unwrap()
+        };
+        let local = host("workspace-local", &[OBSERVE]);
+        let other = host("workspace-other", &[OBSERVE]);
+        let unentitled = host("workspace-unentitled", &[]);
+        let admission = local.begin_native_cloud_run().unwrap();
+        assert_eq!(
+            local.recheck_spaceship_connection_preparation(&admission),
+            Err(DesktopLocalHostError::CapabilityUnqualified)
+        );
+
+        let _qualification = test_qualification::qualify(OBSERVE);
+        assert!(
+            unentitled
+                .recheck_spaceship_connection_preparation(
+                    &unentitled.begin_native_cloud_run().unwrap()
+                )
+                .is_err()
+        );
+        assert!(
+            other
+                .recheck_spaceship_connection_preparation(&admission)
+                .is_err()
+        );
+        local
+            .recheck_spaceship_connection_preparation(&admission)
+            .unwrap();
+        assert!(
+            local
+                .read_spaceship_registrar_status()
+                .unwrap()
+                .connections
+                .is_empty()
+        );
+
+        let connection = local
+            .prepare_spaceship_connection(local.begin_native_cloud_run().unwrap(), "Spaceship")
+            .unwrap();
+        let id = connection.connection_id();
+        local.commit_spaceship_inventory(&connection, &[]).unwrap();
+        assert!(
+            local
+                .resume_spaceship_connection(local.begin_native_cloud_run().unwrap(), id)
+                .is_err()
+        );
+        assert!(
+            other
+                .queue_spaceship_inventory_refresh(&admission, id)
+                .is_err()
+        );
+        local
+            .queue_spaceship_inventory_refresh(&admission, id)
+            .unwrap();
+        let refresh = local
+            .resume_spaceship_connection(local.begin_native_cloud_run().unwrap(), id)
+            .unwrap();
+        local.recheck_spaceship_connection(&refresh).unwrap();
+
+        local.enter_security_lock().unwrap();
+        assert!(local.commit_spaceship_inventory(&refresh, &[]).is_err());
+        assert!(
+            local
+                .recheck_spaceship_connection_preparation(&admission)
+                .is_err()
+        );
     }
 }

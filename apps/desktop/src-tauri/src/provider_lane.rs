@@ -267,7 +267,6 @@ impl ProviderAdmissionState {
                     | ProviderOperation::CloudflareRegistrarRefresh { .. }
                     | ProviderOperation::CloudflareRegistrarAccountRefresh { .. }
                     | ProviderOperation::AfternicRefresh { .. }
-                    | ProviderOperation::SpaceshipRefresh { .. }
                     | ProviderOperation::AliyunRefresh { .. }
             ) && in_flight == operation
             {
@@ -448,6 +447,18 @@ impl ProviderLaneHandle {
     ) -> ProviderSubmission {
         self.submit_at_after(
             &ProviderOperation::AtomRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_spaceship_refresh_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::SpaceshipRefresh { connection_id },
             Instant::now(),
             persist,
         )
@@ -771,6 +782,36 @@ mod tests {
             },
         );
         assert!(lane.commands.try_recv().is_err());
+    }
+
+    #[test]
+    fn spaceship_refresh_reserves_the_lane_and_persists_before_acknowledgement() {
+        let (handle, mut lane) = ProviderLane::new();
+        lane.finish_recovery(Some(0), true);
+        assert_eq!(
+            handle.submit_spaceship_refresh_after("rejected".into(), || false),
+            ProviderSubmission::Unavailable,
+        );
+        assert!(lane.commands.try_recv().is_err());
+        assert_eq!(
+            handle.submit_spaceship_refresh_after("current".into(), || {
+                assert!(lane.commands.try_recv().is_err());
+                true
+            }),
+            ProviderSubmission::Accepted,
+        );
+        assert_eq!(
+            handle.submit_spaceship_refresh_after("current".into(), || {
+                panic!("must not persist an overlapping request")
+            }),
+            ProviderSubmission::Busy,
+        );
+        assert_eq!(
+            lane.commands.try_recv().unwrap(),
+            ProviderOperation::SpaceshipRefresh {
+                connection_id: "current".into()
+            }
+        );
     }
 
     #[tokio::test]

@@ -2,13 +2,14 @@
 use super::ProviderCredentialError;
 use crate::native_cloud_runtime::NativeCloudCancelFence;
 use gooddealer_local_storage::{
-    DesktopLocalHost, DesktopLocalHostError, DesktopRegistrationFact, DesktopRegistrationStanding,
-    DesktopSpaceshipConnection, DesktopSpaceshipConnectionState, DesktopSpaceshipRegistrarStatus,
+    DesktopLocalHost, DesktopLocalHostError, DesktopNativeCloudAdmission, DesktopRegistrationFact,
+    DesktopRegistrationStanding, DesktopSpaceshipConnection, DesktopSpaceshipConnectionState,
+    DesktopSpaceshipRegistrarStatus,
 };
 use gooddealer_secure_host_core::{
     NativePowerCommitGuard, NativePowerGate, SpaceshipCapture, SpaceshipCredential,
-    SpaceshipCredentialPlan, SpaceshipError, SpaceshipRegistrarClient, SpaceshipRegistration,
-    SpaceshipRegistrationStanding, load_spaceship_credential_guarded,
+    SpaceshipCredentialPlan, SpaceshipError, SpaceshipGuard, SpaceshipRegistrarClient,
+    SpaceshipRegistration, SpaceshipRegistrationStanding, load_spaceship_credential_guarded,
     publish_spaceship_credential_guarded, purge_spaceship_credential_guarded,
 };
 use std::sync::Arc;
@@ -81,6 +82,15 @@ impl Run {
         Ok(())
     }
 
+    fn check_preparation(&self, admission: &DesktopNativeCloudAdmission) -> Result<()> {
+        drop(self.hold_power().map_err(native_error)?);
+        self.host
+            .recheck_spaceship_connection_preparation(admission)
+            .map_err(host_error)?;
+        drop(self.hold_power().map_err(native_error)?);
+        Ok(())
+    }
+
     fn commit<T>(
         &self,
         operation: impl FnOnce(&DesktopLocalHost) -> std::result::Result<T, DesktopLocalHostError>,
@@ -96,31 +106,41 @@ impl Run {
         if !SpaceshipCapture::supported() {
             return Err(ProviderCredentialError::Unavailable);
         }
-        let run = Arc::clone(self);
-        let (connection, credential) = tauri::async_runtime::spawn_blocking(move || {
-            let connection = run.commit(|host| {
-                host.prepare_spaceship_connection(host.begin_native_cloud_run()?, "Spaceship")
-            })?;
-            let mut guard = || run.check(&connection);
-            let credential = match SpaceshipCapture::capture_guarded(&mut guard) {
-                Ok(credential) => credential,
-                Err(error @ (SpaceshipError::CaptureCancelled | SpaceshipError::InputRejected)) => {
-                    let retired =
-                        run.commit(|host| host.abandon_spaceship_preparation(connection))?;
-                    run.purge_and_confirm(&retired)?;
-                    return Err(native_error(error));
-                }
-                Err(error) => return Err(native_error(error)),
-            };
-            publish_spaceship_credential_guarded(&Slot(&connection), &credential, &mut guard)
-                .map_err(native_error)?;
-            drop(credential);
-            let credential = load_exact(&connection, &mut guard)?;
-            Ok((connection, credential))
+        let capture = Arc::clone(self);
+        let (admission, credential) = tauri::async_runtime::spawn_blocking(move || {
+            let admission = capture.host.begin_native_cloud_run().map_err(host_error)?;
+            capture.check_preparation(&admission)?;
+            let credential = SpaceshipCapture::capture_guarded(&mut || {
+                capture
+                    .check_preparation(&admission)
+                    .map_err(|_| SpaceshipError::AuthorityStale)
+            })
+            .map_err(native_error)?;
+            Ok::<_, ProviderCredentialError>((admission, credential))
         })
         .await
         .map_err(|_| ProviderCredentialError::Unavailable)??;
-        self.scan_and_commit(connection, credential).await
+        // A rejected or incomplete first read never creates a durable connection. Once custody
+        // confirms the same candidate bytes, the scan can be published without a second request.
+        let registrations = self
+            .scan(&credential, &mut || {
+                self.check_preparation(&admission)
+                    .map_err(|_| SpaceshipError::AuthorityStale)
+            })
+            .await?;
+        let publish = Arc::clone(self);
+        let connection = tauri::async_runtime::spawn_blocking(move || {
+            let connection =
+                publish.commit(|host| host.prepare_spaceship_connection(admission, "Spaceship"))?;
+            publish_spaceship_credential_guarded(&Slot(&connection), &credential, &mut || {
+                publish.check(&connection)
+            })
+            .map_err(native_error)?;
+            Ok::<_, ProviderCredentialError>(connection)
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)??;
+        self.commit_inventory(connection, registrations).await
     }
 
     pub(crate) async fn refresh(self: &Arc<Self>, id: String) -> Result<()> {
@@ -147,7 +167,11 @@ impl Run {
         .await
         .map_err(|_| ProviderCredentialError::Unavailable)??;
         let (connection, credential) = work.ok_or(ProviderCredentialError::Keychain)?;
-        self.scan_and_commit(connection, credential).await
+        let registrations = self
+            .scan(&credential, &mut || self.check(&connection))
+            .await?;
+        drop(credential);
+        self.commit_inventory(connection, registrations).await
     }
 
     pub(crate) async fn revoke(self: &Arc<Self>, id: String) -> Result<()> {
@@ -169,21 +193,26 @@ impl Run {
         self.commit(|host| host.confirm_spaceship_purge(connection))
     }
 
-    async fn scan_and_commit(
-        self: &Arc<Self>,
-        connection: DesktopSpaceshipConnection,
-        credential: SpaceshipCredential,
-    ) -> Result<()> {
+    async fn scan(
+        &self,
+        credential: &SpaceshipCredential,
+        guard: &mut SpaceshipGuard<'_>,
+    ) -> Result<Vec<DesktopRegistrationFact>> {
         let client = SpaceshipRegistrarClient::production().map_err(native_error)?;
-        let mut guard = || self.check(&connection);
         let registrations = tokio::select! {
             biased;
             _ = self.power.wait_for_epoch_change(self.epoch) => Err(SpaceshipError::AuthorityStale),
-            result = client.scan(&credential, &mut guard) => result,
+            result = client.scan(credential, guard) => result,
         }
         .map_err(native_error)?;
-        drop(credential);
-        let registrations: Vec<_> = registrations.into_iter().map(registration_fact).collect();
+        Ok(registrations.into_iter().map(registration_fact).collect())
+    }
+
+    async fn commit_inventory(
+        self: &Arc<Self>,
+        connection: DesktopSpaceshipConnection,
+        registrations: Vec<DesktopRegistrationFact>,
+    ) -> Result<()> {
         let run = Arc::clone(self);
         tauri::async_runtime::spawn_blocking(move || {
             run.commit(|host| {
@@ -228,15 +257,6 @@ impl Run {
         }
         Ok(())
     }
-}
-
-fn load_exact(
-    connection: &DesktopSpaceshipConnection,
-    guard: &mut gooddealer_secure_host_core::SpaceshipGuard<'_>,
-) -> Result<SpaceshipCredential> {
-    load_spaceship_credential_guarded(&Slot(connection), guard)
-        .map_err(native_error)?
-        .ok_or(ProviderCredentialError::Keychain)
 }
 
 fn registration_fact(row: SpaceshipRegistration) -> DesktopRegistrationFact {
