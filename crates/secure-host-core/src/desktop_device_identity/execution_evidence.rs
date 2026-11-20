@@ -1,4 +1,4 @@
-//! Closed Afternic execution-evidence signing. Host still owns authorization and truth of claims.
+//! Closed execution-evidence signing. Host owns authorization and the truth of claims.
 
 use super::{
     DesktopDeviceIdentity, DesktopDeviceIdentityError, read_canonical_frame, read_exact_frame,
@@ -14,6 +14,10 @@ const APPROVAL: &str = "GOODDEALER-AFTERNIC-DELIST-ITEM-APPROVAL-V1";
 const APPROVAL_ENVELOPE: &str = "GOODDEALER-AFTERNIC-DELIST-ITEM-APPROVAL-ENVELOPE-V1";
 const WRITE_APPROVAL: &str = "GOODDEALER-AFTERNIC-LISTING-WRITE-ITEM-APPROVAL-V1";
 const WRITE_APPROVAL_ENVELOPE: &str = "GOODDEALER-AFTERNIC-LISTING-WRITE-ITEM-APPROVAL-ENVELOPE-V1";
+const SELLERHUB_BIN_APPROVAL: &str = "GOODDEALER-SELLERHUB-BIN-PRICE-ITEM-APPROVAL-V1";
+const SELLERHUB_BIN_APPROVAL_ENVELOPE: &str =
+    "GOODDEALER-SELLERHUB-BIN-PRICE-ITEM-APPROVAL-ENVELOPE-V1";
+const SELLERHUB_BIN_DISPATCH_KEY: &str = "GOODDEALER-SELLERHUB-BIN-PRICE-LOCAL-DISPATCH-KEY-V1";
 const PLAN_APPROVAL: &str = "GOODDEALER-AFTERNIC-LISTING-PLAN-ITEM-APPROVAL-V2";
 const OWNERSHIP_APPROVAL: &str = "GOODDEALER-AFTERNIC-OWNERSHIP-REVIEW-ITEM-APPROVAL-V1";
 const PLAN_APPROVAL_ENVELOPE: &str = "GOODDEALER-AFTERNIC-LISTING-PLAN-ITEM-APPROVAL-ENVELOPE-V2";
@@ -53,6 +57,22 @@ impl DesktopDeviceIdentity {
         let object = decode(transcript, WRITE_APPROVAL)
             .ok_or(DesktopDeviceIdentityError::SigningRejected)?;
         if !listing_action(&object) || !approval(&object) || !self.owns(&object) {
+            return Err(DesktopDeviceIdentityError::SigningRejected);
+        }
+        self.sign_validated(transcript)
+    }
+
+    /// Signs one device-bound `SellerHub` BIN price change approval.
+    ///
+    /// # Errors
+    /// Rejects another purpose, unknown claims or mismatched device/key identity.
+    pub fn sign_sellerhub_bin_price_approval_transcript(
+        &self,
+        transcript: &[u8],
+    ) -> Result<[u8; 64], DesktopDeviceIdentityError> {
+        let object = decode(transcript, SELLERHUB_BIN_APPROVAL)
+            .ok_or(DesktopDeviceIdentityError::SigningRejected)?;
+        if !sellerhub_bin_price_approval(&object) || !self.owns(&object) {
             return Err(DesktopDeviceIdentityError::SigningRejected);
         }
         self.sign_validated(transcript)
@@ -103,7 +123,7 @@ impl DesktopDeviceIdentity {
         self.sign_validated(transcript)
     }
 
-    /// Signs only a durable local Afternic dispatch claim with its exact signed item approval.
+    /// Signs only a supported durable local dispatch claim with its exact signed item approval.
     /// # Errors
     /// Rejects altered evidence, another purpose, invalid fields or mismatched device/key/item.
     pub fn sign_execution_fact_transcript(
@@ -323,7 +343,9 @@ fn listing_action(object: &Object) -> bool {
     matches!(text(object, "action"), Some("create" | "update"))
 }
 fn approval_domain(object: &Object) -> &'static str {
-    if literal(object, "typ", "gd.afternic-listing-plan-item-approval.v2") {
+    if literal(object, "typ", "gd.sellerhub-bin-price-item-approval.v1") {
+        SELLERHUB_BIN_APPROVAL
+    } else if literal(object, "typ", "gd.afternic-listing-plan-item-approval.v2") {
         PLAN_APPROVAL
     } else if literal(
         object,
@@ -338,7 +360,9 @@ fn approval_domain(object: &Object) -> &'static str {
     }
 }
 fn envelope_domain(object: &Object) -> &'static str {
-    if literal(object, "typ", "gd.afternic-listing-plan-item-approval.v2") {
+    if literal(object, "typ", "gd.sellerhub-bin-price-item-approval.v1") {
+        SELLERHUB_BIN_APPROVAL_ENVELOPE
+    } else if literal(object, "typ", "gd.afternic-listing-plan-item-approval.v2") {
         PLAN_APPROVAL_ENVELOPE
     } else if literal(
         object,
@@ -353,10 +377,7 @@ fn envelope_domain(object: &Object) -> &'static str {
     }
 }
 fn approval(object: &Object) -> bool {
-    keys(
-        object,
-        "schemaVersion typ aud approvedOperationId operationId operationItemId planId planHash targetCount targetSetDigest capability action requestDigest accountId workspaceId sourceDeviceId activeLeaseEpoch credentialEpoch signingKeyId signingKeyVersion authorizationHash trustedTimeAnchorId monotonicDeltaMs approvedAt signatureTranscriptVersion",
-    ) && common(object)
+    approval_claims(object)
         && literal(
             object,
             "typ",
@@ -366,9 +387,22 @@ fn approval(object: &Object) -> bool {
                 "gd.afternic-delist-item-approval.v1"
             },
         )
-        && literal(object, "aud", "gooddealer-cloud/execution-evidence")
         && literal(object, "capability", "afternic:marketplace:write")
         && matches!(text(object, "action"), Some("remove" | "create" | "update"))
+}
+fn sellerhub_bin_price_approval(object: &Object) -> bool {
+    approval_claims(object)
+        && literal(object, "typ", "gd.sellerhub-bin-price-item-approval.v1")
+        && literal(object, "action", "set_bin_price")
+        && literal(object, "capability", "spaceship:marketplace:write")
+}
+
+fn approval_claims(object: &Object) -> bool {
+    keys(
+        object,
+        "schemaVersion typ aud approvedOperationId operationId operationItemId planId planHash targetCount targetSetDigest capability action requestDigest accountId workspaceId sourceDeviceId activeLeaseEpoch credentialEpoch signingKeyId signingKeyVersion authorizationHash trustedTimeAnchorId monotonicDeltaMs approvedAt signatureTranscriptVersion",
+    ) && common(object)
+        && literal(object, "aud", "gooddealer-cloud/execution-evidence")
         && all(
             object,
             "approvedOperationId operationId operationItemId planId",
@@ -522,6 +556,94 @@ fn plan_attempt_audit(event: &Object, payload: &Object) -> bool {
         )
         && payload.get("attemptId") == event.get("targetRef")
 }
+fn sellerhub_bin_price_payload(object: &Object) -> bool {
+    number(object, "schemaVersion") == Some(1)
+        && literal(object, "provider", "spaceship")
+        && literal(object, "action", "set_bin_price")
+}
+
+fn sellerhub_bin_price_audit(object: &Object, event: &Object) -> bool {
+    if !sellerhub_bin_price_payload(object) {
+        return false;
+    }
+    if literal(object, "stage", "approved") {
+        return keys(
+            object,
+            "schemaVersion provider action stage approvedOperationId operationId planId planHash targetCount targetSetDigest",
+        ) && all(object, "approvedOperationId operationId planId", uuid)
+            && all(object, "planHash targetSetDigest", digest)
+            && number(object, "targetCount").is_some_and(|n| (1..=500).contains(&n))
+            && literal(event, "actorKind", "user")
+            && literal(event, "targetType", "sellerhub_bin_price_approval")
+            && object.get("approvedOperationId") == event.get("targetRef")
+            && approved_audit(event);
+    }
+    if !literal(event, "actorKind", "device_service")
+        || !literal(event, "targetType", "sellerhub_bin_price_attempt")
+        || object.get("attemptId") != event.get("targetRef")
+    {
+        return false;
+    }
+    let runtime = literal(event, "eventType", "runtime_security_lifecycle")
+        && literal(event, "authorizationSource", "runtime_security_context");
+    match text(object, "stage") {
+        Some("dispatch_claimed") => {
+            keys(
+                object,
+                "schemaVersion provider action stage approvedOperationId operationId operationItemId attemptId attemptNo planHash requestDigest approvalEnvelopeDigest",
+            ) && claim_payload_fields(object)
+                && number(object, "attemptNo") == Some(1)
+                && approved_audit(event)
+        }
+        Some("preflight_refused") => {
+            keys(
+                object,
+                "schemaVersion provider action stage approvedOperationId operationId operationItemId attemptId planHash requestDigest approvalEnvelopeDigest reason",
+            ) && claim_payload_fields(object)
+                && matches!(
+                    text(object, "reason"),
+                    Some("precondition_changed" | "connection_changed" | "provider_state_blocked")
+                )
+                && runtime
+        }
+        Some("reconciled") => {
+            keys(
+                object,
+                "schemaVersion provider action stage operationId operationItemId attemptId originalExecutionFactId originalExecutionFactDigest originalSourceDeviceId originalActiveLeaseEpoch outcome reason",
+            ) && all(
+                object,
+                "operationId operationItemId attemptId originalExecutionFactId",
+                uuid,
+            ) && all(object, "originalExecutionFactDigest", digest)
+                && all(object, "originalSourceDeviceId", identifier)
+                && integer(object, "originalActiveLeaseEpoch", 1)
+                && match (text(object, "outcome"), object.get("reason")) {
+                    (Some("matched"), Some(Value::Null)) => true,
+                    (Some("different"), Some(Value::String(reason))) => {
+                        reason == "postcondition_pending"
+                    }
+                    (Some("read_failed"), Some(Value::String(reason))) => reason == "read_failed",
+                    _ => false,
+                }
+                && runtime
+        }
+        _ => false,
+    }
+}
+
+fn sellerhub_bin_price_fact(payload: &Object, event: &Object) -> bool {
+    sellerhub_bin_price_payload(payload)
+        && keys(
+            payload,
+            "schemaVersion provider action stage dispatchSemantics deduplicationScope requestDigest approvalEnvelopeDigest",
+        )
+        && literal(event, "eventType", "sellerhub_bin_price_dispatch_claimed")
+        && literal(payload, "stage", "dispatch_claimed")
+        && literal(payload, "dispatchSemantics", "local_claim_only")
+        && literal(payload, "deduplicationScope", "local_only")
+        && all(payload, "requestDigest approvalEnvelopeDigest", digest)
+}
+
 fn plan_audit_payload(object: &Object, event: &Object) -> bool {
     if number(object, "schemaVersion") == Some(2) && literal(object, "action", "listing_plan_v2") {
         return keys(
@@ -724,7 +846,11 @@ fn audit(object: &Object) -> bool {
         || !object
             .get("payloadRedacted")
             .and_then(Value::as_object)
-            .is_some_and(|p| audit_payload(p, object) || plan_audit_payload(p, object))
+            .is_some_and(|p| {
+                audit_payload(p, object)
+                    || plan_audit_payload(p, object)
+                    || sellerhub_bin_price_audit(p, object)
+            })
     {
         return false;
     }
@@ -819,7 +945,10 @@ fn fact(object: &Object, key: &[u8; 32]) -> bool {
     let Some(payload) = object.get("payloadRedacted").and_then(Value::as_object) else {
         return false;
     };
-    if !fact_payload(payload, object) && !plan_fact_payload(payload, object) {
+    if !fact_payload(payload, object)
+        && !plan_fact_payload(payload, object)
+        && !sellerhub_bin_price_fact(payload, object)
+    {
         return false;
     }
     let Some(evidence) = object
@@ -866,14 +995,13 @@ fn fact(object: &Object, key: &[u8; 32]) -> bool {
     }
     let dispatch_key = json!({"schemaVersion":1,"operationId":object["operationId"],
         "operationItemId":object["operationItemId"],"attemptNo":1,"localOperationKey":approved["planId"]});
+    let dispatch_domain = if sellerhub_bin_price_payload(payload) {
+        SELLERHUB_BIN_DISPATCH_KEY
+    } else {
+        "GOODDEALER-AFTERNIC-LOCAL-DISPATCH-KEY-V1"
+    };
     if text(object, "idempotencyKeyHash")
-        != Some(
-            hash(
-                "GOODDEALER-AFTERNIC-LOCAL-DISPATCH-KEY-V1",
-                dispatch_key.as_object().unwrap(),
-            )
-            .as_str(),
-        )
+        != Some(hash(dispatch_domain, dispatch_key.as_object().unwrap()).as_str())
         || text(&approved, "approvedAt") > text(object, "requestStartBoundary")
     {
         return false;
@@ -901,6 +1029,7 @@ fn verified_approval(evidence: &Object, key: &[u8; 32]) -> Option<(Object, [u8; 
         .remove("deviceSignature")
         .and_then(|v| v.as_str().and_then(base64::<64>))?;
     if !(approval(&approved)
+        || sellerhub_bin_price_approval(&approved)
         || plan_item_approval(&approved, false)
         || plan_item_approval(&approved, true))
         || UnparsedPublicKey::new(&ED25519, key)
@@ -936,6 +1065,114 @@ mod tests {
     fn rehash(object: &mut Object) {
         object.remove("eventHash");
         object.insert("eventHash".into(), Value::String(hash(AUDIT_HASH, object)));
+    }
+    #[test]
+    fn sellerhub_dispatch_evidence_matches_closed_shared_vectors() {
+        let device = identity();
+        let vector: Value = serde_json::from_str(include_str!(
+            "../../../../packages/protocol/test-vectors/sellerhub-bin-price/dispatch.json"
+        ))
+        .unwrap();
+        for name in [
+            "approveAudit",
+            "claimAudit",
+            "preflightAudit",
+            "reconciledAudit",
+        ] {
+            let mut event = vector[name].as_object().unwrap().clone();
+            let signature = event.remove("deviceSignature").unwrap();
+            assert_eq!(
+                URL_SAFE_NO_PAD.encode(
+                    device
+                        .sign_device_audit_event_transcript(&transcript(AUDIT, &event))
+                        .unwrap()
+                ),
+                signature,
+            );
+            event.get_mut("payloadRedacted").unwrap()["provider"] = json!("afternic");
+            rehash(&mut event);
+            assert!(
+                device
+                    .sign_device_audit_event_transcript(&transcript(AUDIT, &event))
+                    .is_err()
+            );
+        }
+        let mut fact = vector["fact"].as_object().unwrap().clone();
+        let signed = fact.remove("deviceSignature").unwrap();
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(
+                device
+                    .sign_execution_fact_transcript(&transcript(FACT, &fact))
+                    .unwrap()
+            ),
+            signed,
+        );
+        for (key, bad) in [
+            (
+                "eventType",
+                json!("afternic_listing_write_dispatch_claimed"),
+            ),
+            (
+                "idempotencyKeyHash",
+                json!(URL_SAFE_NO_PAD.encode([4u8; 32])),
+            ),
+        ] {
+            let mut changed = fact.clone();
+            changed.insert(key.into(), bad);
+            assert!(
+                device
+                    .sign_execution_fact_transcript(&transcript(FACT, &changed))
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn sellerhub_approval_is_own_device_and_purpose_only() {
+        let device = identity();
+        let vector: Value = serde_json::from_str(include_str!(
+            "../../../../packages/protocol/test-vectors/sellerhub-bin-price/approval.json"
+        ))
+        .unwrap();
+        let mut claims = vector["approval"].as_object().unwrap().clone();
+        claims.remove("deviceSignature");
+        let transcript_bytes = transcript(SELLERHUB_BIN_APPROVAL, &claims);
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(
+                device
+                    .sign_sellerhub_bin_price_approval_transcript(&transcript_bytes)
+                    .unwrap()
+            ),
+            vector["approval"]["deviceSignature"]
+        );
+        assert!(
+            device
+                .sign_afternic_listing_write_approval_transcript(&transcript_bytes)
+                .is_err()
+        );
+        assert!(
+            device
+                .sign_sellerhub_bin_price_approval_transcript(&transcript(WRITE_APPROVAL, &claims))
+                .is_err()
+        );
+        for (field, replacement) in [
+            ("sourceDeviceId", json!("foreign-device")),
+            ("capability", json!("afternic:marketplace:write")),
+            ("action", json!("create")),
+            ("targetCount", json!(0)),
+            ("password", json!("refused")),
+        ] {
+            let mut changed = claims.clone();
+            changed.insert(field.to_owned(), replacement);
+            assert!(
+                device
+                    .sign_sellerhub_bin_price_approval_transcript(&transcript(
+                        SELLERHUB_BIN_APPROVAL,
+                        &changed
+                    ))
+                    .is_err()
+            );
+        }
     }
     #[test]
     fn signatures_match_shared_protocol_golden_vectors() {

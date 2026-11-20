@@ -1035,4 +1035,4 @@ export { createAfternicListingWritePort } from "./afternic-listing-write";
 export { createAfternicListingPlanPort } from "./afternic-listing-plan";
 
 export { createCloudflareRegistrarAccountPort } from "./cloudflare-registrar-account";
-export { createSellerHubPort } from "./sellerhub";
+export { createSellerHubBinPricePort, createSellerHubPort } from "./sellerhub";

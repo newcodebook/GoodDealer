@@ -8,6 +8,7 @@ pub(crate) mod atom_marketplace;
 pub(crate) mod cloudflare_registrar_account;
 pub(crate) mod forced_takeover;
 pub(crate) mod godaddy_registrar;
+pub(crate) mod sellerhub_bin_price;
 pub(crate) mod spaceship_registrar;
 pub(crate) mod spaceship_sellerhub;
 pub(crate) mod target_bootstrap;

@@ -753,6 +753,24 @@
           "markdownDescription": "Enables the local_sync_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the sellerhub_bin_price_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-bin-price-approve",
+          "markdownDescription": "Enables the sellerhub_bin_price_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sellerhub_bin_price_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-bin-price-preview",
+          "markdownDescription": "Enables the sellerhub_bin_price_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sellerhub_bin_price_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-bin-price-status",
+          "markdownDescription": "Enables the sellerhub_bin_price_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the sellerhub_status command without any pre-configured scope.",
           "type": "string",
           "const": "allow-sellerhub-status",
@@ -1207,6 +1225,24 @@
           "type": "string",
           "const": "deny-local-sync-status",
           "markdownDescription": "Denies the local_sync_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_bin_price_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-bin-price-approve",
+          "markdownDescription": "Denies the sellerhub_bin_price_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_bin_price_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-bin-price-preview",
+          "markdownDescription": "Denies the sellerhub_bin_price_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_bin_price_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-bin-price-status",
+          "markdownDescription": "Denies the sellerhub_bin_price_status command without any pre-configured scope."
         },
         {
           "description": "Denies the sellerhub_status command without any pre-configured scope.",

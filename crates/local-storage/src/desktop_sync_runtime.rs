@@ -1869,6 +1869,7 @@ pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
         "cloudflare:registrar:observe",
         "godaddy:registrar:observe",
         crate::active_workspace::capability_qualification::SPACESHIP_MARKETPLACE_OBSERVE,
+        crate::active_workspace::capability_qualification::SPACESHIP_MARKETPLACE_WRITE,
         "spaceship:registrar:observe",
     ];
     values.len() <= CAPABILITIES.len()
@@ -1876,12 +1877,18 @@ pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
             .iter()
             .all(|value| CAPABILITIES.contains(&value.as_str()))
         && values.windows(2).all(|pair| pair[0] < pair[1])
-        && (!values
-            .iter()
-            .any(|value| value == "afternic:marketplace:write")
-            || values
-                .iter()
-                .any(|value| value == "afternic:marketplace:observe"))
+        && [
+            ("afternic:marketplace:write", "afternic:marketplace:observe"),
+            (
+                crate::active_workspace::capability_qualification::SPACESHIP_MARKETPLACE_WRITE,
+                crate::active_workspace::capability_qualification::SPACESHIP_MARKETPLACE_OBSERVE,
+            ),
+        ]
+        .into_iter()
+        .all(|(write, observe)| {
+            !values.iter().any(|value| value == write)
+                || values.iter().any(|value| value == observe)
+        })
 }
 
 #[cfg(test)]

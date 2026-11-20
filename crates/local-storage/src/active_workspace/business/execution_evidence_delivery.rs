@@ -419,7 +419,12 @@ impl BusinessDatabase {
     pub(crate) fn execution_evidence_pending_count(&self) -> Result<Option<u64>> {
         let c = self.store.raw_connection();
         let blocked:bool=c.query_row("SELECT EXISTS(SELECT 1 FROM operation_attempts a JOIN operation_plans p USING(workspace_id,plan_id) WHERE a.workspace_id=?1 AND p.operation_kind IN ('afternic_delist','afternic_listing_write') AND (NOT EXISTS(SELECT 1 FROM afternic_listing_item_authorizations i WHERE i.workspace_id=a.workspace_id AND i.operation_id=a.operation_id AND i.item_id=a.item_id AND i.attempt_number=a.attempt_number) OR (a.status!='queued' AND NOT EXISTS(SELECT 1 FROM device_execution_fact_outbox f WHERE f.workspace_id=a.workspace_id AND f.operation_id=a.operation_id AND f.item_id=a.item_id AND f.attempt_number=a.attempt_number) AND NOT EXISTS(SELECT 1 FROM afternic_delist_reconciliations d WHERE d.workspace_id=a.workspace_id AND d.operation_id=a.operation_id AND d.item_id=a.item_id AND d.stage='preflight' AND d.outcome IN ('absent','conflict') AND d.audit_event_id IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM afternic_listing_write_reconciliations w WHERE w.workspace_id=a.workspace_id AND w.operation_id=a.operation_id AND w.item_id=a.item_id AND w.stage='preflight' AND w.outcome='conflict' AND w.audit_event_id IS NOT NULL)))) OR EXISTS(SELECT 1 FROM execution_evidence_receipts WHERE workspace_id=?1 AND outcome='quarantined')",[&self.workspace_id],|r|r.get(0)).map_err(storage)?;
-        if blocked {
+        if blocked
+            || super::execution_evidence::sellerhub_bin::has_unattested_attempt(
+                c,
+                &self.workspace_id,
+            )?
+        {
             return Ok(None);
         }
         let pending:i64=c.query_row("SELECT (SELECT count(*) FROM workspace_device_audit_outbox a WHERE a.workspace_id=?1 AND NOT EXISTS(SELECT 1 FROM execution_evidence_receipts r WHERE r.workspace_id=a.workspace_id AND r.source_device_id=a.source_device_id AND r.active_lease_epoch=a.active_lease_epoch AND r.stream='device_audit' AND r.sequence=a.audit_sequence AND r.event_id=a.audit_event_id AND r.envelope_digest=a.envelope_digest AND r.outcome='accepted'))+(SELECT count(*) FROM device_execution_fact_outbox f WHERE f.workspace_id=?1 AND NOT EXISTS(SELECT 1 FROM execution_evidence_receipts r WHERE r.workspace_id=f.workspace_id AND r.source_device_id=f.source_device_id AND r.active_lease_epoch=f.active_lease_epoch AND r.stream='execution_fact' AND r.sequence=f.execution_fact_sequence AND r.event_id=f.execution_fact_id AND r.envelope_digest=f.envelope_digest AND r.outcome='accepted'))",[&self.workspace_id],|r|r.get(0)).map_err(storage)?;

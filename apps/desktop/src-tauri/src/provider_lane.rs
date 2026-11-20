@@ -22,6 +22,7 @@ pub(crate) enum ProviderOperation {
     /// Internal wake only: picks one durable due Afternic item, never receives Renderer plans.
     AfternicDelistStep,
     AfternicListingWriteStep,
+    SellerHubBinStep,
     AfternicConnect {
         display_label: String,
     },
@@ -115,10 +116,18 @@ impl ProviderOperation {
         )
     }
 
+    fn is_durable_market_step(&self) -> bool {
+        matches!(
+            self,
+            Self::AfternicDelistStep | Self::AfternicListingWriteStep | Self::SellerHubBinStep
+        )
+    }
+
     fn connection_id(&self) -> &str {
         match self {
             Self::AfternicDelistStep => "afternic:delist",
             Self::AfternicListingWriteStep => "afternic:listing-write",
+            Self::SellerHubBinStep => "spaceship:sellerhub-bin-price",
             Self::AfternicConnect { .. } => "afternic:new-connection",
             Self::SpaceshipConnect | Self::SellerHubConnect => "spaceship:new-connection",
             Self::AliyunConnect => "aliyun:new-connection",
@@ -210,7 +219,8 @@ impl ProviderRecoveryOutcome {
             ProviderOperation::SpaceshipConnect
             | ProviderOperation::SpaceshipRefresh { .. }
             | ProviderOperation::SpaceshipRevoke { .. } => self.spaceship,
-            ProviderOperation::SellerHubConnect
+            ProviderOperation::SellerHubBinStep
+            | ProviderOperation::SellerHubConnect
             | ProviderOperation::SellerHubRefresh { .. }
             | ProviderOperation::SellerHubRevoke { .. } => self.sellerhub,
             ProviderOperation::AliyunConnect
@@ -305,10 +315,7 @@ impl ProviderAdmissionState {
                 ProviderAdmission::Busy
             };
         }
-        if matches!(
-            operation,
-            ProviderOperation::AfternicDelistStep | ProviderOperation::AfternicListingWriteStep
-        ) {
+        if operation.is_durable_market_step() {
             self.in_flight = Some(operation.clone());
             return ProviderAdmission::Enqueue;
         }
@@ -361,6 +368,7 @@ impl ProviderAdmissionState {
             }
             ProviderOperation::AfternicDelistStep
             | ProviderOperation::AfternicListingWriteStep
+            | ProviderOperation::SellerHubBinStep
             | ProviderOperation::Revoke { .. }
             | ProviderOperation::Purge { .. }
             | ProviderOperation::SpaceshipRevoke { .. }
@@ -405,7 +413,7 @@ pub(crate) struct ProviderLaneHandle {
     recovery: mpsc::Sender<()>,
     cancel: watch::Sender<bool>,
     admission: Arc<Mutex<ProviderAdmissionState>>,
-    delist_wake: Arc<Notify>,
+    durable_wake: Arc<Notify>,
 }
 
 impl ProviderLaneHandle {
@@ -566,12 +574,8 @@ impl ProviderLaneHandle {
         ProviderSubmission::Accepted
     }
 
-    pub(crate) fn wake_delist(&self) {
-        self.delist_wake.notify_one();
-    }
-
-    pub(crate) fn wake_listing_write(&self) {
-        self.delist_wake.notify_one();
+    pub(crate) fn wake_durable_operations(&self) {
+        self.durable_wake.notify_one();
     }
 
     pub(crate) fn cancel(&self) {
@@ -592,7 +596,7 @@ pub(crate) struct ProviderLane {
     recovery: mpsc::Receiver<()>,
     cancel: watch::Receiver<bool>,
     admission: Arc<Mutex<ProviderAdmissionState>>,
-    delist_wake: Arc<Notify>,
+    durable_wake: Arc<Notify>,
 }
 
 impl ProviderLane {
@@ -601,21 +605,21 @@ impl ProviderLane {
         let (recovery_tx, recovery_rx) = mpsc::channel(1);
         let (cancel_tx, cancel_rx) = watch::channel(false);
         let admission = Arc::new(Mutex::new(ProviderAdmissionState::default()));
-        let delist_wake = Arc::new(Notify::new());
+        let durable_wake = Arc::new(Notify::new());
         (
             ProviderLaneHandle {
                 commands: command_tx,
                 recovery: recovery_tx,
                 cancel: cancel_tx,
                 admission: Arc::clone(&admission),
-                delist_wake: Arc::clone(&delist_wake),
+                durable_wake: Arc::clone(&durable_wake),
             },
             Self {
                 commands: command_rx,
                 recovery: recovery_rx,
                 cancel: cancel_rx,
                 admission,
-                delist_wake,
+                durable_wake,
             },
         )
     }
@@ -648,7 +652,7 @@ impl ProviderLane {
             enum Work {
                 Recover,
                 Operation(ProviderOperation),
-                Delist,
+                DurableOperations,
                 Power(gooddealer_secure_host_core::NativePowerSnapshot),
             }
             let work = tokio::select! {
@@ -672,8 +676,8 @@ impl ProviderLane {
                     };
                     Work::Operation(operation)
                 }
-                () = self.delist_wake.notified(), if power.is_some() => Work::Delist,
-                () = tokio::time::sleep_until(idle_due), if power.is_some() => Work::Delist,
+                () = self.durable_wake.notified(), if power.is_some() => Work::DurableOperations,
+                () = tokio::time::sleep_until(idle_due), if power.is_some() => Work::DurableOperations,
             };
             match work {
                 Work::Power(snapshot) => {
@@ -687,13 +691,13 @@ impl ProviderLane {
                         self.finish_recovery(generation, complete);
                     }
                 }
-                Work::Delist => {
+                Work::DurableOperations => {
                     idle_due = Instant::now() + Duration::from_secs(30);
-                    // Each wake gives both durable capabilities a turn in the one slot;
-                    // a hot delist backlog cannot starve an approved create/update plan.
+                    // Each durable market capability gets a turn in the same slot.
                     for operation in [
                         ProviderOperation::AfternicDelistStep,
                         ProviderOperation::AfternicListingWriteStep,
+                        ProviderOperation::SellerHubBinStep,
                     ] {
                         if *self.cancel.borrow() {
                             return;
@@ -718,7 +722,7 @@ impl ProviderLane {
                     // admitted operation before join so no effect can escape the lane lifetime.
                     execute(operation.clone()).await;
                     self.complete(&operation);
-                    self.delist_wake.notify_one();
+                    self.durable_wake.notify_one();
                     if !*self.cancel.borrow()
                         && matches!(
                             operation,
@@ -758,7 +762,7 @@ impl ProviderLane {
         if let Ok(mut admission) = self.admission.lock() {
             admission.finish_recovery(generation, complete.into());
         }
-        self.delist_wake.notify_one();
+        self.durable_wake.notify_one();
     }
 
     fn complete(&self, operation: &ProviderOperation) {
@@ -1013,8 +1017,8 @@ mod tests {
                     tokio::task::yield_now().await;
                     let mut items = record.lock().unwrap();
                     items.push(operation);
-                    if items.len() < 5 {
-                        wake.wake_listing_write();
+                    if items.len() < 7 {
+                        wake.wake_durable_operations();
                     } else {
                         wake.cancel();
                         done.notify_one();
@@ -1034,8 +1038,10 @@ mod tests {
                 revoke,
                 ProviderOperation::AfternicDelistStep,
                 ProviderOperation::AfternicListingWriteStep,
+                ProviderOperation::SellerHubBinStep,
                 ProviderOperation::AfternicDelistStep,
-                ProviderOperation::AfternicListingWriteStep
+                ProviderOperation::AfternicListingWriteStep,
+                ProviderOperation::SellerHubBinStep,
             ]
         );
     }

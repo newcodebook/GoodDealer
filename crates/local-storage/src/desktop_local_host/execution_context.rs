@@ -150,6 +150,13 @@ pub trait DesktopExecutionContextNativePort: Send + Sync {
         Err(Error::Unavailable)
     }
 
+    /// Signs only a `SellerHub` BIN price item approval.
+    /// # Errors
+    /// Rejects an unavailable purpose-specific signer.
+    fn sign_sellerhub_bin_price_approval(&self, _transcript: &[u8]) -> Result<[u8; 64], Error> {
+        Err(Error::Unavailable)
+    }
+
     /// Signs only the fixed device audit transcript.
     /// # Errors
     /// Refuses wrong purpose, device, key or malformed transcript.
@@ -891,6 +898,9 @@ impl DesktopLocalHost {
             }
             EvidenceSignaturePurpose::AfternicDelistApproval => {
                 native.sign_afternic_delist_approval(transcript)
+            }
+            EvidenceSignaturePurpose::SellerHubBinPriceApproval => {
+                native.sign_sellerhub_bin_price_approval(transcript)
             }
             EvidenceSignaturePurpose::DeviceAudit => native.sign_device_audit_event(transcript),
             EvidenceSignaturePurpose::ExecutionFact => native.sign_execution_fact(transcript),

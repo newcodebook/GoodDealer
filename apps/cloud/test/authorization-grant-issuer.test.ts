@@ -123,6 +123,8 @@ describe("Desktop authorization Grant issuer", () => {
     [["feature:portfolio", "godaddy:registrar:observe"], ["godaddy:registrar:observe"]],
     [["feature:portfolio", "spaceship:registrar:observe"], ["spaceship:registrar:observe"]],
     [["feature:portfolio", "spaceship:marketplace:observe"], ["spaceship:marketplace:observe"]],
+    [["spaceship:marketplace:observe", "spaceship:marketplace:write"],
+      ["spaceship:marketplace:observe", "spaceship:marketplace:write"]],
     [["afternic:marketplace:observe"], ["afternic:marketplace:observe"]],
     [["afternic:marketplace:observe", "afternic:marketplace:write", "cloudflare:dns:observe"],
       ["afternic:marketplace:observe", "afternic:marketplace:write", "cloudflare:dns:observe"]],
@@ -136,11 +138,14 @@ describe("Desktop authorization Grant issuer", () => {
       commercialAuthority: { schemaVersion: 2, capabilities: expected } } });
   });
 
-  it("never repairs write-only features into a more powerful signed authority", async () => {
+  it.each([
+    ["afternic:marketplace:write", "cloudflare:dns:observe"],
+    ["spaceship:marketplace:write", "spaceship:registrar:observe"],
+  ])("never repairs write-only features into a more powerful signed authority (%s)", async (write, unrelatedObservation) => {
     const signer = new FixedGrantSigner(false);
     await expect(new DesktopAuthorizationGrantIssuer(signer).issue({
       accountId: "account-a", deviceId: "device-a", workspaceId: "workspace-a", activeDeviceLease: lease,
-      authoritativeEntitlementSnapshot: { ...commercialSnapshot, featureEntitlements: ["afternic:marketplace:write", "cloudflare:dns:observe"] },
+      authoritativeEntitlementSnapshot: { ...commercialSnapshot, featureEntitlements: [write, unrelatedObservation] },
       trustedNow: "2026-08-30T00:00:00Z",
     })).rejects.toThrow(/require observation/u);
     expect(signer.calls).toBe(0);

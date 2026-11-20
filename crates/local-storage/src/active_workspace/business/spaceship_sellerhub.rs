@@ -391,6 +391,30 @@ fn connection_seed(
     Ok(seed)
 }
 
+pub(super) fn queue_scan_in_transaction(
+    tx: &Connection,
+    workspace: &str,
+    id: &str,
+    execution: (&str, u64),
+) -> Result<SellerHubConnectionSeed> {
+    if !is_uuid_v4(id) {
+        return Err(BusinessDatabaseError::InvalidInput);
+    }
+    let seed = connection_seed(tx, workspace, id)?;
+    super::execution_evidence::require_no_barrier(tx, workspace)?;
+    if seed.state == DesktopSpaceshipConnectionState::Revoked {
+        return Err(BusinessDatabaseError::MutationStale);
+    }
+    if !seed.has_scan_for(execution.0, execution.1) {
+        tx.execute(
+            "DELETE FROM spaceship_sellerhub_pending_scans WHERE workspace_id=?1 AND connection_id=?2",
+            params![workspace,id],
+        ).map_err(storage)?;
+        insert_scan_request(tx, workspace, &seed, execution)?;
+    }
+    connection_seed(tx, workspace, id)
+}
+
 impl BusinessDatabase {
     pub(crate) fn prepare_sellerhub_connection<G>(
         &mut self,
@@ -511,34 +535,13 @@ impl BusinessDatabase {
         execution: (&str, u64),
         guard: impl FnOnce() -> Result<G>,
     ) -> Result<SellerHubConnectionSeed> {
-        if !is_uuid_v4(id) {
-            return Err(BusinessDatabaseError::InvalidInput);
-        }
         let workspace = &self.workspace_id;
         let tx = self
             .store
             .fixture_connection()
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage)?;
-        let seed = connection_seed(&tx, workspace, id)?;
-        let handoff: bool = tx
-            .query_row(
-                "SELECT EXISTS (SELECT 1 FROM device_handoff_barriers WHERE workspace_id=?1)",
-                [workspace],
-                |row| row.get(0),
-            )
-            .map_err(storage)?;
-        if seed.state == DesktopSpaceshipConnectionState::Revoked || handoff {
-            return Err(BusinessDatabaseError::MutationStale);
-        }
-        if !seed.has_scan_for(execution.0, execution.1) {
-            tx.execute(
-                "DELETE FROM spaceship_sellerhub_pending_scans WHERE workspace_id=?1 AND connection_id=?2",
-                params![workspace,id],
-            ).map_err(storage)?;
-            insert_scan_request(&tx, workspace, &seed, execution)?;
-        }
-        let seed = connection_seed(&tx, workspace, id)?;
+        let seed = queue_scan_in_transaction(&tx, workspace, id, execution)?;
         let _guard = guard()?;
         tx.commit().map_err(storage)?;
         Ok(seed)

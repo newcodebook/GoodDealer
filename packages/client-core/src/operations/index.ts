@@ -7,3 +7,5 @@ export * from "./manual-tasks-read";
 export * from "./afternic-delist";
 export * from "./afternic-listing-write";
 export * from "./afternic-listing-plan";
+
+export * from "./sellerhub-bin-price";

@@ -17,6 +17,12 @@ import {
 } from "@gooddealer/protocol/wire";
 import type { AccountTransaction } from "../../db/index";
 
+const executionEvidenceCapabilities = [
+  "afternic:marketplace:write",
+  "spaceship:marketplace:write",
+  "spaceship:marketplace:observe",
+] as const;
+
 export interface HistoricalExecutionContextReference {
   readonly workspaceId: string;
   readonly sourceDeviceId: string;
@@ -26,6 +32,7 @@ export interface HistoricalExecutionContextReference {
   readonly signingKeyVersion: number;
   readonly trustedTimeAnchorId: string;
   readonly authorizationHash: string;
+  readonly requiredCapability: (typeof executionEvidenceCapabilities)[number];
   readonly monotonicDeltaMs: number;
   readonly occurredAt: string;
 }
@@ -56,6 +63,8 @@ function parseReference(value: HistoricalExecutionContextReference): HistoricalE
   for (const key of ["trustedTimeAnchorId", "authorizationHash"] as const)
     if (!/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u.test(value[key]))
       throw new TypeError("invalid execution digest");
+  if (!executionEvidenceCapabilities.includes(value.requiredCapability))
+    throw new TypeError("invalid execution evidence capability");
   safeUnsignedInteger.parse(value.monotonicDeltaMs);
   canonicalUtcTimestamp.parse(value.occurredAt);
   return value;
@@ -248,7 +257,7 @@ export class PostgresHistoricalExecutionContext implements HistoricalExecutionCo
         c.authorizationGrantDigest !== input.authorizationHash ||
         !row.security_proven ||
         !g.scopes.includes("workspace:mutate") ||
-        !g.commercialAuthority.capabilities.includes("afternic:marketplace:write") ||
+        !g.commercialAuthority.capabilities.includes(input.requiredCapability) ||
         g.commercialAuthority.state !== "active"
       )
         failure = "authorization";

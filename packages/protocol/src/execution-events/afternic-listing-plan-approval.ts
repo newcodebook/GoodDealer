@@ -1,3 +1,4 @@
+import { decodeClosedItemApprovalJson, maximumApprovalBytes } from "./closed-item-approval-json";
 import { z } from "zod";
 import {
   canonicalUtcTimestamp, encodeDomainSeparatedWireValue, identifier,
@@ -112,39 +113,22 @@ export function encodeAfternicOwnershipReviewItemApprovalEnvelope(value: unknown
   return encodeDomainSeparatedWireValue("GOODDEALER-AFTERNIC-OWNERSHIP-REVIEW-ITEM-APPROVAL-ENVELOPE-V1", afternicOwnershipReviewItemApprovalSchema.parse(value));
 }
 
-const maximumApprovalBytes = 6144;
 function encodeApprovalJson(value: AfternicListingPlanItemApproval | AfternicOwnershipReviewItemApproval): Uint8Array {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
   if (bytes.byteLength > maximumApprovalBytes) throw new TypeError("item approval is too large");
   return bytes;
 }
-function decodeApprovalJson(bytes: Uint8Array): unknown {
-  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > maximumApprovalBytes)
-    throw new TypeError("item approval size rejected");
-  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  const value: unknown = JSON.parse(text);
-  // Both signed envelopes are flat. Decode escaped key spellings before comparing them, so
-  // duplicate keys cannot acquire a different meaning in Native, Cloud or another JSON parser.
-  const keys = new Set<string>();
-  for (const token of text.matchAll(/"(?:[^"\\]|\\.)*"/gu)) {
-    if (!text.slice(token.index + token[0].length).trimStart().startsWith(":")) continue;
-    const key = JSON.parse(token[0]) as string;
-    if (keys.has(key)) throw new TypeError("duplicate item approval key");
-    keys.add(key);
-  }
-  return value;
-}
 export function encodeAfternicListingPlanItemApprovalJson(value: unknown): Uint8Array {
   return encodeApprovalJson(afternicListingPlanItemApprovalSchema.parse(value));
 }
 export function decodeAfternicListingPlanItemApprovalJson(bytes: Uint8Array): AfternicListingPlanItemApproval {
-  return afternicListingPlanItemApprovalSchema.parse(decodeApprovalJson(bytes));
+  return afternicListingPlanItemApprovalSchema.parse(decodeClosedItemApprovalJson(bytes));
 }
 export function encodeAfternicOwnershipReviewItemApprovalJson(value: unknown): Uint8Array {
   return encodeApprovalJson(afternicOwnershipReviewItemApprovalSchema.parse(value));
 }
 export function decodeAfternicOwnershipReviewItemApprovalJson(bytes: Uint8Array): AfternicOwnershipReviewItemApproval {
-  return afternicOwnershipReviewItemApprovalSchema.parse(decodeApprovalJson(bytes));
+  return afternicOwnershipReviewItemApprovalSchema.parse(decodeClosedItemApprovalJson(bytes));
 }
 
 export type AfternicListingPlanTargetSet = z.infer<typeof afternicListingPlanTargetSetSchema>;

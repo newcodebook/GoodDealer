@@ -327,7 +327,7 @@ impl NativeCloudCoordinator {
         let provider_power = power.clone();
         let provider_recovery_power = power.clone();
         let lane_power = power.clone();
-        let delist_waker = provider_handle.clone();
+        let durable_waker = provider_handle.clone();
         let provider_task = tauri::async_runtime::spawn(async move {
             let mut listing_turn = crate::provider_credential_orchestrator::afternic_listing_write::ListingTurn::default();
             provider_lane
@@ -397,7 +397,7 @@ impl NativeCloudCoordinator {
                         let projection = provider_projection.clone();
                         let record = Arc::clone(&provider_record);
                         let power = provider_power.clone();
-                        let wake = delist_waker.clone();
+                        let wake = durable_waker.clone();
                         let turn = matches!(operation, ProviderOperation::AfternicListingWriteStep)
                             .then(|| listing_turn.take());
                         async move {
@@ -408,14 +408,22 @@ impl NativeCloudCoordinator {
                                 .await
                                 .unwrap_or(false)
                                 {
-                                    wake.wake_delist();
+                                    wake.wake_durable_operations();
                                 }
                             } else if let Some(turn) = turn {
                                 if crate::provider_credential_orchestrator::afternic_listing_write::step(
                                     host, cancel, power, turn,
                                 ).await.unwrap_or(false) {
-                                    wake.wake_listing_write();
+                                    wake.wake_durable_operations();
                                 }
+                            } else if matches!(operation, ProviderOperation::SellerHubBinStep) {
+                                let run = Arc::new(crate::provider_credential_orchestrator::spaceship::Run::new(
+                                    host, cancel, power, true,
+                                ));
+                                if run.sellerhub_bin_step().await.unwrap_or(false) {
+                                    wake.wake_durable_operations();
+                                }
+                                projection.wake();
                             } else {
                                 run_provider_operation(host, cancel, projection, record, operation, power)
                                     .await;
@@ -493,11 +501,24 @@ impl NativeCloudCoordinator {
         self.power.clone()
     }
     pub(crate) fn wake_afternic_delist(&self) {
-        self.provider.wake_delist();
+        self.provider.wake_durable_operations();
     }
     pub(crate) fn wake_afternic_listing_write(&self) {
-        self.provider.wake_listing_write();
+        self.provider.wake_durable_operations();
     }
+    pub(crate) fn sellerhub_bin_execution_available(&self) -> bool {
+        let power = self.power.snapshot();
+        !self.cancel_fence.is_cancelled()
+            && power.ready
+            && !power.paused
+            && self.provider.sellerhub_status() == ProviderStatus::Ready
+    }
+
+    pub(crate) fn wake_sellerhub_bin(&self) {
+        self.provider.wake_durable_operations();
+        self.wake();
+    }
+
     pub(crate) fn afternic_execution_available(&self) -> bool {
         let power = self.power.snapshot();
         !self.cancel_fence.is_cancelled()
@@ -826,7 +847,9 @@ async fn run_provider_operation(
     let authority = host.authority_identity();
     let connection_generation = host.provider_connection_generation();
     let outcome = match operation {
-        ProviderOperation::AfternicDelistStep | ProviderOperation::AfternicListingWriteStep => None,
+        ProviderOperation::AfternicDelistStep
+        | ProviderOperation::AfternicListingWriteStep
+        | ProviderOperation::SellerHubBinStep => None,
         ProviderOperation::AfternicConnect { display_label } => {
             let result = afternic::connect(host, display_label, cancel_fence, power).await;
             Some(ProviderOperationRecord::of(

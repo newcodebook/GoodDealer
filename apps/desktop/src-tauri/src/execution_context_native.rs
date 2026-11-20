@@ -139,6 +139,17 @@ impl DesktopExecutionContextNativePort for ExecutionContextNative {
             .map_err(|_| DesktopExecutionContextError::Rejected)
     }
 
+    fn sign_sellerhub_bin_price_approval(
+        &self,
+        transcript: &[u8],
+    ) -> Result<[u8; 64], DesktopExecutionContextError> {
+        self.identity
+            .as_ref()
+            .ok_or(DesktopExecutionContextError::Unavailable)?
+            .sign_sellerhub_bin_price_approval_transcript(transcript)
+            .map_err(|_| DesktopExecutionContextError::Rejected)
+    }
+
     fn sign_device_audit_event(
         &self,
         transcript: &[u8],

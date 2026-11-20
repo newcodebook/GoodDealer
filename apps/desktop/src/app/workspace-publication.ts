@@ -4,6 +4,7 @@ import {
   type AfternicConnectionPort,
   type SpaceshipRegistrarPort,
   type SellerHubPort,
+  type SellerHubBinPricePort,
   type AliyunRegistrarPort,
   type GoDaddyRegistrarPort,
   type CloudflareRegistrarAccountPort,
@@ -75,6 +76,7 @@ export interface AuthoritativeWorkspacePorts {
   readonly afternic: AfternicConnectionPort;
   readonly spaceship?: SpaceshipRegistrarPort;
   readonly sellerhub?: SellerHubPort;
+  readonly sellerhubBinPrice?: SellerHubBinPricePort;
   readonly aliyun?: AliyunRegistrarPort;
   readonly godaddy?: GoDaddyRegistrarPort;
   readonly cloudflareRegistrarAccount?: CloudflareRegistrarAccountPort;

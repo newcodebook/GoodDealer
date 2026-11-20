@@ -73,6 +73,7 @@ Native 已组合无筛选和 `type=standard` 的双完整读取。仅当两个�
 - SellerHub 的官方 OpenAPI 1.0.0 定义固定来源 `https://spaceship.dev/api`。无筛选的 `GET /v1/sellerhub/domains` 需要 `sellerhub:read`，返回 `items` 与 `total`，按 `take/skip` 分页。Listing 由域名寻址，列表不返回独立不可变 ID。报价为 USD 十进制字符串，启用标志分别返回。Linux 对该入口的匿名 HTTPS 请求返回 401 和 `application/problem+json`；认证列表合同与账号内结果仍待实测。[官方合同](https://docs.spaceship.dev/#tag/SellerHub)
 - SellerHub 官方说明创建记录后等待 DNS 传播，系统自动验证；列表状态包含 `verifying`、`onSale`、
   `onSaleStopped`、`saleProcessing`、`failed` 等。以账户内目标 Listing 的新鲜读取确认结果。
+- 一口价变更采用官方 `PATCH /v1/sellerhub/domains/{domain}`，需要 `sellerhub:write`。当前客户流程只提交 `binPrice.amount`，允许的输入以整数美分保存。精确 GET 必须返回同域名、在售且启用一口价，读回批准目标价才确认成功。HTTP 200 是发送回执，通用 404 保留未知。当前验收未取得获准卖家账户的认证响应。
 - 匿名读取精确域名与验证记录路径均返回 401 和 `application/problem+json`。公开合同列出精确 GET 的 404，但只规定 problem 的 `detail` 和通用错误码格式。后续下架对账仍需用获准账户区分目标缺席和其他 404，DELETE 204 作为操作回执保存。
 - Sedo `DomainStatus.domainstatus` 只区分“不在 Sedo 数据库 / 在 Sedo 数据库”，`forsale` 只表示在售。
   它的参数表不要求用户名；不能单独作为账户归属或 owner 验证成功的证据。账户归属对账至少结合

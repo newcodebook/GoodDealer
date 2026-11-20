@@ -1,3 +1,4 @@
+import { sellerHubBinPriceAuditPayloadSchema, sellerHubBinPriceClaimPayloadSchema } from "./sellerhub-bin-price-evidence";
 import { afternicListingPlanApprovalAuditPayloadSchema, afternicListingPlanClaimAuditPayloadSchema, afternicListingPlanReconciledAuditPayloadSchema,
   afternicListingPlanPreflightRefusedAuditPayloadSchema, afternicOwnershipReviewClaimAuditPayloadSchema,
   afternicOwnershipReviewReconciledAuditPayloadSchema, afternicOwnershipReviewPreflightRefusedAuditPayloadSchema,
@@ -5,8 +6,8 @@ import { afternicListingPlanApprovalAuditPayloadSchema, afternicListingPlanClaim
 import { afternicListingWriteApprovalAuditPayloadSchema, afternicListingWriteClaimAuditPayloadSchema, afternicListingWriteReconciledAuditPayloadSchema, afternicListingWritePreflightRefusedAuditPayloadSchema, afternicListingWriteClaimPayloadSchema } from "./afternic-listing-write-evidence";
 import { z } from "zod";
 import { canonicalUtcTimestamp, identifier, safePositiveInteger } from "../wire/index";
-import { afternicWorkspaceDeviceAuditIngestSchema } from "./device-audit";
-import { afternicExecutionFactIngestSchema } from "./execution-fact";
+import { workspaceDeviceAuditIngestSchema } from "./device-audit";
+import { executionFactTransportSchema } from "./execution-fact";
 import {
   afternicDelistApprovalAuditPayloadSchema,
   afternicDelistClaimAuditPayloadSchema,
@@ -85,7 +86,7 @@ const signature = z.string().regex(/^[A-Za-z0-9_-]{85}[AQgw]$/u);
 export const executionFactIngestRequestSchema = z
   .object({
     schemaVersion: z.literal(1),
-    fact: afternicExecutionFactIngestSchema.superRefine((fact, ctx) => {
+    fact: executionFactTransportSchema.superRefine((fact, ctx) => {
       for (const field of [
         "executionFactId",
         "operationId",
@@ -98,7 +99,8 @@ export const executionFactIngestRequestSchema = z
         if (!eventId.safeParse(fact[field]).success)
           ctx.addIssue({ code: "custom", path: [field], message: "expected opaque business UUID" });
       if (
-        fact.eventType !== (fact.payloadRedacted.action === "remove" ? "afternic_delist_dispatch_claimed"
+        fact.eventType !== (fact.payloadRedacted.action === "set_bin_price" ? "sellerhub_bin_price_dispatch_claimed"
+          : fact.payloadRedacted.action === "remove" ? "afternic_delist_dispatch_claimed"
           : fact.payloadRedacted.action === "reactivate_ownership_review" ? "afternic_ownership_review_dispatch_claimed"
             : fact.payloadRedacted.schemaVersion === 2 ? "afternic_listing_plan_v2_dispatch_claimed" : "afternic_listing_write_dispatch_claimed") ||
         fact.evidenceLevel !== "durable_local_claim" ||
@@ -106,7 +108,7 @@ export const executionFactIngestRequestSchema = z
         fact.signatureTranscriptVersion !== 1 ||
         !signature.safeParse(fact.deviceSignature).success ||
         !digest.safeParse(fact.trustedTimeAnchorId).success ||
-        !z.union([afternicDelistClaimPayloadSchema,afternicListingWriteClaimPayloadSchema,afternicListingPlanClaimPayloadSchema,afternicOwnershipReviewClaimPayloadSchema]).safeParse(fact.payloadRedacted).success
+        !z.union([afternicDelistClaimPayloadSchema,afternicListingWriteClaimPayloadSchema,afternicListingPlanClaimPayloadSchema,afternicOwnershipReviewClaimPayloadSchema,sellerHubBinPriceClaimPayloadSchema]).safeParse(fact.payloadRedacted).success
       )
         ctx.addIssue({ code: "custom", message: "unsupported execution evidence" });
     }),
@@ -115,7 +117,7 @@ export const executionFactIngestRequestSchema = z
 export const deviceAuditIngestRequestSchema = z
   .object({
     schemaVersion: z.literal(1),
-    event: afternicWorkspaceDeviceAuditIngestSchema.superRefine((event, ctx) => {
+    event: workspaceDeviceAuditIngestSchema.superRefine((event, ctx) => {
       const payload = z
         .union([
           afternicDelistApprovalAuditPayloadSchema,
@@ -125,7 +127,7 @@ export const deviceAuditIngestRequestSchema = z
           afternicListingWriteApprovalAuditPayloadSchema,afternicListingWriteClaimAuditPayloadSchema,afternicListingWriteReconciledAuditPayloadSchema,afternicListingWritePreflightRefusedAuditPayloadSchema, afternicListingPlanApprovalAuditPayloadSchema, afternicListingPlanClaimAuditPayloadSchema, afternicListingPlanReconciledAuditPayloadSchema,
   afternicListingPlanPreflightRefusedAuditPayloadSchema, afternicOwnershipReviewClaimAuditPayloadSchema,
   afternicOwnershipReviewReconciledAuditPayloadSchema, afternicOwnershipReviewPreflightRefusedAuditPayloadSchema,
-  afternicOwnershipReviewPreflightSatisfiedAuditPayloadSchema,
+  afternicOwnershipReviewPreflightSatisfiedAuditPayloadSchema, sellerHubBinPriceAuditPayloadSchema,
         ])
         .safeParse(event.payloadRedacted);
       if (
@@ -138,6 +140,22 @@ export const deviceAuditIngestRequestSchema = z
         !payload.success
       )
         ctx.addIssue({ code: "custom", message: "unsupported workspace execution audit" });
+      if (payload.success && payload.data.action === "set_bin_price") {
+        const p = payload.data;
+        const approval = p.stage === "approved";
+        const dispatch = p.stage === "dispatch_claimed";
+        if (event.targetType !== (approval ? "sellerhub_bin_price_approval" : "sellerhub_bin_price_attempt")
+          || event.targetRef !== (approval ? p.approvedOperationId : p.attemptId)
+          || event.actorKind !== (approval ? "user" : "device_service")
+          || event.authorizationSource !== (approval || dispatch ? "approved_operation" : "runtime_security_context")
+          || event.eventType !== (approval || dispatch ? "approved_operation_execution" : "runtime_security_lifecycle")) {
+          ctx.addIssue({ code: "custom", message: "unsupported SellerHub BIN price audit purpose" });
+        }
+        return;
+      }
+      if (event.targetType === "sellerhub_bin_price_approval" || event.targetType === "sellerhub_bin_price_attempt") {
+        ctx.addIssue({ code: "custom", message: "SellerHub BIN price audit requires its bound payload" });
+      }
       if (payload.success && payload.data.schemaVersion !== 2 && payload.data.action !== "reactivate_ownership_review"
         && ["afternic_listing_plan_v2_approval", "afternic_listing_plan_v2_attempt", "afternic_ownership_review_attempt"].includes(event.targetType)) {
         ctx.addIssue({ code: "custom", message: "listing plan purpose requires its matching payload version" });

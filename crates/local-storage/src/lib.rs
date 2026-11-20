@@ -176,7 +176,10 @@ pub use active_workspace::business::{
     DesktopCloudflareRegistrarAccountSummary, DesktopCloudflareRegistrarScanReceipt,
     DesktopCloudflareRegistrationFact, DesktopCloudflareRegistrationStanding,
     DesktopGoDaddyConnectionState, DesktopGoDaddyConnectionSummary, DesktopRegistrarScanReceipt,
-    DesktopRegistrationFact, DesktopRegistrationStanding, DesktopSellerHubConnectionSummary,
+    DesktopRegistrationFact, DesktopRegistrationStanding, DesktopSellerHubBinApproval,
+    DesktopSellerHubBinApproveRequest, DesktopSellerHubBinPlan, DesktopSellerHubBinPlanItem,
+    DesktopSellerHubBinPlanSummary, DesktopSellerHubBinPreviewRequest,
+    DesktopSellerHubBinStatusRequest, DesktopSellerHubBinTarget, DesktopSellerHubConnectionSummary,
     DesktopSellerHubListingFact, DesktopSellerHubListingState, DesktopSellerHubScanReceipt,
     DesktopSpaceshipConnectionState, DesktopSpaceshipConnectionSummary,
 };
@@ -220,6 +223,7 @@ pub use desktop_local_host::spaceship_registrar::{
     DesktopSpaceshipConnection, DesktopSpaceshipRegistrarStatus,
 };
 pub use desktop_local_host::spaceship_sellerhub::{
+    DesktopSellerHubBinClaim, DesktopSellerHubBinStatus, DesktopSellerHubBinWork,
     DesktopSellerHubConnection, DesktopSellerHubStatus,
 };
 #[cfg(all(test, unix))]

@@ -105,6 +105,7 @@ pub(crate) enum EvidenceSignaturePurpose {
     AfternicListingWriteApproval,
     AfternicListingPlanApproval,
     AfternicOwnershipReviewApproval,
+    SellerHubBinPriceApproval,
     DeviceAudit,
     ExecutionFact,
 }
@@ -475,6 +476,22 @@ fn verify_approval(
     {
         return Err(rejected());
     }
+    verify_approval_envelope(
+        &parsed,
+        expected_digest,
+        context,
+        action.approval_domain(),
+        action.envelope_domain(),
+    )
+}
+
+fn verify_approval_envelope(
+    parsed: &ApprovalEnvelope,
+    expected_digest: &str,
+    context: &ExecutionEvidenceContext,
+    signature_domain: &str,
+    envelope_domain: &str,
+) -> Result<()> {
     for value in [
         &parsed.plan_id,
         &parsed.operation_id,
@@ -500,8 +517,8 @@ fn verify_approval(
         }
     }
     super::validate_timestamp(Some(parsed.approved_at.clone())).map_err(|_| rejected())?;
-    let mut value = serde_json::to_value(&parsed).map_err(|_| rejected())?;
-    if digest(&evidence_transcript(action.envelope_domain(), &value)?) != expected_digest {
+    let mut value = serde_json::to_value(parsed).map_err(|_| rejected())?;
+    if digest(&evidence_transcript(envelope_domain, &value)?) != expected_digest {
         return Err(rejected());
     }
     value
@@ -515,10 +532,7 @@ fn verify_approval(
         return Err(rejected());
     }
     UnparsedPublicKey::new(&ED25519, context.public_key)
-        .verify(
-            &evidence_transcript(action.approval_domain(), &value)?,
-            &signature,
-        )
+        .verify(&evidence_transcript(signature_domain, &value)?, &signature)
         .map_err(|_| rejected())
 }
 
@@ -1069,3 +1083,6 @@ pub(super) use listing_plan::{
     ListingPlanAction, ListingPlanApprovalTarget, OwnershipClaimDigests,
     record_listing_plan_approval, record_listing_plan_claim, record_listing_plan_observation,
 };
+
+#[path = "execution_evidence_sellerhub_bin.rs"]
+pub(super) mod sellerhub_bin;

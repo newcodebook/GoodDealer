@@ -122,7 +122,7 @@ operation/inbox/reconciliation/due-authority/release。共享开发环境已部�
 Stripe test-mode Provider；生产 worker、live Provider、全系统 V1 验收和发行仍未完成，因此产品
 readiness 声明仍不成立。
 
-`secure-host-core` 的私有 Cloudflare Zone/DNS/Registrar（含独立账户录入）、Afternic 库存与 Listing 写入、Atom 卖家库存、GoDaddy、Spaceship 与阿里云 Registrar，以及 Spaceship SellerHub 挂牌读取，已组合进 Native ProviderLane。Host 组合
+`secure-host-core` 的私有 Cloudflare Zone/DNS/Registrar（含独立账户录入）、Afternic 库存与 Listing 写入、Atom 卖家库存、GoDaddy、Spaceship 与阿里云 Registrar，以及 Spaceship SellerHub 挂牌读取与一口价变更，已组合进 Native ProviderLane。Host 组合
 不等于真实 Provider 资格。后续 Desktop 整合者必须扩展严格 Renderer adapter、保持显式
 capability allowlist，并重新检查入口、注册表和可达性；不得把未组合 feature、视觉资料或已删除
 connector 路径恢复为兼容、过渡或 fixture 路线。

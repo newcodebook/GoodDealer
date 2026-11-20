@@ -1,3 +1,4 @@
+import { sellerHubBinPriceClaimPayloadSchema } from "./sellerhub-bin-price-evidence";
 import { afternicListingPlanClaimPayloadSchema, afternicOwnershipReviewClaimPayloadSchema } from "./afternic-listing-plan-evidence";
 import { afternicListingWriteClaimPayloadSchema } from "./afternic-listing-write-evidence";
 import { afternicDelistClaimPayloadSchema } from "./afternic-delist-evidence";
@@ -72,4 +73,4 @@ export type ExecutionAuthorizationEvidence = z.infer<typeof executionAuthorizati
 export type ExecutionFact = z.infer<typeof executionFactSchema>;
 
 /** Concrete transport schema for the currently supported producer, preserving the execution_fact v1 fields. */
-export const afternicExecutionFactIngestSchema = executionFactSchema.extend({payloadRedacted:z.union([afternicDelistClaimPayloadSchema,afternicListingWriteClaimPayloadSchema,afternicListingPlanClaimPayloadSchema,afternicOwnershipReviewClaimPayloadSchema])});
+export const executionFactTransportSchema = executionFactSchema.extend({payloadRedacted:z.union([afternicDelistClaimPayloadSchema,afternicListingWriteClaimPayloadSchema,afternicListingPlanClaimPayloadSchema,afternicOwnershipReviewClaimPayloadSchema,sellerHubBinPriceClaimPayloadSchema])});

@@ -6,8 +6,9 @@ use super::{
     publish_spaceship_credential_guarded, purge_spaceship_credential_guarded,
 };
 use gooddealer_local_storage::{
-    DesktopSellerHubConnection, DesktopSellerHubListingFact, DesktopSellerHubListingState,
-    DesktopSellerHubStatus, DesktopSpaceshipConnectionState,
+    DesktopSellerHubBinClaim, DesktopSellerHubBinWork, DesktopSellerHubConnection,
+    DesktopSellerHubListingFact, DesktopSellerHubListingState, DesktopSellerHubStatus,
+    DesktopSpaceshipConnectionState,
 };
 use gooddealer_secure_host_core::{SpaceshipSellerHubListing, SpaceshipSellerHubStatus};
 
@@ -180,6 +181,146 @@ impl Run {
             .await
             .map_err(|_| ProviderCredentialError::Unavailable)?
             .map_err(host_error)
+    }
+
+    pub(crate) async fn sellerhub_bin_step(self: &Arc<Self>) -> Result<bool> {
+        let run = Arc::clone(self);
+        let loaded = tauri::async_runtime::spawn_blocking(move || {
+            let work =
+                run.commit(|host| host.next_sellerhub_bin_work(host.begin_native_cloud_run()?))?;
+            Ok::<_, ProviderCredentialError>(work.map(|work| {
+                let credential = if work.may_read_provider() {
+                    load_spaceship_credential_guarded(&Slot(work.connection()), &mut || {
+                        run.sellerhub_bin_read_guard(&work)
+                    })
+                } else {
+                    Ok(None)
+                };
+                (work, credential)
+            }))
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)??;
+        let Some((work, credential)) = loaded else {
+            self.sellerhub_resume_pending_scan().await?;
+            return Ok(false);
+        };
+        if !work.needs_reconciliation() && self.power.hold_write_epoch(self.epoch).is_err() {
+            return Ok(false);
+        }
+        let client = SpaceshipClient::production().map_err(native_error)?;
+        let read = match &credential {
+            Ok(Some(credential)) => {
+                let mut guard = || self.sellerhub_bin_read_guard(&work);
+                tokio::select! {
+                    biased;
+                    _ = self.power.wait_for_epoch_change(self.epoch) => Err(SpaceshipError::AuthorityStale),
+                    result = client.observe_sellerhub_listing(credential, work.domain(), &mut guard) => result,
+                }
+            }
+            Ok(None) => Err(SpaceshipError::CustodyMismatch),
+            Err(error) => Err(*error),
+        };
+        if matches!(read, Err(SpaceshipError::AuthorityStale)) {
+            return Err(ProviderCredentialError::Host);
+        }
+        let retry = matches!(read, Err(SpaceshipError::RateLimited)).then_some(60);
+        let observation = read.ok().map(listing_fact);
+        let claim = self
+            .sellerhub_commit_bin_read(work, observation, retry)
+            .await?;
+        if let (Some(claim), Ok(Some(credential))) = (claim, credential) {
+            let (_, domain, cents) = claim.details();
+            // Every outcome leaves the durable attempt in the same read-only reconciliation stage.
+            let mut guard = || self.sellerhub_bin_dispatch_guard(&claim);
+            let _ = tokio::select! {
+                biased;
+                _ = self.power.wait_for_epoch_change(self.epoch) => Err(SpaceshipError::AuthorityStale),
+                result = client.send_sellerhub_bin_price(
+                    &credential, domain, cents, &mut guard
+                ) => result,
+            };
+        }
+        Ok(true)
+    }
+
+    async fn sellerhub_commit_bin_read(
+        self: &Arc<Self>,
+        work: DesktopSellerHubBinWork,
+        observed: Option<DesktopSellerHubListingFact>,
+        retry: Option<u32>,
+    ) -> Result<Option<DesktopSellerHubBinClaim>> {
+        let run = Arc::clone(self);
+        tauri::async_runtime::spawn_blocking(move || {
+            if work.needs_reconciliation() {
+                run.commit(|host| {
+                    host.settle_sellerhub_bin_observation(&work, observed.as_ref(), retry)
+                })?;
+                return Ok(None);
+            }
+            let _power = run
+                .power
+                .hold_write_epoch(run.epoch)
+                .map_err(|_| ProviderCredentialError::Host)?;
+            run.cancel
+                .commit(|| {
+                    run.host
+                        .commit_sellerhub_bin_preflight(work, observed.as_ref(), retry)
+                })
+                .ok_or(ProviderCredentialError::Host)?
+                .map_err(host_error)
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)?
+    }
+
+    fn sellerhub_bin_read_guard(
+        &self,
+        work: &DesktopSellerHubBinWork,
+    ) -> std::result::Result<(), SpaceshipError> {
+        drop(self.hold_power()?);
+        self.host
+            .recheck_sellerhub_bin_read(work)
+            .map_err(|_| SpaceshipError::AuthorityStale)?;
+        drop(self.hold_power()?);
+        Ok(())
+    }
+
+    fn sellerhub_bin_dispatch_guard(
+        &self,
+        claim: &DesktopSellerHubBinClaim,
+    ) -> std::result::Result<(), SpaceshipError> {
+        drop(
+            self.power
+                .hold_write_epoch(self.epoch)
+                .map_err(|_| SpaceshipError::AuthorityStale)?,
+        );
+        self.cancel
+            .commit(|| self.host.recheck_sellerhub_bin_dispatch(claim))
+            .ok_or(SpaceshipError::AuthorityStale)?
+            .map_err(|_| SpaceshipError::AuthorityStale)?;
+        drop(
+            self.power
+                .hold_write_epoch(self.epoch)
+                .map_err(|_| SpaceshipError::AuthorityStale)?,
+        );
+        if self.cancel.is_cancelled() {
+            return Err(SpaceshipError::AuthorityStale);
+        }
+        Ok(())
+    }
+
+    async fn sellerhub_resume_pending_scan(self: &Arc<Self>) -> Result<()> {
+        let status = self.sellerhub_status().await?;
+        if status.observe_entitled
+            && status.observe_qualified
+            && let Some(row) = status.connections.into_iter().find(|row| {
+                row.scan_pending && row.state == DesktopSpaceshipConnectionState::Active
+            })
+        {
+            self.sellerhub_refresh(row.connection_id).await?;
+        }
+        Ok(())
     }
 
     pub(crate) async fn sellerhub_recover(self: &Arc<Self>) -> Result<()> {

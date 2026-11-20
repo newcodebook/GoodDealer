@@ -1,8 +1,9 @@
 use super::{PAGE_SIZE, SpaceshipError, valid_hostname};
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 
 const MAX_LISTINGS: usize = 10_000;
+const MAX_APPROVED_CENTS: u64 = 9_007_199_254_740_991;
 
 /// Account-scoped listing facts. `SellerHub` addresses the resource by domain and
 /// returns no separate immutable Listing ID in this collection.
@@ -13,6 +14,18 @@ pub struct SpaceshipSellerHubListing {
     pub min_price_usd: Option<String>,
     pub bin_price_enabled: Option<bool>,
     pub min_price_enabled: Option<bool>,
+}
+
+impl SpaceshipSellerHubListing {
+    /// Projects an on-sale, explicitly enabled BIN into the exact minor-unit range
+    /// the approved plan can carry across its Native and Renderer boundaries.
+    #[must_use]
+    pub fn active_bin_cents(&self) -> Option<u64> {
+        if self.status != SpaceshipSellerHubStatus::OnSale || self.bin_price_enabled != Some(true) {
+            return None;
+        }
+        approved_cents(self.bin_price_usd.as_deref()?)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -96,6 +109,18 @@ struct Listing {
     min_price_enabled: Option<bool>,
 }
 
+pub(super) fn parse_exact_listing(
+    body: &[u8],
+    requested: &str,
+) -> Result<SpaceshipSellerHubListing, SpaceshipError> {
+    let invalid = SpaceshipError::ProtocolRejected;
+    let row: Listing = serde_json::from_slice(body).map_err(|_| invalid)?;
+    if row.name != requested {
+        return Err(invalid);
+    }
+    row.project()
+}
+
 impl Listing {
     fn project(self) -> Result<SpaceshipSellerHubListing, SpaceshipError> {
         if !valid_hostname(&self.name)
@@ -128,6 +153,55 @@ fn same_domain(value: &str, name: &str) -> bool {
         && matches!(url::Host::parse(value), Ok(url::Host::Domain(host)) if host == name)
 }
 
+fn amount_parts(amount: &str) -> Option<(&str, &str)> {
+    let (whole, fraction) = match amount.split_once('.') {
+        Some((whole, fraction)) if (1..=2).contains(&fraction.len()) && digits(fraction) => {
+            (whole, fraction)
+        }
+        Some(_) => return None,
+        None => (amount, ""),
+    };
+    (amount.len() <= 20 && digits(whole)).then_some((whole, fraction))
+}
+
+fn approved_cents(amount: &str) -> Option<u64> {
+    let (whole, fraction) = amount_parts(amount)?;
+    let fraction = match fraction.len() {
+        0 => 0,
+        1 => fraction.parse::<u64>().ok()?.checked_mul(10)?,
+        _ => fraction.parse::<u64>().ok()?,
+    };
+    let cents = whole
+        .parse::<u64>()
+        .ok()?
+        .checked_mul(100)?
+        .checked_add(fraction)?;
+    (1..=MAX_APPROVED_CENTS).contains(&cents).then_some(cents)
+}
+
+pub(super) fn encode_bin_price_update(cents: u64) -> Result<Vec<u8>, SpaceshipError> {
+    #[derive(Serialize)]
+    struct PriceUpdate {
+        amount: String,
+    }
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct BinUpdate {
+        bin_price: PriceUpdate,
+    }
+    if !(1..=MAX_APPROVED_CENTS).contains(&cents) {
+        return Err(SpaceshipError::InputRejected);
+    }
+    // The account currency is already USD. Omitting other settings keeps this write
+    // confined to the approved BIN amount.
+    serde_json::to_vec(&BinUpdate {
+        bin_price: PriceUpdate {
+            amount: format!("{}.{:02}", cents / 100, cents % 100),
+        },
+    })
+    .map_err(|_| SpaceshipError::InputRejected)
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Price {
@@ -138,15 +212,7 @@ struct Price {
 
 impl Price {
     fn into_amount(self) -> Result<String, SpaceshipError> {
-        let amount = self.amount.as_str();
-        let valid = if let Some((whole, fraction)) = amount.split_once('.') {
-            digits(whole) && (1..=2).contains(&fraction.len()) && digits(fraction)
-        } else {
-            digits(amount)
-        };
-        if amount.len() > 20 || !valid {
-            return Err(SpaceshipError::ProtocolRejected);
-        }
+        amount_parts(&self.amount).ok_or(SpaceshipError::ProtocolRejected)?;
         Ok(self.amount)
     }
 }
@@ -176,6 +242,50 @@ mod tests {
 
     fn listing(name: &str, status: &str) -> serde_json::Value {
         json!({"name": name, "unicodeName": name, "status": status})
+    }
+
+    #[test]
+    fn exact_listing_requires_the_requested_account_domain() {
+        let row = listing("example.com", "verifying").to_string();
+        let fact = parse_exact_listing(row.as_bytes(), "example.com").unwrap();
+        assert_eq!(fact.status, SpaceshipSellerHubStatus::Verifying);
+        for body in [
+            row,
+            r#"{"detail":"Not found"}"#.to_owned(),
+            r#"{"name":"other.test","unicodeName":"other.test","status":"onSale"}"#.to_owned(),
+        ] {
+            assert!(matches!(
+                parse_exact_listing(body.as_bytes(), "requested.test"),
+                Err(SpaceshipError::ProtocolRejected)
+            ));
+        }
+    }
+
+    #[test]
+    fn bin_amount_is_exact_and_requires_a_sellable_enabled_listing() {
+        for (amount, cents) in [
+            ("1.01", Some(101)),
+            ("00012.7", Some(1270)),
+            ("90071992547409.91", Some(MAX_APPROVED_CENTS)),
+            ("90071992547409.92", None),
+            ("12345678901234567890", None),
+            ("0.00", None),
+            ("1.001", None),
+            ("1.", None),
+            ("1e2", None),
+        ] {
+            assert_eq!(approved_cents(amount), cents);
+        }
+        let mut fact = parse_exact_listing(
+            br#"{"name":"example.com","unicodeName":"example.com","status":"onSale","binPriceEnabled":true,"binPrice":{"amount":"30.1","currency":"USD"}}"#,
+            "example.com",
+        ).unwrap();
+        assert_eq!(fact.active_bin_cents(), Some(3010));
+        fact.status = SpaceshipSellerHubStatus::SaleProcessing;
+        assert_eq!(fact.active_bin_cents(), None);
+        fact.status = SpaceshipSellerHubStatus::OnSale;
+        fact.bin_price_enabled = None;
+        assert_eq!(fact.active_bin_cents(), None);
     }
 
     #[test]

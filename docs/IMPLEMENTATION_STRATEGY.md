@@ -110,5 +110,5 @@ Standby 协议、Cloud 签发、独立签名用途、Host 验证、路由清单�
 
 Cloudflare 独立 Registrar、Spaceship Registrar、GoDaddy Registrar 和阿里云 Registrar 均复用既有资产事务、ProviderLane 与账户归集设置面板。这些路径均先完成 Native 账户库存预检，再发布各自的不可变凭据槽。阿里云卖家私有 HTTP 调查、22.cn/易名资产与交易流程，以及 GoDaddy 真实账户验收均独立保留。
 
-Spaceship SellerHub 复用同一平台的 Native Service、凭据录入和串行 ProviderLane。账户归集使用独立 marketplace 连接、不可变槽位及签名读取权益，后续写入以这一账户的当前挂牌观察为基线。官方清单没有独立 Listing ID，已有绑定按资产代次复用，完整扫描缺席仅使旧观察显示未知。上下架、改价和验证走后续具名持久操作与精确对账。
+Spaceship SellerHub 复用同一平台的 Native Service、凭据录入和串行 ProviderLane。账户归集使用独立 marketplace 连接、不可变槽位及签名读取权益，后续写入以这一账户的当前挂牌观察为基线。官方清单没有独立 Listing ID，已有绑定按资产代次复用，完整扫描缺席仅使旧观察显示未知。一口价变更已接通「批量操作」与具名持久操作，重开只读对账，源码通过本地和 Cloud 数据库验证。接续真实卖家受控验收及上下架和验证。
 Atom 已组合官方卖家库存及重开续读，复用既有 Listing 绑定、设置面板和回执前持久化的 ProviderLane。设置刷新已用官方 `type=standard` 与无筛选库存核对相同资源，并持久显示正向 Standard 报告。后续下架仍需在获准卖家账号核对可下架状态、精确缺席结果及未知写入的对账合同。

@@ -1,3 +1,5 @@
+import { auditSellerHubBinPriceEvidenceMigration } from "../modules/audit/migrations/202611200001-audit-sellerhub-bin-price-evidence";
+import { executionSellerHubBinPriceEvidenceMigration } from "../modules/execution-ledger/migrations/202611200002-execution-sellerhub-bin-price-evidence";
 import { auditListingPlanEvidenceMigration } from "../modules/audit/migrations/202611190032-audit-listing-plan-evidence";
 import { executionListingPlanEvidenceMigration } from "../modules/execution-ledger/migrations/202611190033-execution-listing-plan-evidence";
 import { forcedIntentCapabilityPolicyMigration } from "../modules/devices/migrations/202611190029-forced-intent-capability-policy";
@@ -152,6 +154,8 @@ export const cloudMigrations: readonly CloudMigration[] = [
   executionListingWriteEvidenceMigration,
   auditListingPlanEvidenceMigration,
   executionListingPlanEvidenceMigration,
+  auditSellerHubBinPriceEvidenceMigration,
+  executionSellerHubBinPriceEvidenceMigration,
 ];
 
 // Validate ordering and checksums when the catalog is imported, before any database access.

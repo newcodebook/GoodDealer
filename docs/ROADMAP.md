@@ -43,7 +43,7 @@ Afternic 设置已组合连接、完整市场库存扫描、原子资产归集�
 
 Cloudflare Registrar 已接通设置中的独立账户连接、持久刷新、SQLCipher 原子提交和重开续读。首次连接支持通过 Native 录入 Account ID 和用户 API Token，完成完整账户预检后持久保存。已有 Zone 连接也可独立扫描所属账户。Cloudflare、Spaceship、阿里云的当前注册资料已接入资产和续费读取。真实接口验收仍需账户注册列表权限及受控 GoodDealer 授权，逐笔确认的续费交易继续实施。
 
-Spaceship 的 Registrar 和 SellerHub 已分别接通 Native 首次库存预检、持久归集、设置刷新受理前入库，以及同一设备与 Lease 的重开续读。SellerHub 读取接入销售投影。两个角色各需具名开发验收和真实只读账户。SellerHub 的上架、下架、改价和 DNS 验证继续按市场实施顺序推进。
+Spaceship 的 Registrar 和 SellerHub 已分别接通 Native 首次库存预检、持久归集、设置刷新受理前入库，以及同一设备与 Lease 的重开续读。SellerHub 读取接入销售投影。两个角色各需具名开发验收和真实只读账户。SellerHub 一口价变更已进入桌面批量操作、持久确认和只读对账流程，仍待认证卖家读写验收。上架、下架和 DNS 验证继续推进。
 
 GoDaddy 已接通独立的官方 v3 Registrar 账户归集、持久刷新及资产和续费投影；生产账户和目标系统仍需取证。
 

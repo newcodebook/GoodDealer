@@ -590,3 +590,12 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - SQLCipher 回归覆盖重开、整笔回滚、错误设备与 Lease、重复回执、空清单、跨连接、资产重加和撤销。本机隔离 PostgreSQL 设备授权 184 项、Windows GNU 及 Linux 严格 Clippy 通过。Linux 隔离 Secret Service 实跑损坏与重复槽清理。独立复审关闭命令集合、错误分类和凭据清理问题。[审查记录](../reviews/2026-11-20-spaceship-sellerhub-inventory-review.md)
 - 最终根 `pnpm check` 通过，含 Desktop 435 项、Tauri 194 项、SQLCipher 687 项及 Core 142 项。整合修复了设置文案计数与命令证据排序。既有 localhost 测试在具备 loopback 权限的环境复跑通过。
 - 匿名库存、精确域名与验证记录入口均返回 401。认证验收需要具名开发范围、Native 录入的 `sellerhub:read` 凭据和可核对挂牌。继续实现上下架、改价和自动验证。Windows/macOS 实机与发行资格分别验收。
+
+## 2026-11-20 SellerHub 一口价变更
+
+- 「批量操作」接通账号选择、美元价格行、持久批次预览、整批一次确认、最近计划和逐域名结果。预览严格冻结全部行、精确美分、账户 incarnation、绑定与资产代次。确认回执丢失时读取已保存的同一计划。
+- 本地追加 `202611200011` 复用原计划、尝试、结果、签名批准和证据流。Native 的预检遵循当前读取与写入授权，独立于待扫描状态。已失效的未发送项目落签名拒绝，不接触凭据或 Provider。单次认领在真正 PATCH 前入库，任意发送结果均进入精确 GET 对账，重开保持该语义。价格尚未匹配时持久延后读取，成功与刷新请求原子提交。通用 404 保持未知。
+- Cloud 追加 `202611200001` 和 `202611200002`，验证 SellerHub 权限和独立签名用途，锁定冲突的认领和拒绝。后继设备可用观察权限引用同工作区内的原设备、Lease 与已接受执行事实。缺失历史或当前连接归属时保留未知。
+- 独立审查发现并关闭了原事实 canonical 字节核对、无待扫描状态的准入以及撤销后未执行项目卡住的问题。[独立审查](../reviews/2026-11-20-sellerhub-bin-price-review.md) SQLCipher 专项 7 项，历史迁移字节与外键复验通过；Native 签名和跨语言向量 19 项，桌面改价与命令权限专项 8 项，Linux 三 crate 严格 Clippy，隔离 PostgreSQL 185 项通过。
+- 根 `pnpm check` 通过，含 Desktop 437 项、Tauri 195 项、SQLCipher 694 项及 Core 148 项。
+- 此次在本机执行源码和隔离数据库验收。SellerHub 认证接口、真实改价、开发 Cloud 发布、具名资格、Windows/macOS 实机和发行待验证。

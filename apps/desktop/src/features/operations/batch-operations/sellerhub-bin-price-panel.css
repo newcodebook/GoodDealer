@@ -1,0 +1,37 @@
+.sellerhub-bin-price, .sellerhub-bin-price-form {
+  display: grid;
+  gap: var(--space-2);
+}
+.sellerhub-bin-price { padding: var(--space-3); }
+.sellerhub-bin-price h2, .sellerhub-bin-price p, .sellerhub-bin-price-dialog h3 { margin: 0; }
+.sellerhub-bin-price-form button { justify-self: start; }
+.sellerhub-bin-price textarea, .sellerhub-bin-price select {
+  box-sizing: border-box;
+  max-inline-size: 46rem;
+  border: 1px solid var(--gd-line-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  color: var(--gd-text);
+  background: var(--gd-ink);
+  font: inherit;
+}
+.sellerhub-bin-price textarea { min-block-size: 7rem; resize: vertical; font-family: var(--font-mono); }
+.sellerhub-bin-price :is(textarea, select):focus-visible { outline: 2px solid var(--gd-blue); outline-offset: 2px; }
+.sellerhub-bin-price :user-invalid, .sellerhub-bin-price [aria-invalid="true"] { border-color: var(--gd-danger); }
+.sellerhub-bin-price-table { overflow: auto; }
+.sellerhub-bin-price-table table { inline-size: 100%; border-collapse: collapse; }
+.sellerhub-bin-price-table :is(caption, th, td) { padding: var(--space-2); text-align: start; }
+.sellerhub-bin-price-table :is(th, td) { border-block-end: 1px solid var(--gd-line); }
+.sellerhub-bin-price-dialog {
+  inline-size: min(45rem, calc(100% - 2rem));
+  max-block-size: 80vh;
+  color: var(--gd-text);
+  background: var(--gd-ink);
+  border: 1px solid var(--gd-line-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+.sellerhub-bin-price-dialog[open] { display: grid; gap: var(--space-3); }
+.sellerhub-bin-price-dialog:modal { overscroll-behavior: contain; }
+.sellerhub-bin-price-dialog::backdrop { background: rgb(0 0 0 / .6); overflow: hidden; overscroll-behavior: contain; }
+.sellerhub-bin-price-actions { display: flex; flex-wrap: wrap; justify-content: end; gap: var(--space-2); }

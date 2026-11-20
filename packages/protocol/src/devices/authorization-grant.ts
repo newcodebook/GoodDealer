@@ -25,6 +25,7 @@ export const DESKTOP_COMMERCIAL_CAPABILITIES = [
   "cloudflare:registrar:observe",
   "godaddy:registrar:observe",
   "spaceship:marketplace:observe",
+  "spaceship:marketplace:write",
   "spaceship:registrar:observe",
 ] as const;
 export const desktopCommercialCapabilitySchema = z.enum(DESKTOP_COMMERCIAL_CAPABILITIES);
@@ -36,6 +37,9 @@ export const desktopCommercialCapabilitiesSchema = z.array(desktopCommercialCapa
     }
     if (capabilities.includes("afternic:marketplace:write") && !capabilities.includes("afternic:marketplace:observe")) {
       context.addIssue({ code: "custom", message: "Afternic writes require observation for reconciliation" });
+    }
+    if (capabilities.includes("spaceship:marketplace:write") && !capabilities.includes("spaceship:marketplace:observe")) {
+      context.addIssue({ code: "custom", message: "SellerHub writes require observation for reconciliation" });
     }
   });
 export type DesktopCommercialCapability = z.infer<typeof desktopCommercialCapabilitySchema>;

@@ -1,5 +1,6 @@
 import { createHash, verify } from "node:crypto";
 import {
+  sellerHubBinPriceApprovalAuditPayloadSchema, sellerHubBinPriceAuditPayloadSchema, sellerHubBinPriceClaimPayloadSchema,
   afternicListingPlanApprovalAuditPayloadSchema, afternicListingPlanClaimAuditPayloadSchema,
   afternicListingPlanPreflightRefusedAuditPayloadSchema, afternicListingPlanReconciledAuditPayloadSchema,
   afternicOwnershipReviewClaimAuditPayloadSchema, afternicOwnershipReviewPreflightRefusedAuditPayloadSchema,
@@ -35,6 +36,7 @@ import type {
 import type { ExecutionFactEvidenceReadPort } from "../execution-ledger/index";
 type WorkspaceAudit = DeviceAuditEvent & { scopeKind: "workspace" };
 export interface DeviceAuditEvidenceReadPort {
+  itemRefused(transaction: AccountTransaction, source: { workspaceId: string }, operationId: string, operationItemId: string): Promise<boolean>;
   itemSatisfied(transaction: AccountTransaction, source: { workspaceId: string }, operationId: string, operationItemId: string): Promise<boolean>;
   approval(
     transaction: AccountTransaction,
@@ -49,13 +51,16 @@ export interface DeviceAuditEvidenceReadPort {
 }
 /** Only accepted immutable records are visible through this owning-module port. */
 export class PostgresDeviceAuditEvidenceReader implements DeviceAuditEvidenceReadPort {
+  async itemRefused(tx: AccountTransaction, source: { workspaceId: string }, operationId: string, operationItemId: string): Promise<boolean> {
+    return this.itemStage(tx, source, operationId, operationItemId, "preflight_refused");
+  }
   async itemSatisfied(tx: AccountTransaction, source: { workspaceId: string }, operationId: string, operationItemId: string): Promise<boolean> {
     return this.itemStage(tx, source, operationId, operationItemId, "preflight_satisfied");
   }
   async itemClaimed(tx: AccountTransaction, source: { workspaceId: string }, operationId: string, operationItemId: string): Promise<boolean> {
     return this.itemStage(tx, source, operationId, operationItemId, "dispatch_claimed");
   }
-  private async itemStage(tx: AccountTransaction, source: { workspaceId: string }, operationId: string, operationItemId: string, stage: "preflight_satisfied" | "dispatch_claimed"): Promise<boolean> {
+  private async itemStage(tx: AccountTransaction, source: { workspaceId: string }, operationId: string, operationItemId: string, stage: "preflight_satisfied" | "dispatch_claimed" | "preflight_refused"): Promise<boolean> {
     const result = await tx.query<{ present: boolean }>(
       `SELECT EXISTS(SELECT 1 FROM workspace_device_audit_drain_records WHERE account_id=$1 AND workspace_id=$2
        AND quarantine_reason IS NULL AND signed_event->'payloadRedacted'->>'operationId'=$3
@@ -153,7 +158,12 @@ export class PostgresDeviceAuditEvidenceService {
     signatureVerified: boolean;
     pending: string | null;
   }> {
+    const sellerHub = sellerHubBinPriceAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const requiredCapability = sellerHub.success
+      ? sellerHub.data.stage === "reconciled" ? "spaceship:marketplace:observe" : "spaceship:marketplace:write"
+      : "afternic:marketplace:write";
     const context = await this.contexts.read(source.transaction, {
+      requiredCapability,
       workspaceId: event.workspaceId,
       sourceDeviceId: event.sourceDeviceId,
       activeLeaseEpoch: event.activeLeaseEpoch,
@@ -205,6 +215,42 @@ export class PostgresDeviceAuditEvidenceService {
       ) !== event.chainId
     )
       return verdict("audit_chain");
+    if (sellerHub.success) {
+      const p = sellerHub.data;
+      if (p.stage === "approved") return verdict(null);
+      if (p.stage === "reconciled") {
+        if (p.originalActiveLeaseEpoch > event.activeLeaseEpoch) return verdict("authorization");
+        const prior = await this.facts.event(source.transaction, {
+          workspaceId: event.workspaceId,
+          sourceDeviceId: p.originalSourceDeviceId,
+          activeLeaseEpoch: p.originalActiveLeaseEpoch,
+        }, p.originalExecutionFactId);
+        if (prior === null) return verdict(null, "ORIGINAL_FACT_MISSING");
+        return verdict(
+          prior.workspaceId === event.workspaceId &&
+          prior.sourceDeviceId === p.originalSourceDeviceId &&
+          prior.activeLeaseEpoch === p.originalActiveLeaseEpoch &&
+          prior.executionFactId === p.originalExecutionFactId &&
+          prior.operationId === p.operationId && prior.operationItemId === p.operationItemId &&
+          prior.attemptId === p.attemptId && prior.occurredAt <= event.occurredAt &&
+          sellerHubBinPriceClaimPayloadSchema.safeParse(prior.payloadRedacted).success &&
+          hash(encodeDrainStreamEnvelope("execution_fact", prior)) === p.originalExecutionFactDigest
+            ? null : "authorization",
+        );
+      }
+      const approved = await this.audits.approval(source.transaction, event, p.approvedOperationId);
+      if (approved === null) return verdict(null, "APPROVAL_AUDIT_MISSING");
+      const batch = sellerHubBinPriceApprovalAuditPayloadSchema.safeParse(approved.payloadRedacted);
+      if (!batch.success || batch.data.operationId !== p.operationId || batch.data.planHash !== p.planHash ||
+          approved.occurredAt > event.occurredAt || approved.credentialEpoch !== event.credentialEpoch ||
+          approved.signingKeyId !== event.signingKeyId || approved.signingKeyVersion !== event.signingKeyVersion)
+        return verdict("authorization");
+      const conflict = p.stage === "preflight_refused"
+        ? await this.audits.itemClaimed(source.transaction, event, p.operationId, p.operationItemId) ||
+          await this.facts.itemClaimed(source.transaction, event, p.operationId, p.operationItemId)
+        : await this.audits.itemRefused(source.transaction, event, p.operationId, p.operationItemId);
+      return verdict(conflict ? "authorization" : null);
+    }
     const legacyApproved = afternicDelistApprovalAuditPayloadSchema.safeParse(event.payloadRedacted);
     const planApproved = afternicListingPlanApprovalAuditPayloadSchema.safeParse(event.payloadRedacted);
     const approved = planApproved.success ? planApproved : legacyApproved.success ? legacyApproved : afternicListingWriteApprovalAuditPayloadSchema.safeParse(event.payloadRedacted);
@@ -270,7 +316,11 @@ export class PostgresDeviceAuditEvidenceService {
       event.targetRef !== reconciled.attemptId
     )
       return verdict("authorization");
-    const original = await this.facts.event(source.transaction, event, reconciled.originalExecutionFactId);
+    const original = await this.facts.event(
+      source.transaction,
+      { workspaceId: event.workspaceId, sourceDeviceId: event.sourceDeviceId },
+      reconciled.originalExecutionFactId,
+    );
     if (original === null) return verdict(null, "ORIGINAL_FACT_MISSING");
     const originalPayload = ownershipReconciled.success ? afternicOwnershipReviewClaimPayloadSchema.safeParse(original.payloadRedacted) : planReconciled.success ? afternicListingPlanClaimPayloadSchema.safeParse(original.payloadRedacted) : reconciled.action === "remove" ? afternicDelistClaimPayloadSchema.safeParse(original.payloadRedacted) : afternicListingWriteClaimPayloadSchema.safeParse(original.payloadRedacted);
     if (!originalPayload.success || originalPayload.data.action !== reconciled.action || originalPayload.data.schemaVersion !== reconciled.schemaVersion) return verdict("authorization");

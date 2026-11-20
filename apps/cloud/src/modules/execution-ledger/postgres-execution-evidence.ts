@@ -1,5 +1,8 @@
 import { createHash, verify } from "node:crypto";
 import {
+  decodeSellerHubBinPriceItemApprovalJson, encodeSellerHubBinPriceItemApprovalEnvelope,
+  encodeSellerHubBinPriceItemApprovalSignatureTranscript, encodeSellerHubBinPriceLocalDispatchKeyDigestInput,
+  sellerHubBinPriceClaimPayloadSchema, sellerHubBinPriceApprovalAuditPayloadSchema, sellerHubBinPriceClaimAuditPayloadSchema,
   afternicListingPlanClaimPayloadSchema, afternicListingPlanClaimAuditPayloadSchema, afternicListingPlanApprovalAuditPayloadSchema,
   afternicOwnershipReviewClaimPayloadSchema, afternicOwnershipReviewClaimAuditPayloadSchema,
   decodeAfternicListingPlanItemApprovalJson, encodeAfternicListingPlanItemApprovalEnvelope, encodeAfternicListingPlanItemApprovalSignatureTranscript,
@@ -36,7 +39,7 @@ export interface ExecutionFactEvidenceReadPort {
   itemClaimed(transaction: AccountTransaction, source: { workspaceId: string }, operationId: string, operationItemId: string): Promise<boolean>;
   event(
     transaction: AccountTransaction,
-    source: { workspaceId: string; sourceDeviceId: string },
+    source: { workspaceId: string; sourceDeviceId: string; activeLeaseEpoch?: number },
     eventId: string,
   ): Promise<ExecutionFact | null>;
 }
@@ -50,12 +53,12 @@ export class PostgresExecutionFactEvidenceReader implements ExecutionFactEvidenc
   }
   async event(
     tx: AccountTransaction,
-    source: { workspaceId: string; sourceDeviceId: string },
+    source: { workspaceId: string; sourceDeviceId: string; activeLeaseEpoch?: number },
     eventId: string,
   ): Promise<ExecutionFact | null> {
     const rows = await tx.query(
-      `SELECT signed_event FROM execution_fact_drain_records WHERE account_id=$1 AND workspace_id=$2 AND source_device_id=$3 AND event_id=$4 AND quarantine_reason IS NULL`,
-      [tx.accountId, source.workspaceId, source.sourceDeviceId, eventId],
+      `SELECT signed_event FROM execution_fact_drain_records WHERE account_id=$1 AND workspace_id=$2 AND source_device_id=$3 AND ($4::bigint IS NULL OR active_lease_epoch=$4) AND event_id=$5 AND quarantine_reason IS NULL`,
+      [tx.accountId, source.workspaceId, source.sourceDeviceId, source.activeLeaseEpoch ?? null, eventId],
     );
     if (rows.rows.length !== 1) return null;
     const row: unknown = rows.rows[0];
@@ -119,7 +122,10 @@ export class PostgresExecutionFactEvidenceService {
     signatureVerified: boolean;
     pending: string | null;
   }> {
+    const sellerHub = sellerHubBinPriceClaimPayloadSchema.safeParse(fact.payloadRedacted);
+    const requiredCapability = sellerHub.success ? "spaceship:marketplace:write" : "afternic:marketplace:write";
     const context = await this.contexts.read(source.transaction, {
+      requiredCapability,
       workspaceId: fact.workspaceId,
       sourceDeviceId: fact.sourceDeviceId,
       activeLeaseEpoch: fact.activeLeaseEpoch,
@@ -165,17 +171,18 @@ export class PostgresExecutionFactEvidenceService {
     const planPayload = afternicListingPlanClaimPayloadSchema.safeParse(fact.payloadRedacted);
     const writePayload = afternicListingWriteClaimPayloadSchema.safeParse(fact.payloadRedacted);
     const isPlan = ownershipPayload.success || planPayload.success;
-    const payload = ownershipPayload.success ? ownershipPayload.data : planPayload.success ? planPayload.data
+    const payload = sellerHub.success ? sellerHub.data : ownershipPayload.success ? ownershipPayload.data : planPayload.success ? planPayload.data
       : writePayload.success ? writePayload.data : afternicDelistClaimPayloadSchema.parse(fact.payloadRedacted);
-    const encodeApproval = ownershipPayload.success ? encodeAfternicOwnershipReviewItemApprovalEnvelope
+    const encodeApproval = sellerHub.success ? encodeSellerHubBinPriceItemApprovalEnvelope : ownershipPayload.success ? encodeAfternicOwnershipReviewItemApprovalEnvelope
       : planPayload.success ? encodeAfternicListingPlanItemApprovalEnvelope
         : writePayload.success ? encodeAfternicListingWriteItemApprovalEnvelope : encodeAfternicDelistItemApprovalEnvelope;
-    const encodeApprovalSignature = ownershipPayload.success ? encodeAfternicOwnershipReviewItemApprovalSignatureTranscript
+    const encodeApprovalSignature = sellerHub.success ? encodeSellerHubBinPriceItemApprovalSignatureTranscript : ownershipPayload.success ? encodeAfternicOwnershipReviewItemApprovalSignatureTranscript
       : planPayload.success ? encodeAfternicListingPlanItemApprovalSignatureTranscript
         : writePayload.success ? encodeAfternicListingWriteItemApprovalSignatureTranscript : encodeAfternicDelistItemApprovalSignatureTranscript;
-    const decodeApproval = ownershipPayload.success ? decodeAfternicOwnershipReviewItemApprovalJson
+    const decodeApproval = sellerHub.success ? decodeSellerHubBinPriceItemApprovalJson : ownershipPayload.success ? decodeAfternicOwnershipReviewItemApprovalJson
       : planPayload.success ? decodeAfternicListingPlanItemApprovalJson
         : writePayload.success ? decodeAfternicListingWriteItemApprovalJson : decodeAfternicDelistItemApprovalJson;
+    const dispatchKey = sellerHub.success ? encodeSellerHubBinPriceLocalDispatchKeyDigestInput : encodeAfternicLocalDispatchKeyDigestInput;
     let approval;
     try {
       approval = decodeApproval(
@@ -209,7 +216,7 @@ export class PostgresExecutionFactEvidenceService {
       fact.requestStartBoundary !== fact.occurredAt ||
       approval.approvedAt > fact.occurredAt ||
       hash(
-        encodeAfternicLocalDispatchKeyDigestInput({
+        dispatchKey({
           schemaVersion: 1,
           operationId: fact.operationId,
           operationItemId: fact.operationItemId,
@@ -220,6 +227,7 @@ export class PostgresExecutionFactEvidenceService {
     )
       return verdict("authorization");
     const original = await this.contexts.read(source.transaction, {
+      requiredCapability,
       workspaceId: approval.workspaceId,
       sourceDeviceId: approval.sourceDeviceId,
       activeLeaseEpoch: approval.activeLeaseEpoch,
@@ -244,7 +252,7 @@ export class PostgresExecutionFactEvidenceService {
       return verdict("authorization");
     const approvedAudit = await this.audits.approval(source.transaction, fact, fact.approvedOperationId);
     if (approvedAudit === null) return verdict(null, "APPROVAL_AUDIT_MISSING");
-    const batchResult = isPlan ? afternicListingPlanApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : writePayload.success ? afternicListingWriteApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : afternicDelistApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted);
+    const batchResult = sellerHub.success ? sellerHubBinPriceApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : isPlan ? afternicListingPlanApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : writePayload.success ? afternicListingWriteApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted) : afternicDelistApprovalAuditPayloadSchema.safeParse(approvedAudit.payloadRedacted);
     if (!batchResult.success) return verdict("authorization");
     const batch = batchResult.data;
     if (
@@ -264,9 +272,11 @@ export class PostgresExecutionFactEvidenceService {
     )
       return verdict("authorization");
     if (ownershipPayload.success && await this.audits.itemSatisfied(source.transaction, fact, fact.operationId, fact.operationItemId)) return verdict("authorization");
+    if (sellerHub.success && await this.audits.itemRefused(source.transaction, fact, fact.operationId, fact.operationItemId))
+      return verdict("authorization");
     const audit = await this.audits.event(source.transaction, fact, fact.auditEventRef);
     if (audit === null) return verdict(null, "PAIRED_AUDIT_MISSING");
-    const paired = ownershipPayload.success ? afternicOwnershipReviewClaimAuditPayloadSchema.safeParse(audit.payloadRedacted)
+    const paired = sellerHub.success ? sellerHubBinPriceClaimAuditPayloadSchema.safeParse(audit.payloadRedacted) : ownershipPayload.success ? afternicOwnershipReviewClaimAuditPayloadSchema.safeParse(audit.payloadRedacted)
       : planPayload.success ? afternicListingPlanClaimAuditPayloadSchema.safeParse(audit.payloadRedacted) : writePayload.success ? afternicListingWriteClaimAuditPayloadSchema.safeParse(audit.payloadRedacted) : afternicDelistClaimAuditPayloadSchema.safeParse(audit.payloadRedacted);
     if (!paired.success) return verdict("authorization");
     const p = paired.data;
