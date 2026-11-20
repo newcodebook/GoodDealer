@@ -291,6 +291,7 @@ pub struct DesktopAfternicListingWriteSummary {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopAfternicListingWriteStatus {
+    pub controlled_acceptance: Option<super::DesktopAfternicControlledAcceptance>,
     pub schema_version: u8,
     pub write_qualified: bool,
     pub write_entitled: bool,
@@ -934,6 +935,7 @@ impl BusinessDatabase {
         }
         Ok(DesktopAfternicListingWriteStatus {
             schema_version: 1,
+            controlled_acceptance: None,
             write_qualified: false,
             write_entitled: false,
             execution_available: false,

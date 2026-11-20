@@ -516,6 +516,7 @@ export const repositoryTopology = Object.freeze([
     sourceRoots: ["examples", "src", "tests"],
     publicEntrypoints: [
       publicEntrypoint("lib", "src/lib.rs"),
+      publicEntrypoint("build", "build.rs"),
       publicEntrypoint("backup-evidence", "examples/backup_evidence.rs"),
       publicEntrypoint("sqlcipher-evidence", "examples/sqlcipher_evidence.rs"),
       publicEntrypoint("public-surface-test", "tests/public_surface.rs"),

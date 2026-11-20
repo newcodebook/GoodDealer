@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+afternic-controlled-acceptance = ["gooddealer-local-storage/afternic-controlled-acceptance"]
+
 [build-dependencies]
 tauri-build.workspace = true
 

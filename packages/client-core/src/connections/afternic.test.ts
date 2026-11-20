@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { afternicConnectIntentSchema, parseAfternicConnectionsStatus } from "./afternic";
 const id = "aa000000-0000-4000-8000-000000000001";
-const status = () => ({ schemaVersion: 1, connections: [{ connectionId: id, displayLabel: "Afternic", state: "active", purgePending: false, lastScan: { observed: 300, imported: 12, skippedDeleted: 2, completedAt: "2026-11-19T00:00:00Z" } }], observeQualified: true, observeEntitled: true, capturable: true, laneState: "ready", lastOperation: null });
+const status = () => ({ schemaVersion: 1, controlledAcceptance: null, connections: [{ connectionId: id, displayLabel: "Afternic", state: "active", purgePending: false, lastScan: { observed: 300, imported: 12, skippedDeleted: 2, completedAt: "2026-11-19T00:00:00Z" } }], observeQualified: true, observeEntitled: true, capturable: true, laneState: "ready", lastOperation: null });
 describe("Afternic bounded connection projection", () => {
   it("keeps completed empty inventory distinct from no scan", () => {
     const value=status(); value.connections[0]!.lastScan.observed=0; value.connections[0]!.lastScan.imported=0;

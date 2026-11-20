@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { canonicalUtcTimestamp } from "@gooddealer/protocol/wire";
 import { canonicalDomainNameSchema, copyPlainData } from "../portfolio/index";
+import { afternicControlledAcceptanceSchema } from "../connections/index";
 import { connectionLabelSchema } from "../connections/connection-label";
 
 const referenceSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
@@ -81,9 +82,12 @@ const summarySchema = z.object({
         ? summary.succeeded === summary.total
         : summary.pending === 0 && summary.conflicts > 0));
 export const afternicDelistStatusSchema = z.object({
-  schemaVersion: z.literal(1), writeQualified: z.boolean(), writeEntitled: z.boolean(), executionAvailable: z.boolean(),
+  schemaVersion: z.literal(1), controlledAcceptance: afternicControlledAcceptanceSchema.nullable(),
+  writeQualified: z.boolean(), writeEntitled: z.boolean(), executionAvailable: z.boolean(),
   plans: z.array(summarySchema).max(50), detail: afternicDelistPlanSchema.nullable(),
 }).strict().superRefine((status, context) => {
+  if (status.controlledAcceptance !== null && status.writeQualified)
+    context.addIssue({ code: "custom", message: "controlled acceptance is not production qualification" });
   if (new Set(status.plans.map((plan) => plan.planRef)).size !== status.plans.length
     || status.plans.some((plan, index) => index > 0 && (
       status.plans[index - 1]!.createdAt < plan.createdAt

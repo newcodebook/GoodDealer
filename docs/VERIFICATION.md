@@ -271,3 +271,9 @@ Host/SQLCipher 验证 claim 前持久安装资格、v3 forced origin、原请求
 - Cloud 030/031 直调 append 同样验证 purpose/action/event/target、签名、跨租户、历史 epoch、配对 audit、并发与封链；旧 remove 领域不变。
 - 三个 raw IPC、原 ProviderLane、客户表单/历史/详情及工作区发布版本边界分别验证。交接冻结后迟到响应不追加旧来源流。
 - 独立记录见 [上架/改价审查](reviews/2026-11-19-afternic-listing-write-review.md)。源码/真实 PostgreSQL 与 SQLCipher 通过不替代 Linux 真实账号、Windows/macOS 实机或发行资格；私有所有权验证/DNS 仍未实现。
+
+## Afternic 首次真实接口验收
+
+通过真实开发 Cloud 的签名授权，在 Linux debug 构建使用设置中的 Afternic 入口。确认界面展示 `wecin.com` 和截止时间，原生窗口单独接收凭据，完整库存归集后可以查看持久资产及 Listing。预览整批一次确认，依次核验上架、改价和下架，记录精确 GET 的实际结果。重启使用同一槽，遗留未知写入只查对账。真实动作、签名与服务端证据按 [受控验收工作包](phase0/AFTERNIC_CONTROLLED_ACCEPTANCE_TASK_FRAME.md) 记录。
+
+源码验收另覆盖默认构建关门、Linux debug 之外构建拒绝、续期内同一 Lease epoch 复用、越域与跨连接、代次漂移、休眠、过期签名与提交栅栏、SQLCipher 关闭重开以及迟到 UI 回复。Linux 开发取证后仍需确认 Windows/macOS 实机和生产资格。

@@ -309,3 +309,5 @@ pub use active_workspace::business::{
 pub use desktop_local_host::afternic_listing_write::{
     DesktopAfternicListingWriteClaim, DesktopAfternicListingWriteWork,
 };
+
+pub use active_workspace::business::DesktopAfternicControlledAcceptance;

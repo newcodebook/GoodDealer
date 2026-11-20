@@ -4,7 +4,7 @@ use crate::active_workspace::business::{
     AfternicConnectionSeed, DesktopAfternicInventoryReceipt, DesktopAfternicListingObservation,
 };
 use crate::active_workspace::capability_qualification::capability_qualified;
-use crate::desktop_sync_runtime::{DesktopSyncError, DesktopSyncRunAdmission, DesktopSyncRuntime};
+use crate::desktop_sync_runtime::DesktopSyncError;
 use crate::{BusinessDatabaseError, DesktopNativeCloudAdmission};
 use sha2::{Digest, Sha256};
 
@@ -48,16 +48,6 @@ impl DesktopAfternicConnection {
     }
 }
 
-fn admitted(
-    sync: &DesktopSyncRuntime,
-    admission: &DesktopSyncRunAdmission,
-) -> Result<(), DesktopSyncError> {
-    sync.require_provider_capability(admission, OBSERVE)?;
-    if !capability_qualified(OBSERVE) {
-        return Err(DesktopSyncError::CapabilityUnqualified);
-    }
-    Ok(())
-}
 fn database_error(error: BusinessDatabaseError) -> DesktopSyncError {
     match error {
         BusinessDatabaseError::MutationStale => DesktopSyncError::StaleAuthority,
@@ -110,17 +100,25 @@ impl DesktopLocalHost {
         let at = now()?;
         let seed =
             self.with_sync_business_write(&admission.inner, |sync, business, run, guard| {
-                admitted(sync, run)?;
+                self.admit_afternic_access(sync, run, business.database_for_backup(), false, true)?;
+                let acceptance = self.afternic_acceptance_context(run, false)?;
                 if !business.has_read_generation_capacity() {
                     return Err(DesktopSyncError::StorageRejected);
                 }
                 let seed = business
                     .database_for_backup_mut()
-                    .prepare_afternic_connection(
+                    .prepare_afternic_connection_with_acceptance(
                         label,
                         run.authority_snapshot_digest(),
                         &at,
-                        || guard.verify(sync, run),
+                        acceptance.as_ref(),
+                        || {
+                            if acceptance.is_some() {
+                                self.afternic_acceptance_context(run, false)
+                                    .map_err(|_| BusinessDatabaseError::MutationStale)?;
+                            }
+                            guard.verify(sync, run)
+                        },
                     )
                     .map_err(database_error)?;
                 business.advance_read_generation_after_sync_commit();
@@ -140,10 +138,17 @@ impl DesktopLocalHost {
     ) -> Result<DesktopAfternicConnection, DesktopLocalHostError> {
         let seed = self.with_sync_runtime(Some(&admission.inner), |sync, database, run| {
             let run = run.ok_or(DesktopSyncError::StaleAuthority)?;
-            admitted(sync, run)?;
+            self.admit_afternic_access(sync, run, database, false, false)?;
             let seed = database
                 .afternic_connection_seed(connection_id)
                 .map_err(database_error)?;
+            self.require_afternic_acceptance_targets(
+                run,
+                database,
+                &seed.connection_id,
+                std::iter::empty::<&str>(),
+                false,
+            )?;
             database
                 .admit_afternic_provider(&seed)
                 .map_err(database_error)?;
@@ -164,7 +169,14 @@ impl DesktopLocalHost {
         }
         self.with_sync_runtime(Some(&connection.admission.inner), |sync, database, run| {
             let run = run.ok_or(DesktopSyncError::StaleAuthority)?;
-            admitted(sync, run)?;
+            self.admit_afternic_access(sync, run, database, false, false)?;
+            self.require_afternic_acceptance_targets(
+                run,
+                database,
+                &connection.seed.connection_id,
+                std::iter::empty::<&str>(),
+                false,
+            )?;
             database
                 .admit_afternic_provider(&connection.seed)
                 .map_err(database_error)
@@ -181,7 +193,15 @@ impl DesktopLocalHost {
     ) -> Result<DesktopAfternicInventoryReceipt, DesktopLocalHostError> {
         let at = now()?;
         self.with_sync_business_write(&connection.admission.inner, |sync, business, run, guard| {
-            admitted(sync, run)?;
+            self.admit_afternic_access(sync, run, business.database_for_backup(), false, false)?;
+            self.require_afternic_acceptance_targets(
+                run,
+                business.database_for_backup(),
+                &connection.seed.connection_id,
+                std::iter::empty::<&str>(),
+                false,
+            )?;
+            let acceptance = self.afternic_acceptance_context(run, false)?;
             if !business.has_read_generation_capacity() {
                 return Err(DesktopSyncError::StorageRejected);
             }
@@ -193,7 +213,13 @@ impl DesktopLocalHost {
                     run.device_id(),
                     run.lease_epoch(),
                     &at,
-                    || guard.verify(sync, run),
+                    || {
+                        if acceptance.is_some() {
+                            self.afternic_acceptance_context(run, false)
+                                .map_err(|_| BusinessDatabaseError::MutationStale)?;
+                        }
+                        guard.verify(sync, run)
+                    },
                 )
                 .map_err(database_error)?;
             business.advance_read_generation_after_sync_commit();
@@ -269,15 +295,28 @@ impl DesktopLocalHost {
     pub fn read_afternic_connections(
         &self,
     ) -> Result<crate::DesktopAfternicConnectionsRead, DesktopLocalHostError> {
-        self.with_authorized_business(false, |runtime, authority, _, restriction| {
-            Ok(crate::DesktopAfternicConnectionsRead {
-                schema_version: 1,
-                connections: runtime.database_for_backup().afternic_connections()?,
-                observe_qualified: capability_qualified(OBSERVE),
-                observe_entitled: restriction == super::RuntimeRestriction::Active
-                    && authority.capabilities.iter().any(|cap| cap == OBSERVE),
-            })
-        })
+        let mut status =
+            self.with_authorized_business(false, |runtime, authority, _, restriction| {
+                Ok(crate::DesktopAfternicConnectionsRead {
+                    schema_version: 1,
+                    controlled_acceptance: None,
+                    connections: runtime.database_for_backup().afternic_connections()?,
+                    observe_qualified: capability_qualified(OBSERVE),
+                    observe_entitled: restriction == super::RuntimeRestriction::Active
+                        && authority.capabilities.iter().any(|cap| cap == OBSERVE),
+                })
+            })?;
+        status.controlled_acceptance = self.afternic_acceptance_status(false).filter(|scope| {
+            status.observe_entitled
+                && !status.observe_qualified
+                && scope.connection_id.as_ref().is_none_or(|id| {
+                    status.connections.iter().any(|row| {
+                        &row.connection_id == id
+                            && matches!(row.state.as_str(), "prepared" | "active")
+                    })
+                })
+        });
+        Ok(status)
     }
     /// A missing or malformed exact Native slot disables credential use; no replacement is guessed.
     /// # Errors

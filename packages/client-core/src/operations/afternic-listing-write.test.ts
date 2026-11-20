@@ -42,7 +42,7 @@ describe("Afternic listing write bounded contracts",()=>{
   });
   it("rejects contradictory counts and secret result fields without leaking values",()=>{
     const summary={planRef:id,action:"create",connectionLabel:"Afternic",createdAt:plan.createdAt,state:"completed",total:1,applied:1,conflicts:0,pending:0,pendingProvider:0,pendingVerification:0};
-    const status={schemaVersion:1,writeQualified:true,writeEntitled:true,executionAvailable:false,plans:[summary],detail:plan};
+    const status={schemaVersion:1,controlledAcceptance:null,writeQualified:true,writeEntitled:true,executionAvailable:false,plans:[summary],detail:plan};
     expect(statusSchema.safeParse(status).success).toBe(true);
     expect(statusSchema.safeParse({...status,plans:[{...summary,pendingVerification:1}]}).success).toBe(false);
     expect(()=>parseAfternicListingWritePlan({...plan,cookie:"sensitive"})).toThrow("invalid Afternic listing write plan");

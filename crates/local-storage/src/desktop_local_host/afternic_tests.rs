@@ -181,7 +181,7 @@ fn afternic_final_epoch_fence_rolls_back_inventory_assets_and_activation() {
     let result = local.with_sync_business_write(
         &connection.admission.inner,
         |sync, business, run, guard| {
-            admitted(sync, run)?;
+            local.admit_afternic_access(sync, run, business.database_for_backup(), false, false)?;
             business
                 .database_for_backup_mut()
                 .import_afternic_inventory(

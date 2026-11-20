@@ -25,15 +25,15 @@ function priceFromDollars(value: string, field: PriceField): number | null {
   return Number(dollars * 1_000_000n);
 }
 
-function ListingWriteEditor({ locale, connections, disabled, preview }: {
+function ListingWriteEditor({ locale, connections, controlledDomain, disabled, preview }: {
   readonly locale: Locale; readonly connections: AfternicConnectionsStatus["connections"];
-  readonly disabled: boolean; readonly preview: (request: AfternicListingWritePreviewRequest) => void;
+  readonly controlledDomain: string | null; readonly disabled: boolean; readonly preview: (request: AfternicListingWritePreviewRequest) => void;
 }) {
   const copy = getPresentationCopy(locale, "batchOperation");
   const id = useId();
   const [connectionId, setConnectionId] = useState("");
   const [action, setAction] = useState<AfternicListingWriteAction>("create");
-  const [domains, setDomains] = useState("");
+  const [domains, setDomains] = useState(controlledDomain ?? "");
   const [rows, setRows] = useState<Draft[]>([]);
   const [errors, setErrors] = useState<ReadonlySet<string>>(new Set());
   const labels = { buynowPriceMicroUsd: copy.afternicWriteBuynow, floorPriceMicroUsd: copy.afternicWriteFloor, minbidPriceMicroUsd: copy.afternicWriteMinbid };
@@ -42,7 +42,8 @@ function ListingWriteEditor({ locale, connections, disabled, preview }: {
   const parseTargets = (text = domains): string[] | null => {
     try {
       const targets = text.split(/\r?\n/u).map(value => value.trim()).filter(Boolean).map(canonicalizeDomainName);
-      if (targets.length < 1 || targets.length > 500 || new Set(targets).size !== targets.length) return null;
+      if (targets.length < 1 || targets.length > 500 || new Set(targets).size !== targets.length
+        || (controlledDomain !== null && targets.some(domain => domain !== controlledDomain))) return null;
       return targets;
     } catch { return null; }
   };
@@ -88,7 +89,7 @@ function ListingWriteEditor({ locale, connections, disabled, preview }: {
       aria-describedby={`${id}-domains-hint${errors.has("domains") ? ` ${id}-domains-error` : ""}`}
       onInvalid={() => setErrors(value => new Set([...value, "domains"]))}
       onChange={event => { const text = event.currentTarget.value; setDomains(text); setRows([]); if (parseTargets(text) !== null) clear("domains"); }} />
-    {errors.has("domains") ? <p id={`${id}-domains-error`}>{copy.afternicWriteInvalidDomains}</p> : null}
+    {errors.has("domains") ? <p id={`${id}-domains-error`}>{controlledDomain === null ? copy.afternicWriteInvalidDomains : copy.afternicControlledDomainRequired.replace("{domain}", controlledDomain)}</p> : null}
     {rows.length > 0 ? <>
       <p id={`${id}-prices-hint`}>{action === "create" ? copy.afternicWriteCreateHint : copy.afternicWriteUpdateHint} {copy.afternicWritePriceHint}</p>
       {[...errors].some(key => key.endsWith("-patch")) ? <p role="alert">{copy.afternicWriteEmptyPatch}</p> : null}
@@ -143,7 +144,7 @@ export function AfternicListingWritePanel({ locale, port, connectionsPort, readO
   const changed = useRef(onChanged); changed.current = onChanged;
   const heading = useRef<HTMLHeadingElement>(null);
   const focusPreview = useRef(false);
-  const eligibility = `${readOnly}:${status?.writeQualified}:${status?.writeEntitled}:${status?.executionAvailable}:${connections.map(connection => connection.connectionId).sort().join(",")}`;
+  const eligibility = `${readOnly}:${status?.writeQualified}:${status?.writeEntitled}:${status?.executionAvailable}:${JSON.stringify(status?.controlledAcceptance)}:${connections.map(connection => connection.connectionId).sort().join(",")}`;
   const context = useRef({ port, connectionsPort, eligibility });
   // A lost role followed by regaining it must still invalidate an earlier in-flight preview.
   if (context.current.port !== port || context.current.connectionsPort !== connectionsPort || context.current.eligibility !== eligibility) {
@@ -165,7 +166,7 @@ export function AfternicListingWritePanel({ locale, port, connectionsPort, readO
           port.status({ schemaVersion: 1, planRef: selected }), connectionsPort.status(),
         ]);
         if (readTicket.current !== current) return;
-        setStatus(next); setConnections(connectionView.connections.filter(connection => connection.state === "active")); setNow(Date.now());
+        setStatus(next); setConnections(connectionView.connections.filter(connection => connection.state === "active" && (next.controlledAcceptance === null || connection.connectionId === next.controlledAcceptance.connectionId))); setNow(Date.now());
         const snapshot = JSON.stringify(next.plans);
         if (previous.current !== null && previous.current !== snapshot) changed.current();
         previous.current = snapshot;
@@ -173,14 +174,15 @@ export function AfternicListingWritePanel({ locale, port, connectionsPort, readO
           focusPreview.current = false;
           requestAnimationFrame(() => { if (readTicket.current === current) heading.current?.focus(); });
         }
-        if (next.detail?.state === "awaiting_approval" || next.plans.some(plan => plan.state === "executing")) timer = setTimeout(() => { void read(); }, 2000);
+        if (next.controlledAcceptance !== null || next.detail?.state === "awaiting_approval" || next.plans.some(plan => plan.state === "executing")) timer = setTimeout(() => { void read(); }, 2000);
       } catch { if (readTicket.current === current) { setStatus(null); setNotice("read_failed"); } }
       finally { if (readTicket.current === current) setReading(false); }
     };
     void read();
     return () => { readTicket.current += 1; clearTimeout(timer); };
   }, [port, connectionsPort, selected, attempt, readOnly]);
-  const canWrite = !readOnly && status?.writeQualified === true && status.writeEntitled;
+  const controlled = status?.controlledAcceptance ?? null;
+  const canWrite = !readOnly && status !== null && (status.writeQualified || controlled !== null) && status.writeEntitled;
   const run = (operation: () => Promise<AfternicListingWritePlan>, approving: boolean) => {
     if (operationBusy.current || pending || reading || !canWrite || (approving && !status?.executionAvailable)) return;
     const current = ++operationTicket.current;
@@ -194,7 +196,8 @@ export function AfternicListingWritePanel({ locale, port, connectionsPort, readO
     });
   };
   const plan = selected !== null && status?.detail?.planRef === selected ? status.detail : null;
-  const canApprove = canWrite && status.executionAvailable && !pending && !reading && plan?.state === "awaiting_approval" && Date.parse(plan.expiresAt) > now;
+  const canApprove = canWrite && status.executionAvailable && !pending && !reading && plan?.state === "awaiting_approval" && Date.parse(plan.expiresAt) > now
+    && (controlled === null || plan.items.every(item => item.domain === controlled.domain));
   const date = (value: string) => `${formatDate(locale, Date.parse(value), { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" })} UTC`;
   const money = (value: number) => formatMoney(locale, (BigInt(value) / 1_000_000n).toString(), "USD");
   const fields = (value: AfternicListingWritePatch) => <dl className="afternic-listing-write-values">
@@ -236,12 +239,13 @@ export function AfternicListingWritePanel({ locale, port, connectionsPort, readO
   return <section className="afternic-listing-write" aria-label={copy.afternicWriteTitle}>
     <Panel title={copy.afternicWriteTitle} actions={<Button type="button" size="sm" disabled={pending || reading} onClick={() => setAttempt(value => value + 1)}>{copy.afternicDelistRefresh}</Button>}>
       <p>{copy.afternicWriteScope}</p>
+      {controlled !== null ? <Banner tone="warning" title={copy.afternicControlledAcceptanceTitle}>{copy.afternicControlledAcceptanceScope.replace("{domain}", controlled.domain).replace("{expiresAt}", date(controlled.expiresAt))}</Banner> : null}
       <p role="status">{notice === "unknown" ? copy.afternicDelistUnknown : notice === "approved" ? copy.afternicDelistApproved : ""}</p>
       {notice === "read_failed" && status === null ? <Banner tone="warning" title={copy.afternicDelistReadFailed} /> : null}
       {status !== null && !readOnly && !status.writeEntitled ? <p>{copy.afternicDelistEntitlement}</p> : null}
-      {status !== null && !readOnly && !status.writeQualified ? <p>{copy.afternicDelistQualification}</p> : null}
+      {status !== null && !readOnly && !status.writeQualified && controlled === null ? <p>{copy.afternicDelistQualification}</p> : null}
       {status !== null && !readOnly && !status.executionAvailable ? <p>{copy.afternicDelistExecutionUnavailable}</p> : null}
-      {selected === null && canWrite ? <ListingWriteEditor locale={locale} connections={connections} disabled={pending || reading} preview={request => run(() => port.preview(request), false)} /> : null}
+      {selected === null && canWrite ? <ListingWriteEditor key={JSON.stringify(controlled)} locale={locale} connections={connections} controlledDomain={controlled?.domain ?? null} disabled={pending || reading} preview={request => run(() => port.preview(request), false)} /> : null}
       {selected !== null ? <Button type="button" disabled={pending} onClick={() => { setSelected(null); setNotice(null); }}>{readOnly ? copy.afternicWriteHistory : copy.afternicWriteNewPreview}</Button> : null}
     </Panel>
     {plan !== null ? <Panel title={<h3 ref={heading} tabIndex={-1}>{plan.connectionLabel} · {plan.action === "create" ? copy.afternicWriteCreate : copy.afternicWriteUpdate} · {states[plan.state]}</h3>}>

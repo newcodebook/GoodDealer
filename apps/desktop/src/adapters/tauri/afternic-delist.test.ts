@@ -40,11 +40,11 @@ describe("Afternic delist raw adapter", () => {
   });
   it("requires explicit read selection and rejects secret or substituted responses", async () => {
     const port = createAfternicDelistPort();
-    invoke.mockResolvedValue({ schemaVersion: 1, writeQualified: false, writeEntitled: false,
+    invoke.mockResolvedValue({ schemaVersion: 1, controlledAcceptance: null, writeQualified: false, writeEntitled: false,
       executionAvailable: false, plans: [], detail: null });
     await port.status({ schemaVersion: 1, planRef: null });
     expect(body()).toEqual({ schemaVersion: 1, planRef: null });
-    invoke.mockResolvedValue({ schemaVersion: 1, writeQualified: true, writeEntitled: true,
+    invoke.mockResolvedValue({ schemaVersion: 1, controlledAcceptance: null, writeQualified: true, writeEntitled: true,
       executionAvailable: true, plans: [], detail: plan() });
     await expect(port.status({ schemaVersion: 1, planRef: null })).rejects.toThrow();
     invoke.mockResolvedValue({ ...plan(), cookie: "canary-secret" });

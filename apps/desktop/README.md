@@ -325,3 +325,11 @@ uses authenticated GET reconciliation. Matched fields remain separate from provi
 ownership states. See [the current implementation](../../docs/CURRENT_IMPLEMENTATION.md) and
 [the review](../../docs/reviews/2026-11-19-afternic-listing-write-review.md) for source evidence and
 the outstanding real-account, verification/DNS and target-platform qualifications.
+
+The explicit Linux debug feature `afternic-controlled-acceptance` uses the normal Settings and
+Batch Operations screens to test the Afternic connection, complete inventory, and Listing changes
+for `wecin.com`. It requires the current signed commercial entitlement and execution context. The
+first connection binds the run to this device, Lease epoch, and credential slot. Both screens show
+the deadline returned by the Host. Build the frontend with `pnpm --filter @gooddealer/desktop build`,
+then build the native app with `cargo build --locked -p gooddealer-desktop-tauri --features afternic-controlled-acceptance`
+using the public verification registry described in the [development Cloud runbook](../../docs/DEVELOPMENT_CLOUD.md).

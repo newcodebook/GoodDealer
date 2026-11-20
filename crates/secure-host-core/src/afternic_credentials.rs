@@ -140,6 +140,9 @@ pub fn load_afternic_credential_guarded(
     let _lock = CUSTODY
         .lock()
         .map_err(|_| AfternicError::CustodyUnavailable)?;
+    // Custody serialization can outlive an authority or power epoch. Do not read the
+    // slot until the caller has rechecked after acquiring that potentially contended lock.
+    guard()?;
     let bytes = native_load(&account)?.ok_or(AfternicError::CustodyMismatch)?;
     let credential = decode(&bytes, plan)?;
     guard()?;
@@ -499,6 +502,21 @@ mod tests {
             .unwrap()
             .replacen('{', "{\"generation\":2,", 1);
         assert!(decode(duplicate.as_bytes(), &plan).is_err());
+    }
+    #[test]
+    fn load_rechecks_authority_after_custody_lock_before_reading_native_slot() {
+        let mut checks = 0;
+        let error = load_afternic_credential_guarded(&plan(), &mut || {
+            checks += 1;
+            if checks == 1 {
+                Ok(())
+            } else {
+                Err(AfternicError::AuthorityStale)
+            }
+        })
+        .unwrap_err();
+        assert_eq!(checks, 2);
+        assert_eq!(error, AfternicError::AuthorityStale);
     }
     #[test]
     fn authority_and_invalid_plans_fail_before_any_native_custody_access() {

@@ -30,13 +30,13 @@ function ports(initial: AfternicDelistPlan | null = null) {
       saved = { ...preview(), approvedAt: createdAt, state: "executing", items: preview().items.map((item) => ({ ...item, state: "queued" })) };
       return saved;
     }),
-    status: vi.fn<AfternicDelistPort["status"]>(async ({ planRef }) => ({ schemaVersion: 1, writeQualified: true, writeEntitled: true, executionAvailable,
+    status: vi.fn<AfternicDelistPort["status"]>(async ({ planRef }) => ({ schemaVersion: 1, controlledAcceptance: null, writeQualified: true, writeEntitled: true, executionAvailable,
       plans: saved === null ? [] : [{ planRef: saved.planRef, connectionLabel: saved.connectionLabel, createdAt,
         state: saved.state, total: 1, succeeded: saved.state === "completed" ? 1 : 0, conflicts: 0, pending: saved.state === "completed" ? 0 : 1 }],
       detail: planRef === null ? null : saved })),
   };
   const connections: AfternicConnectionPort = {
-    status: vi.fn<AfternicConnectionPort["status"]>(async () => ({ schemaVersion: 1, observeQualified: true, observeEntitled: true, capturable: true,
+    status: vi.fn<AfternicConnectionPort["status"]>(async () => ({ schemaVersion: 1, controlledAcceptance: null, observeQualified: true, observeEntitled: true, capturable: true,
       laneState: "ready", lastOperation: null, connections: [{ connectionId: id, displayLabel: "My market", state: "active", purgePending: false, lastScan: null }] })),
     connect: vi.fn(), refresh: vi.fn(), revoke: vi.fn(),
   };
@@ -62,6 +62,40 @@ async function chooseConnection() {
   await act(async () => { select.value = id; select.dispatchEvent(new Event("change", { bubbles: true })); });
 }
 async function submit() { await act(async () => element.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))); }
+
+const acceptance = { runId: "afternic-wecin-linux-20261119", domain: "wecin.com", expiresAt: "2026-11-26T23:59:59Z", connectionId: id } as const;
+function controlledPorts(initial: AfternicDelistPlan | null = null) {
+  const native = ports(initial);
+  const read = vi.mocked(native.port.status).getMockImplementation()!;
+  const readConnections = vi.mocked(native.connections.status).getMockImplementation()!;
+  let entitled = true;
+  vi.mocked(native.port.status).mockImplementation(async request => ({ ...await read(request), writeQualified: false, writeEntitled: entitled, controlledAcceptance: acceptance }));
+  vi.mocked(native.connections.status).mockImplementation(async () => {
+    const view = await readConnections();
+    return { ...view, observeQualified: false, controlledAcceptance: acceptance, connections: [...view.connections,
+      { ...view.connections[0]!, connectionId: "bb000000-0000-4000-8000-000000000002", displayLabel: "Other market" }] };
+  });
+  return { ...native, removeEntitlement() { entitled = false; } };
+}
+it("limits controlled removal previews to the bound connection and wecin.com", async () => {
+  const native = controlledPorts(); await mount(native);
+  expect(element.textContent).toContain("Production qualification is pending");
+  expect(element.querySelector("select")?.textContent).not.toContain("Other market");
+  await chooseConnection(); await input("example.com"); await submit();
+  expect(native.port.preview).not.toHaveBeenCalled();
+  expect(element.textContent).toContain("This acceptance run permits only wecin.com");
+  expect(element.querySelector("textarea")?.getAttribute("aria-invalid")).toBe("true");
+  expect(document.activeElement).toBe(element.querySelector("textarea"));
+  await input("WECIN.com"); await submit();
+  expect(native.port.preview).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 1, connectionId: id, domains: ["wecin.com"] });
+});
+it("does not let controlled removal override a paused runtime or absent entitlement", async () => {
+  const plan = { ...preview(), items: preview().items.map(item => ({ ...item, domain: "wecin.com" })) };
+  const native = controlledPorts(plan); native.setAvailable(false); await mount(native); await openHistory();
+  expect(button("Approve removal of 1 listings").disabled).toBe(true);
+  native.setAvailable(true); native.removeEntitlement(); await act(async () => button("Refresh plan status").click());
+  expect(button("Approve removal of 1 listings").disabled).toBe(true); expect(native.port.approve).not.toHaveBeenCalled();
+});
 
 it("creates an observed preview and requires one explicit approval of the exact batch", async () => {
   const native = ports(); await mount(native); await chooseConnection(); await input("EXAMPLE.com"); await submit();
@@ -157,7 +191,7 @@ it("dispatches approval once when clicks arrive before the pending render", asyn
   expect(native.port.approve).toHaveBeenCalledTimes(1);
 });
 
-it("keeps write controls absent when a preview reply arrives after demotion", async () => {
+it("discards a late preview reply after demotion", async () => {
   const native = ports();
   let finish!: (plan: AfternicDelistPlan) => void;
   vi.mocked(native.port.preview).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
@@ -166,7 +200,7 @@ it("keeps write controls absent when a preview reply arrives after demotion", as
   native.setSaved(preview());
   await act(async () => finish(preview()));
   expect(element.querySelector("form")).toBeNull();
-  expect(element.textContent).toContain("example.com");
+  expect(element.textContent).not.toContain("example.com");
   expect([...element.querySelectorAll("button")].some((entry) => entry.textContent?.startsWith("Approve removal"))).toBe(false);
   expect(native.port.approve).not.toHaveBeenCalled();
 });
@@ -205,5 +239,5 @@ it.each(["new-preview", "other-history"] as const)("hides old approval while a %
   expect(element.textContent).not.toContain("$100.00");
   expect([...element.querySelectorAll("button")].some((entry) => entry.textContent?.startsWith("Approve removal"))).toBe(false);
   expect(native.port.approve).not.toHaveBeenCalled();
-  await act(async () => finish({ schemaVersion: 1, writeQualified: true, writeEntitled: true, executionAvailable: true, plans: [], detail: null }));
+  await act(async () => finish({ schemaVersion: 1, controlledAcceptance: null, writeQualified: true, writeEntitled: true, executionAvailable: true, plans: [], detail: null }));
 });

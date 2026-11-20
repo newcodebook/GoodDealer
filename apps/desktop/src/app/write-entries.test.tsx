@@ -85,9 +85,9 @@ function ports(cloudflare: () => Promise<CloudflareConnectionStatus> = async () 
       schemaVersion: 1, kind: "batch_operations", readGeneration: generation, freshness,
       totalRows: 0, window: { startIndex: 0, size: 200, rows: [] },
     })) },
-    afternicDelist: { status: vi.fn(async () => ({ schemaVersion: 1 as const, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null })), preview: vi.fn(), approve: vi.fn() },
-    afternicListingWrite: { status: vi.fn(async () => ({ schemaVersion: 1 as const, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null })), preview: vi.fn(), approve: vi.fn() },
-    afternic: { status: vi.fn(async () => ({ schemaVersion: 1 as const, connections: [], observeQualified: false, observeEntitled: false, capturable: false, laneState: "ready" as const, lastOperation: null })), connect: vi.fn(), refresh: vi.fn(), revoke: vi.fn() },
+    afternicDelist: { status: vi.fn(async () => ({ schemaVersion: 1 as const, controlledAcceptance: null, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null })), preview: vi.fn(), approve: vi.fn() },
+    afternicListingWrite: { status: vi.fn(async () => ({ schemaVersion: 1 as const, controlledAcceptance: null, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null })), preview: vi.fn(), approve: vi.fn() },
+    afternic: { status: vi.fn(async () => ({ schemaVersion: 1 as const, connections: [], controlledAcceptance: null, observeQualified: false, observeEntitled: false, capturable: false, laneState: "ready" as const, lastOperation: null })), connect: vi.fn(), refresh: vi.fn(), revoke: vi.fn() },
     cloudflare: { status: vi.fn(cloudflare), create: vi.fn(), activate: vi.fn(), retirementCandidates: vi.fn(async () => []), purge: vi.fn(), revoke: vi.fn() },
   } as unknown as AuthoritativeWorkspacePorts;
 }
@@ -145,10 +145,10 @@ describe("write entries follow the presentation gate", () => {
   ] as const)("composes the Afternic batch journey with the %s %j write gate", async (state, capabilities, writable) => {
     const workspacePorts = ports();
     vi.mocked(workspacePorts.afternicDelist.status).mockResolvedValue({
-      schemaVersion: 1, writeQualified: true, writeEntitled: true, executionAvailable: true, plans: [], detail: null,
+      schemaVersion: 1, controlledAcceptance: null, writeQualified: true, writeEntitled: true, executionAvailable: true, plans: [], detail: null,
     });
     vi.mocked(workspacePorts.afternicListingWrite.status).mockResolvedValue({
-      schemaVersion: 1, writeQualified: true, writeEntitled: true, executionAvailable: true, plans: [], detail: null,
+      schemaVersion: 1, controlledAcceptance: null, writeQualified: true, writeEntitled: true, executionAvailable: true, plans: [], detail: null,
     });
     await render(state, [...capabilities], workspacePorts);
     await clickButton("Batch operations");

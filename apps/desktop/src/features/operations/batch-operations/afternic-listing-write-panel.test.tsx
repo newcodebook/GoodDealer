@@ -23,13 +23,13 @@ beforeEach(() => {
   vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-19T00:00:30Z"));
   element = document.createElement("div"); document.body.append(element); root = createRoot(element);
 });
-afterEach(async () => { await act(async () => root.unmount()); element.remove(); vi.restoreAllMocks(); });
+afterEach(async () => { await act(async () => root.unmount()); element.remove(); vi.useRealTimers(); vi.restoreAllMocks(); });
 function ports(initial: AfternicListingWritePlan | null = null) {
   let saved = initial; let available = true;
   const port: AfternicListingWritePort = {
     preview: vi.fn(async request => { saved = preview(request); return saved; }),
     approve: vi.fn(async () => { saved = queued(saved ?? undefined); return saved; }),
-    status: vi.fn<AfternicListingWritePort["status"]>(async ({ planRef }) => ({ schemaVersion: 1, writeQualified: true, writeEntitled: true, executionAvailable: available,
+    status: vi.fn<AfternicListingWritePort["status"]>(async ({ planRef }) => ({ schemaVersion: 1, controlledAcceptance: null, writeQualified: true, writeEntitled: true, executionAvailable: available,
       plans: saved === null ? [] : [{ planRef: saved.planRef, action: saved.action, connectionLabel: saved.connectionLabel, createdAt, state: saved.state, total: saved.items.length,
         applied: saved.items.filter(item => item.state === "applied").length, conflicts: saved.items.filter(item => item.state === "conflict").length,
         pending: saved.items.filter(item => !["applied", "conflict"].includes(item.state)).length,
@@ -37,7 +37,7 @@ function ports(initial: AfternicListingWritePlan | null = null) {
       detail: planRef === null ? null : saved })),
   };
   const connections: AfternicConnectionPort = {
-    status: vi.fn<AfternicConnectionPort["status"]>(async () => ({ schemaVersion: 1, observeQualified: true, observeEntitled: true, capturable: true,
+    status: vi.fn<AfternicConnectionPort["status"]>(async () => ({ schemaVersion: 1, controlledAcceptance: null, observeQualified: true, observeEntitled: true, capturable: true,
       laneState: "ready", lastOperation: null, connections: [{ connectionId: id, displayLabel: "My market", state: "active", purgePending: false, lastScan: null }] })),
     connect: vi.fn(), refresh: vi.fn(), revoke: vi.fn(),
   };
@@ -149,4 +149,49 @@ it("removes approval when a status read fails", async () => {
   const native = ports(preview()); await mount(native); await openHistory();
   vi.mocked(native.port.status).mockRejectedValue(new Error("closed failure")); await act(async () => button("Refresh plan status").click());
   expect(element.textContent).toContain("Plan status is unavailable"); expect(element.querySelector("table")).toBeNull(); expect(native.port.approve).not.toHaveBeenCalled();
+});
+
+const acceptance = { runId: "afternic-wecin-linux-20261119", domain: "wecin.com", expiresAt: "2026-11-26T23:59:59Z", connectionId: id } as const;
+function controlledPorts(initial: AfternicListingWritePlan | null = null) {
+  const native = ports(initial);
+  const read = vi.mocked(native.port.status).getMockImplementation()!;
+  const readConnections = vi.mocked(native.connections.status).getMockImplementation()!;
+  let entitled = true;
+  let scope: typeof acceptance | null = acceptance;
+  vi.mocked(native.port.status).mockImplementation(async request => ({ ...await read(request), writeQualified: false, writeEntitled: entitled, controlledAcceptance: scope }));
+  vi.mocked(native.connections.status).mockImplementation(async () => {
+    const view = await readConnections();
+    return { ...view, observeQualified: false, controlledAcceptance: scope, connections: [...view.connections,
+      { ...view.connections[0]!, connectionId: "bb000000-0000-4000-8000-000000000002", displayLabel: "Other market" }] };
+  });
+  return { ...native, withdraw() { scope = null; }, removeEntitlement() { entitled = false; } };
+}
+it("uses only the bound connection and wecin.com without upgrading production qualification", async () => {
+  const native = controlledPorts(); await mount(native);
+  expect(element.textContent).toContain("Production qualification is pending");
+  expect(element.querySelector('select[name="connectionId"]')?.textContent).not.toContain("Other market");
+  await prepare("example.com");
+  expect(element.textContent).toContain("This acceptance run permits only wecin.com");
+  expect(element.querySelector('[name="domains"]')?.getAttribute("aria-invalid")).toBe("true");
+  expect(document.activeElement).toBe(element.querySelector('[name="domains"]'));
+  expect(native.port.preview).not.toHaveBeenCalled();
+  await setInput("domains", "WECIN.com"); await submit(); await submit();
+  expect(native.port.preview).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 1, connectionId: id, action: "create", items: [{ domain: "wecin.com", values }] });
+});
+it("keeps controlled approval disabled by runtime pause and entitlement removal", async () => {
+  const native = controlledPorts(preview()); native.setAvailable(false); await mount(native); await openHistory();
+  expect(button("Approve changes for 1 domains").disabled).toBe(true);
+  native.setAvailable(true); native.removeEntitlement();
+  await act(async () => button("Refresh plan status").click());
+  expect(button("Approve changes for 1 domains").disabled).toBe(true); expect(native.port.approve).not.toHaveBeenCalled();
+});
+it("discards an in-flight controlled preview when Host withdraws the scope", async () => {
+  vi.useFakeTimers();
+  const native = controlledPorts(); let finish!: (plan: AfternicListingWritePlan) => void;
+  vi.mocked(native.port.preview).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await mount(native); await prepare(); await submit();
+  native.withdraw(); await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  await act(async () => finish(preview()));
+  expect(element.querySelector("form")).toBeNull(); expect(element.querySelector("table")).toBeNull();
+  expect(native.port.approve).not.toHaveBeenCalled();
 });

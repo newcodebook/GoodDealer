@@ -1,4 +1,19 @@
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(afternic_controlled_debug_linux)");
+    // PROFILE collapses every custom dev-derived profile to "debug". OUT_DIR retains
+    // Cargo's actual artifact profile: <profile>/build/<package-hash>/out, including
+    // cross-target builds. Both must identify the standard debug profile.
+    let out_dir = std::env::var_os("OUT_DIR").expect("Cargo must provide OUT_DIR");
+    let artifact_profile = std::path::Path::new(&out_dir)
+        .ancestors()
+        .nth(3)
+        .and_then(std::path::Path::file_name);
+    if artifact_profile == Some(std::ffi::OsStr::new("debug"))
+        && std::env::var("PROFILE").as_deref() == Ok("debug")
+        && std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux")
+    {
+        println!("cargo:rustc-cfg=afternic_controlled_debug_linux");
+    }
     // This manifest is the complete production IPC permission source.
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[

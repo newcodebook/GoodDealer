@@ -259,8 +259,10 @@ const expectedLocalStorageExportModules = [
   "desktop_local_host::forced_takeover",
   "active_workspace::business",
   "desktop_local_host::afternic_listing_write",
+  "active_workspace::business",
 ];
 const expectedLocalStoragePublicExports = [
+  "DesktopAfternicControlledAcceptance",
   "DesktopForcedTakeoverExchange", "DesktopForcedTakeoverExchangeKind",
   "DesktopForcedTakeoverPreview", "DesktopForcedTakeoverPreviewReason",
   "DesktopForcedTakeoverStoppedReason", "DesktopForcedTakeoverView", "DesktopForcedTakeoverWork",

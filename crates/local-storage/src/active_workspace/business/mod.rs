@@ -1,3 +1,8 @@
+mod afternic_controlled_acceptance;
+pub use afternic_controlled_acceptance::DesktopAfternicControlledAcceptance;
+pub(crate) use afternic_controlled_acceptance::{
+    AFTERNIC_ACCEPTANCE_ENABLED, AFTERNIC_ACCEPTANCE_EXPIRES,
+};
 use std::fmt::{Debug, Display, Formatter};
 use std::path::Path;
 

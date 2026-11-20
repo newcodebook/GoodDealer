@@ -14,7 +14,7 @@ function plan() {
       observedAt: timestamp, state: "preview", reason: null, retryAt: null }] };
 }
 function status() {
-  return { schemaVersion: 1, writeQualified: true, writeEntitled: true, executionAvailable: true,
+  return { schemaVersion: 1, controlledAcceptance: null, writeQualified: true, writeEntitled: true, executionAvailable: true,
     plans: [{ planRef, connectionLabel: "Market", createdAt: timestamp, state: "awaiting_approval",
       total: 1, succeeded: 0, conflicts: 0, pending: 1 }], detail: plan() };
 }

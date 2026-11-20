@@ -114,11 +114,29 @@ impl DesktopAfternicListingObservation {
 
 impl BusinessDatabase {
     /// A prepared generation precedes secret capture/publication and survives every crash window.
+    #[cfg(test)]
     pub(crate) fn prepare_afternic_connection<G>(
         &mut self,
         display_label: &str,
         authority_digest: &str,
         at: &str,
+        guard: impl FnOnce() -> Result<G, BusinessDatabaseError>,
+    ) -> Result<AfternicConnectionSeed, BusinessDatabaseError> {
+        self.prepare_afternic_connection_with_acceptance(
+            display_label,
+            authority_digest,
+            at,
+            None,
+            guard,
+        )
+    }
+
+    pub(crate) fn prepare_afternic_connection_with_acceptance<G>(
+        &mut self,
+        display_label: &str,
+        authority_digest: &str,
+        at: &str,
+        acceptance: Option<&super::ExecutionEvidenceContext>,
         guard: impl FnOnce() -> Result<G, BusinessDatabaseError>,
     ) -> Result<AfternicConnectionSeed, BusinessDatabaseError> {
         if !crate::portfolio_projection::valid_connection_label(display_label) {
@@ -145,6 +163,12 @@ impl BusinessDatabase {
         }
         tx.execute("INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,lifecycle_status,capabilities_json,created_at,validation_status,connection_incarnation_id,credential_use_state) VALUES (?1,?2,'afternic',?3,?4,'invalid','[\"marketplace\"]',?4,'unknown',?5,'inactive')",params![self.workspace_id,seed.connection_id,display_label,at,seed.connection_incarnation_id]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
         tx.execute("INSERT INTO afternic_connection_publications (workspace_id,connection_id,connection_incarnation_id,credential_generation,credential_public_proof,authority_snapshot_digest,publication_state,created_at,updated_at) VALUES (?1,?2,?3,1,?4,?5,'prepared',?6,?6)",params![self.workspace_id,seed.connection_id,seed.connection_incarnation_id,seed.credential_public_proof,authority_digest,at]).map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        if let Some(evidence) = acceptance {
+            if evidence.workspace_id != self.workspace_id {
+                return Err(BusinessDatabaseError::MutationStale);
+            }
+            super::afternic_controlled_acceptance::bind(&tx, evidence, &seed)?;
+        }
         let _guard = guard()?;
         tx.commit()
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
@@ -369,6 +393,7 @@ pub struct DesktopAfternicConnectionSummary {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopAfternicConnectionsRead {
+    pub controlled_acceptance: Option<super::DesktopAfternicControlledAcceptance>,
     pub schema_version: u8,
     pub connections: Vec<DesktopAfternicConnectionSummary>,
     pub observe_qualified: bool,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { canonicalUtcTimestamp } from "@gooddealer/protocol/wire";
 import { copyPlainData } from "../portfolio/index";
+import { afternicControlledAcceptanceSchema } from "./afternic-controlled-acceptance";
 import { connectionLabelSchema } from "./connection-label";
 
 const connectionIdSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
@@ -19,6 +20,7 @@ export const afternicConnectionsStatusSchema = z.object({
     lastScan: scanSchema.nullable(),
   }).strict().refine((connection) => !connection.purgePending || connection.state === "revoked")).max(100),
   observeQualified: z.boolean(),
+  controlledAcceptance: afternicControlledAcceptanceSchema.nullable(),
   capturable: z.boolean(),
   observeEntitled: z.boolean(),
   laneState: z.enum(["recovering", "ready", "busy", "blocked"]),
@@ -26,7 +28,20 @@ export const afternicConnectionsStatusSchema = z.object({
     kind: z.enum(["afternic_connect", "afternic_refresh", "afternic_revoke"]),
     outcome: z.enum(["confirmed", "unconfirmed", "unqualified", "unreachable", "retry_later", "credential_rejected", "failed"]),
   }).strict().nullable(),
-}).strict().refine((status) => new Set(status.connections.map((connection) => connection.connectionId)).size === status.connections.length);
+}).strict().superRefine((status, context) => {
+  if (new Set(status.connections.map((connection) => connection.connectionId)).size !== status.connections.length) {
+    context.addIssue({ code: "custom", message: "duplicate Afternic connection" });
+  }
+  const acceptance = status.controlledAcceptance;
+  if (acceptance === null) return;
+  if (status.observeQualified) {
+    context.addIssue({ code: "custom", message: "controlled acceptance is not production qualification" });
+  }
+  if (acceptance.connectionId !== null && !status.connections.some(connection =>
+    connection.connectionId === acceptance.connectionId && (connection.state === "prepared" || connection.state === "active"))) {
+    context.addIssue({ code: "custom", message: "controlled acceptance connection is unavailable" });
+  }
+});
 export type AfternicConnectionsStatus = z.infer<typeof afternicConnectionsStatusSchema>;
 export interface AfternicConnectionPort {
   status(): Promise<AfternicConnectionsStatus>;

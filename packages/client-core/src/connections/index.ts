@@ -312,3 +312,5 @@ export class ValidatingConnectionSettingsPort implements ConnectionSettingsPort 
 
 export { deviceDirectoryViewSchema, deviceSelfNameIntentSchema, parseDeviceDirectoryView, type DeviceDirectoryView, type DeviceSelfNameIntent, type DeviceDirectorySettingsPort } from "./device-directory";
 export { afternicConnectIntentSchema, afternicConnectionIntentSchema, afternicConnectionsStatusSchema, parseAfternicConnectionsStatus, type AfternicConnectionsStatus, type AfternicConnectionPort } from "./afternic";
+
+export { afternicControlledAcceptanceSchema, type AfternicControlledAcceptance } from "./afternic-controlled-acceptance";

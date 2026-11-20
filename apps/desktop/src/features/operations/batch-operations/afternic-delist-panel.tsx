@@ -64,7 +64,7 @@ export function AfternicDelistPanel({ locale, port, connectionsPort, readOnly, o
         ]);
         if (ticket.current !== current) return;
         setStatus(next);
-        const activeConnections = connectionView.connections.filter((connection) => connection.state === "active");
+        const activeConnections = connectionView.connections.filter((connection) => connection.state === "active" && (next.controlledAcceptance === null || next.controlledAcceptance.connectionId === connection.connectionId));
         setConnections(activeConnections);
         setConnectionId((value) => activeConnections.some((connection) => connection.connectionId === value) ? value : "");
         setNow(Date.now());
@@ -75,7 +75,7 @@ export function AfternicDelistPanel({ locale, port, connectionsPort, readOnly, o
           focusPreview.current = false;
           requestAnimationFrame(() => { if (ticket.current === current) heading.current?.focus(); });
         }
-        if (next.detail?.state === "awaiting_approval" || next.plans.some((plan) => plan.state === "executing")) {
+        if (next.controlledAcceptance !== null || next.detail?.state === "awaiting_approval" || next.plans.some((plan) => plan.state === "executing")) {
           timer = setTimeout(() => { void read(); }, 2000);
         }
       } catch {
@@ -87,7 +87,7 @@ export function AfternicDelistPanel({ locale, port, connectionsPort, readOnly, o
   }, [port, connectionsPort, selected, attempt]);
 
   const run = (operation: () => Promise<AfternicDelistPlan>, approving: boolean) => {
-    if (operationBusy.current || pending || readOnly || reading) return;
+    if (operationBusy.current || pending || readOnly || reading || !canWrite || (approving && !status?.executionAvailable)) return;
     operationBusy.current = true;
     setPending(true);
     const current = ++operationTicket.current;
@@ -104,11 +104,20 @@ export function AfternicDelistPanel({ locale, port, connectionsPort, readOnly, o
       if (operationTicket.current === current) { operationBusy.current = false; setPending(false); setAttempt((value) => value + 1); }
     });
   };
+  const eligibility = `${readOnly}:${status?.writeQualified}:${status?.writeEntitled}:${status?.executionAvailable}:${JSON.stringify(status?.controlledAcceptance)}:${connections.map(connection => connection.connectionId).sort().join(",")}`;
+  const context = useRef({ port, connectionsPort, eligibility });
+  if (context.current.port !== port || context.current.connectionsPort !== connectionsPort || context.current.eligibility !== eligibility) {
+    operationTicket.current += 1;
+    context.current = { port, connectionsPort, eligibility };
+  }
+  useEffect(() => { operationBusy.current = false; setPending(false); }, [eligibility, port, connectionsPort]);
   // A slow read for a newly selected history entry must never authorize the previous detail.
   const plan = selected !== null && status?.detail?.planRef === selected ? status.detail : null;
-  const canWrite = !readOnly && status?.writeQualified === true && status.writeEntitled;
+  const controlled = status?.controlledAcceptance ?? null;
+  const canWrite = !readOnly && status !== null && (status.writeQualified || controlled !== null) && status.writeEntitled;
   const canApprove = canWrite && status.executionAvailable && !pending && !reading
-    && plan?.state === "awaiting_approval" && Date.parse(plan.expiresAt) > now;
+    && plan?.state === "awaiting_approval" && Date.parse(plan.expiresAt) > now
+    && (controlled === null || plan.items.every(item => item.domain === controlled.domain));
   const date = (value: string) => `${formatDate(locale, Date.parse(value), { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" })} UTC`;
   const money = (value: number | null) => value === null ? "—" : formatMoney(locale, String(value / 1_000_000), "USD");
   const stateLabel = {
@@ -155,10 +164,11 @@ export function AfternicDelistPanel({ locale, port, connectionsPort, readOnly, o
   return <section className="afternic-delist" aria-label={copy.afternicDelistTitle}>
     <Panel title={copy.afternicDelistTitle} actions={<Button type="button" size="sm" disabled={pending || reading} onClick={() => setAttempt((value) => value + 1)}>{copy.afternicDelistRefresh}</Button>}>
       <p>{copy.afternicDelistScope}</p>
+      {controlled !== null ? <Banner tone="warning" title={copy.afternicControlledAcceptanceTitle}>{copy.afternicControlledAcceptanceScope.replace("{domain}", controlled.domain).replace("{expiresAt}", date(controlled.expiresAt))}</Banner> : null}
       <p role="status">{notice === "unknown" ? copy.afternicDelistUnknown : notice === "approved" ? copy.afternicDelistApproved : ""}</p>
       {notice === "read_failed" && status === null ? <Banner tone="warning" title={copy.afternicDelistReadFailed} /> : null}
       {status !== null && !readOnly && !status.writeEntitled ? <p>{copy.afternicDelistEntitlement}</p> : null}
-      {status !== null && !readOnly && !status.writeQualified ? <p>{copy.afternicDelistQualification}</p> : null}
+      {status !== null && !readOnly && !status.writeQualified && controlled === null ? <p>{copy.afternicDelistQualification}</p> : null}
       {status !== null && !readOnly && !status.executionAvailable ? <p>{copy.afternicDelistExecutionUnavailable}</p> : null}
       {selected === null && canWrite ? <form aria-labelledby={`${id}-form`} onSubmit={(event) => {
         event.preventDefault();
@@ -166,7 +176,7 @@ export function AfternicDelistPanel({ locale, port, connectionsPort, readOnly, o
         try { targets = domains.split(/\r?\n/u).map((value) => value.trim()).filter(Boolean).map(canonicalizeDomainName); }
         catch { setInvalid(true); document.getElementById(`${id}-domains`)?.focus(); return; }
         const request = afternicDelistPreviewRequestSchema.safeParse({ schemaVersion: 1, connectionId, domains: targets });
-        if (!request.success) { setInvalid(true); document.getElementById(`${id}-domains`)?.focus(); return; }
+        if (!request.success || (controlled !== null && targets.some(domain => domain !== controlled.domain))) { setInvalid(true); document.getElementById(`${id}-domains`)?.focus(); return; }
         run(() => port.preview(request.data), false);
       }}>
         <h3 id={`${id}-form`}>{copy.afternicDelistNewPreview}</h3>
@@ -179,7 +189,7 @@ export function AfternicDelistPanel({ locale, port, connectionsPort, readOnly, o
           autoCapitalize="none" autoCorrect="off" spellCheck={false} value={domains} disabled={pending || reading}
           aria-invalid={invalid} aria-describedby={`${id}-hint${invalid ? ` ${id}-error` : ""}`}
           onInvalid={() => setInvalid(true)} onChange={(event) => { setDomains(event.currentTarget.value); setInvalid(false); }} />
-        {invalid ? <p id={`${id}-error`}>{copy.afternicDelistInvalid}</p> : null}
+        {invalid ? <p id={`${id}-error`}>{controlled === null ? copy.afternicDelistInvalid : copy.afternicControlledDomainRequired.replace("{domain}", controlled.domain)}</p> : null}
         <Button type="submit" disabled={pending || reading}>{copy.afternicDelistPreview}</Button>
       </form> : null}
       {selected !== null ? <Button type="button" disabled={pending} onClick={() => { setSelected(null); setNotice(null); }}>{readOnly ? copy.afternicDelistHistory : copy.afternicDelistNewPreview}</Button> : null}

@@ -292,6 +292,7 @@ impl NativeCloudCoordinator {
         let provider_operations: Arc<ProviderOperationLog> = Arc::new(Mutex::new(None));
         let provider_record = Arc::clone(&provider_operations);
         let provider_power = power.clone();
+        let provider_recovery_power = power.clone();
         let lane_power = power.clone();
         let delist_waker = provider_handle.clone();
         let provider_task = tauri::async_runtime::spawn(async move {
@@ -300,6 +301,7 @@ impl NativeCloudCoordinator {
                     move || {
                         let host = Arc::clone(&provider_recovery_host);
                         let cancel_fence = Arc::clone(&provider_recovery_cancel_fence);
+                        let power = provider_recovery_power.clone();
                         async move {
                             let cloudflare = crate::provider_credential_orchestrator::recover(
                                 Arc::clone(&host),
@@ -311,6 +313,7 @@ impl NativeCloudCoordinator {
                                 crate::provider_credential_orchestrator::afternic::recover(
                                     host,
                                     cancel_fence,
+                                    power,
                                 )
                                 .await
                                 .is_ok();
@@ -344,7 +347,7 @@ impl NativeCloudCoordinator {
                                     wake.wake_listing_write();
                                 }
                             } else {
-                                run_provider_operation(host, cancel, projection, record, operation)
+                                run_provider_operation(host, cancel, projection, record, operation, power)
                                     .await;
                             }
                         }
@@ -544,6 +547,7 @@ async fn run_provider_operation(
     projection: ProjectionLaneHandle,
     record: Arc<ProviderOperationLog>,
     operation: ProviderOperation,
+    power: gooddealer_secure_host_core::NativePowerGate,
 ) {
     use crate::provider_credential_orchestrator::{RevocationOutcome, afternic};
     // The outcome is recorded for the connection status as a closed value only. Every operation
@@ -557,14 +561,14 @@ async fn run_provider_operation(
     let outcome = match operation {
         ProviderOperation::AfternicDelistStep | ProviderOperation::AfternicListingWriteStep => None,
         ProviderOperation::AfternicConnect { display_label } => {
-            let result = afternic::connect(host, display_label, cancel_fence).await;
+            let result = afternic::connect(host, display_label, cancel_fence, power).await;
             Some(ProviderOperationRecord::of(
                 "afternic_connect",
                 result.as_ref().map(|()| "confirmed"),
             ))
         }
         ProviderOperation::AfternicRefresh { connection_id } => {
-            let result = afternic::refresh(host, connection_id, cancel_fence).await;
+            let result = afternic::refresh(host, connection_id, cancel_fence, power).await;
             Some(ProviderOperationRecord::of(
                 "afternic_refresh",
                 result.as_ref().map(|()| "confirmed"),

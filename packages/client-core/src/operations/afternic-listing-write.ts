@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { canonicalUtcTimestamp } from "@gooddealer/protocol/wire";
 import { canonicalDomainNameSchema, copyPlainData } from "../portfolio/index";
+import { afternicControlledAcceptanceSchema } from "../connections/index";
 import { connectionLabelSchema } from "../connections/connection-label";
 import { afternicDelistProviderStatusSchema } from "./afternic-delist";
 
@@ -91,9 +92,12 @@ export const afternicListingWriteSummarySchema = z.object({
     : summary.state === "executing" ? summary.pending > 0
       : summary.state === "completed" ? summary.applied === summary.total : summary.pending === 0 && summary.conflicts > 0));
 export const afternicListingWriteStatusSchema = z.object({
-  schemaVersion: z.literal(1), writeQualified: z.boolean(), writeEntitled: z.boolean(), executionAvailable: z.boolean(),
+  schemaVersion: z.literal(1), controlledAcceptance: afternicControlledAcceptanceSchema.nullable(),
+  writeQualified: z.boolean(), writeEntitled: z.boolean(), executionAvailable: z.boolean(),
   plans: z.array(afternicListingWriteSummarySchema).max(50), detail: afternicListingWritePlanSchema.nullable(),
 }).strict().superRefine((status, ctx) => {
+  if (status.controlledAcceptance !== null && status.writeQualified)
+    ctx.addIssue({ code: "custom", message: "controlled acceptance is not production qualification" });
   if (new Set(status.plans.map(plan => plan.planRef)).size !== status.plans.length
     || status.plans.some((plan, index) => index > 0 && (status.plans[index - 1]!.createdAt < plan.createdAt
       || (status.plans[index - 1]!.createdAt === plan.createdAt && status.plans[index - 1]!.planRef < plan.planRef))))

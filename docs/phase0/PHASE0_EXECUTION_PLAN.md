@@ -423,3 +423,10 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 本地追加006、Cloud030/031；不改已有迁移。字段匹配与ACTIVE/隐藏、待验证、待平台和冲突状态分开；不能把请求成功或字段相等当作上市/所有权证明。客户批量入口、历史、详情与严格合同已组合。
 - 独立接受见[审查记录](../reviews/2026-11-19-afternic-listing-write-review.md)：实际PG18.6三动作51/51、实际Host输出84/84严格client解析、Native153、Storage专项70默认12线程及UI/adapter/i18n复验通过；新鲜根pnpm check exit0。此前4项fixture开库SchemaRejected后未复现，原因未确定；测试专用脱敏诊断保留，整合最终源码再完整检查。
 - 当前Linux恢复已有登录并显示Active，但Provider连接仍不可用：生产资格为空且开发Cloud商业catalog缺Afternic observe/write。不是账号登录问题；下一完整切片解决具名有限真实取证和可信商业重新观察，不伪造资格/receipt或直接改权益。wecin.com真实读写、私有验证/DNS、双系统实机和发行资格尚未取得。
+
+
+## 2026-11-20 Afternic 受控连接入口与开发授权
+
+- [受控验收工作包](AFTERNIC_CONTROLLED_ACCEPTANCE_TASK_FRAME.md)已在 Linux debug 接入设置与批量页。真实 Grant/Lease 与单一凭据槽准入，完整库存读取，`wecin.com` 上架、改价和下架受确定范围和连续时间限制。新增本地 007，原 006 保持原字节，连接和库存恢复补齐电源栅栏。
+- 独立 Storage、Native 与客户入口验证通过；根 `pnpm check` 退出 0，主目录集成 PostgreSQL 18.6 矩阵 162/162。受控构建实际打开，用户现场核对本机。详细证据见 [受控审查](../reviews/2026-11-19-afternic-controlled-acceptance-review.md)。
+- 已按用户明确批准更新共享开发配置、重启两项服务并发送一次 Stripe 测试订阅 metadata 更新。真实签名 Webhook、对账及新投影确认两项 Afternic 权限，原账单字段与期限相同。开发 Cloud 030/031 尚未发布，真实库存和 Listing 继续现场验收。

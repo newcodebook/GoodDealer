@@ -58,7 +58,7 @@ describe("Afternic listing write raw adapter", () => {
     expect(invoke).toHaveBeenCalledTimes(1);
   });
   it("correlates explicit history selection and refuses unsolicited detail", async () => {
-    const status = { schemaVersion: 1, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null };
+    const status = { schemaVersion: 1, controlledAcceptance: null, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null };
     invoke.mockResolvedValue(status); await createAfternicListingWritePort().status({ schemaVersion: 1, planRef: null });
     expect(body()).toEqual({ schemaVersion: 1, planRef: null });
     invoke.mockResolvedValue({ ...status, detail: plan() });

@@ -11,7 +11,7 @@
 | 平台 | 适配源码 | 当前生产客户流程 | 真实账号验收 |
 | --- | --- | --- | --- |
 | Cloudflare | Zone/DNS 只读 Service | 单 Zone 连接/导入及维护已组合；资格尚未取得 | 未取得 |
-| Afternic | 官方库存/GET/Create/Update/Remove | 连接、完整市场库存归集、持久整批上架/改价/下架及重开只读对账已组合；真实连接入口仍受资格与商业权限阻止，自动验证未完成 | 未取得 |
+| Afternic | 官方库存/GET/Create/Update/Remove | 设置连接、完整市场库存归集、持久整批上架/改价/下架及重开只读对账已组合。Linux debug 支持单连接受控真测，仍需当前商业权限。自动验证待实现 | 未取得 |
 | Spaceship | 未实现实际 Service | 账户归集及 SellerHub 旅程未实现 | 未取得 |
 | Atom | 未实现实际 Service | Listing 旅程未实现 | 未取得 |
 | Namecheap | 未实现实际 Service | 未实现 | 未取得 |
@@ -23,7 +23,7 @@
 | 阿里云 | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 | 22.cn | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 
-六资产来源目前均未完成可验收的账户级归集；Cloudflare 单 Zone 不计为账户级，Afternic 完整市场库存不计为 GoDaddy 资产归集。Afternic 上架/改价/下架均有持久源码客户流程；当前Linux登录为Active，但Provider连接尚不可用，不能宣称已完成真实业务。所有市场自动所有权验证仍待实现。真实接口、Windows/macOS 实机和发行资格分别取证，目录或测试数量不改变这些事实。
+六资产来源的账户级归集均待验收。Cloudflare 当前路径为单 Zone 导入，Afternic 的归集对象为市场库存。Afternic 上架、改价和下架已有持久客户路径，当前 Linux 构建已打开并恢复原有本机设备会话，真实连接及业务操作待验收。所有市场自动所有权验证仍待实现。
 
 ## 丢机强制接管与首次云恢复
 
@@ -92,13 +92,13 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
 - Cloudflare Zone/DNS 只读 Service 位于 Secure Host 私有实现，包括固定来源 HTTPS、
   Native 凭据录入和 custody、观察、撤销和被拒凭据清除。Renderer 不接收 Token。
 - 接入向导已组合连接创建/激活，设置已组合连接维护；单独主动观察的完整客户入口仍需交付。
-- [Host 资格登记](../crates/local-storage/src/active_workspace/capability_qualification.rs)当前为空。
-  创建、激活和观察因此被拒绝；减少凭据持有的撤销、清除和恢复流程不依赖能力取得资格。
+- [Host 生产资格登记](../crates/local-storage/src/active_workspace/capability_qualification.rs)当前为空。默认构建拒绝未取得资格的创建、激活和观察，撤销、清除及恢复流程继续可用。
   完成对应真实资格后要同步更新合同、准入与客户旅程，不能仅修改清单宣称完成。
 - Afternic 官方 API Service 已组合进 Native 和设置：受限凭据录入/托管 → 完整分页库存扫描 → 同事务导入新资产与 Outbox、连接范围 Listing 绑定/观察 → 设置展示扫描计数；历史删除或待重新添加的资产跳过，既有用户字段保留。
   原始所有权状态保持，不把市场库存解释成注册商所有权。重开 prepared 使用当前授权加载原 incarnation/generation/proof 的凭据；缺槽进入修复，不能重新录入覆盖。
   撤销先持久阻止使用，再清除 Native slot，确认清除后隐藏连接，保留资产和审计历史。未获得平台权限仍允许本地清理。
-  Linux/macOS/Windows 均有受限原生掩码录入与 custody 源码；Linux GTK 实际输入/清空生命周期和 logind 注册释放已独立验证。实际账号与目标 OS 未验收，资格清单保持拒绝。
+  Linux/macOS/Windows 均有受限原生掩码录入与 custody 源码。Linux GTK 实际输入/清空生命周期和 logind 注册释放已独立验证，真实账号与目标 OS 待验收。
+- Linux debug 的显式 `afternic-controlled-acceptance` 构建接入了设置、批准和重开恢复。追加迁移 `202611190007` 原子绑定真实账户、工作区、设备、Lease epoch 与唯一凭据槽，读同一连接完整市场库存，写入限 `wecin.com` 的三个 Listing 动作。截止取已验签执行上下文的连续时间投影。Host 向设置和批量页投影受控范围，使用当前 Grant、Lease 和商业权益。见[受控验收工作包](phase0/AFTERNIC_CONTROLLED_ACCEPTANCE_TASK_FRAME.md)。
 - Active Grant 的 commercialAuthority v2 是精确封闭 capability 集合：Afternic observe/write、Cloudflare observe；write 必须含 observe。空集合仍允许有授权的本地业务。
   Cloud 只取锁定 Licensing 快照的精确交集；Host floor/runtime/最终提交栅栏包括集合，权限变化不能复用旧 admission。逻辑 Grant 签名用途仍为 `.v3`，不随 wire 升版创建新用途。
 - 十二平台角色、能力目录和不可执行 manifest 已存在；除 Cloudflare 与 Afternic 外的实际 Service 仍需实现。
@@ -115,8 +115,8 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
   精确缺席、unlisted 观察、原绑定 detach 与聚合结果同事务提交；未知/仍存在持久只读退避，完整保留合法 Retry-After。旧绑定和普通 detach 不能伪造成功。
   UI 换选计划、工作区替换和角色降级撤去旧批准入口；丢失预览/批准响应只查状态。
 - 下架和上架/改价 worker 与批准入口接入 Linux/Windows/macOS 系统电源通知及 epoch 栅栏：休眠/退出阻断，唤醒不得复用旧许可；注册失败禁止新写，当前授权下仍可只读对账。
-  共享原 ProviderLane，每轮处理一项再接收维护/退出请求。旧连接/刷新等路径尚未统一接入此电源栅栏，不能据本切片宣称所有 Provider 操作均已满足休眠要求。
-  两个 OS 电源模块已取得原样源码目标编译证据，Windows 完整应用已通过目标编译；macOS 完整应用与两个系统实机休眠仍未取证。真实 Afternic 资格仍为空，新执行仍拒绝。
+  共享原 ProviderLane，每轮处理一项再接收维护/退出请求。连接、库存刷新和重开恢复也检查电源代次，库存最后提交仍按电源、取消、Host 顺序持锁。
+  两个 OS 电源模块已取得原样源码目标编译证据，Windows 完整应用已通过目标编译。macOS 完整应用与两个系统实机休眠，以及 Afternic 生产资格，均待取证。
 - [执行证据本地来源](../crates/local-storage/src/active_workspace/business/execution_evidence.rs)已组合批准、claim、前置拒绝与结果事务：
   一次批量批准生成真实 item 签名批准与审计；queued→running 原事务追加唯一 claim fact、配对审计及序号，签名失败整批回滚。claim 只表示本地持久认领，不声称 HTTP 已送达或平台成功。
   `202611190001`～`202611190003` 持久化来源、结果/冻结与精确回执。原同步 lane 逐个上传不可变事件，未知响应重发同一字节；缺因果前项先补原 fact/audit；quarantine 保留并阻止封链。

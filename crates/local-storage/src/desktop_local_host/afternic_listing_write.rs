@@ -81,21 +81,14 @@ fn database_error(error: BusinessDatabaseError) -> DesktopSyncError {
     }
 }
 fn admitted(
+    host: &DesktopLocalHost,
     sync: &DesktopSyncRuntime,
     run: &DesktopSyncRunAdmission,
+    database: &crate::active_workspace::business::BusinessDatabase,
     write: bool,
 ) -> Result<(), DesktopSyncError> {
-    sync.require_provider_capability(run, OBSERVE)?;
-    if !capability_qualified(OBSERVE) {
-        return Err(DesktopSyncError::CapabilityUnqualified);
-    }
-    if write {
-        sync.require_provider_capability(run, WRITE)?;
-        if !capability_qualified(WRITE) {
-            return Err(DesktopSyncError::CapabilityUnqualified);
-        }
-    }
-    Ok(())
+    host.admit_afternic_access(sync, run, database, write, false)?;
+    host.require_afternic_acceptance_plans(run, database, None, write)
 }
 
 impl DesktopLocalHost {
@@ -116,8 +109,8 @@ impl DesktopLocalHost {
         }
         let at = now()?;
         self.with_sync_business_write(&admission.inner, |sync, business, run, guard| {
-            admitted(sync, run, true)?;
-            self.require_execution_context(run)?;
+            admitted(self, sync, run, business.database_for_backup(), true)?;
+            self.require_afternic_execution_context(run, true)?;
             if !business.has_read_generation_capacity() {
                 return Err(DesktopSyncError::StorageRejected);
             }
@@ -125,6 +118,21 @@ impl DesktopLocalHost {
             let seed = database
                 .afternic_connection_seed(request.connection_id())
                 .map_err(database_error)?;
+            let domains: Vec<&str> = match &request {
+                DesktopAfternicListingWritePreviewRequest::Create { items, .. } => {
+                    items.iter().map(|i| i.domain.as_str()).collect()
+                }
+                DesktopAfternicListingWritePreviewRequest::Update { items, .. } => {
+                    items.iter().map(|i| i.domain.as_str()).collect()
+                }
+            };
+            self.require_afternic_acceptance_targets(
+                run,
+                database,
+                &seed.connection_id,
+                domains,
+                true,
+            )?;
             let plan = database
                 .preview_afternic_listing_write_with_time(
                     &seed,
@@ -132,7 +140,7 @@ impl DesktopLocalHost {
                     &at,
                     &self.execution_evidence_context(run)?.occurred_at,
                     || {
-                        self.require_execution_context(run)
+                        self.require_afternic_execution_context(run, true)
                             .map_err(|_| BusinessDatabaseError::MutationStale)
                             .and_then(|()| guard.verify(sync, run))
                     },
@@ -159,8 +167,8 @@ impl DesktopLocalHost {
         }
         let at = now()?;
         self.with_sync_business_write(&admission.inner, |sync, business, run, guard| {
-            admitted(sync, run, true)?;
-            self.require_execution_context(run)?;
+            admitted(self, sync, run, business.database_for_backup(), true)?;
+            self.require_afternic_execution_context(run, true)?;
             if !business.has_read_generation_capacity() {
                 return Err(DesktopSyncError::StorageRejected);
             }
@@ -169,6 +177,12 @@ impl DesktopLocalHost {
                 .database_for_backup()
                 .afternic_listing_write_plan(&request.plan_ref, &at)
                 .map_err(database_error)?;
+            self.require_afternic_acceptance_plans(
+                run,
+                business.database_for_backup(),
+                Some(&request.plan_ref),
+                true,
+            )?;
             let approval_deadline = preview.approved_at.is_none().then_some(preview.expires_at);
 
             let before = business
@@ -193,7 +207,7 @@ impl DesktopLocalHost {
                         {
                             return Err(BusinessDatabaseError::MutationStale);
                         }
-                        self.require_execution_context(run)
+                        self.require_afternic_execution_context(run, true)
                             .map_err(|_| BusinessDatabaseError::MutationStale)
                             .and_then(|()| guard.verify(sync, run))
                     },
@@ -225,17 +239,21 @@ impl DesktopLocalHost {
             return Err(DesktopLocalHostError::CloudProtocolRejected);
         }
         let at = now()?;
-        self.with_authorized_business(false, |runtime, authority, _, restriction| {
-            let mut status = runtime
-                .database_for_backup()
-                .afternic_listing_write_status(request.plan_ref.as_deref(), &at)?;
-            status.write_qualified = capability_qualified(WRITE) && capability_qualified(OBSERVE);
-            status.write_entitled = restriction == super::RuntimeRestriction::Active
-                && [WRITE, OBSERVE]
-                    .iter()
-                    .all(|expected| authority.capabilities.iter().any(|cap| cap == expected));
-            Ok(status)
-        })
+        let mut status =
+            self.with_authorized_business(false, |runtime, authority, _, restriction| {
+                let mut status = runtime
+                    .database_for_backup()
+                    .afternic_listing_write_status(request.plan_ref.as_deref(), &at)?;
+                status.write_qualified =
+                    capability_qualified(WRITE) && capability_qualified(OBSERVE);
+                status.write_entitled = restriction == super::RuntimeRestriction::Active
+                    && [WRITE, OBSERVE]
+                        .iter()
+                        .all(|expected| authority.capabilities.iter().any(|cap| cap == expected));
+                Ok(status)
+            })?;
+        status.controlled_acceptance = self.afternic_acceptance_status(true);
+        Ok(status)
     }
     /// Selects one due read/preflight; running or unknown attempts can only return reconciliation work.
     /// # Errors
@@ -247,11 +265,12 @@ impl DesktopLocalHost {
         let at = now()?;
         let next =
             self.with_sync_business_write(&admission.inner, |sync, business, run, guard| {
-                admitted(sync, run, false)?;
+                admitted(self, sync, run, business.database_for_backup(), false)?;
                 if !business.has_read_generation_capacity() {
                     return Err(DesktopSyncError::StorageRejected);
                 }
-                let allow_write = admitted(sync, run, true).is_ok();
+                let allow_write =
+                    admitted(self, sync, run, business.database_for_backup(), true).is_ok();
                 let before = business
                     .database_for_backup()
                     .afternic_listing_write_commit_sequence()
@@ -264,7 +283,7 @@ impl DesktopLocalHost {
                         &self.execution_evidence_context(run)?,
                         &mut |purpose, bytes| self.sign_execution_evidence(purpose, bytes),
                         || {
-                            self.require_execution_context(run)
+                            self.require_afternic_execution_context(run, false)
                                 .map_err(|_| BusinessDatabaseError::MutationStale)
                                 .and_then(|()| guard.verify(sync, run))
                         },
@@ -310,8 +329,10 @@ impl DesktopLocalHost {
             |sync, database, run| {
                 let run = run.ok_or(DesktopSyncError::StaleAuthority)?;
                 admitted(
+                    self,
                     sync,
                     run,
+                    database,
                     work.seed.kind == DesktopAfternicListingWriteWorkKind::Preflight,
                 )?;
                 database
@@ -339,8 +360,8 @@ impl DesktopLocalHost {
         let claimed = self.with_sync_business_write(
             &work.connection.admission.inner,
             |sync, business, run, guard| {
-                admitted(sync, run, true)?;
-                self.require_execution_context(run)?;
+                admitted(self, sync, run, business.database_for_backup(), true)?;
+                self.require_afternic_execution_context(run, true)?;
                 if !business.has_read_generation_capacity() {
                     return Err(DesktopSyncError::StorageRejected);
                 }
@@ -356,7 +377,7 @@ impl DesktopLocalHost {
                         &self.execution_evidence_context(run)?,
                         &mut |purpose, bytes| self.sign_execution_evidence(purpose, bytes),
                         || {
-                            self.require_execution_context(run)
+                            self.require_afternic_execution_context(run, true)
                                 .map_err(|_| BusinessDatabaseError::MutationStale)
                                 .and_then(|()| guard.verify(sync, run))
                         },
@@ -380,8 +401,8 @@ impl DesktopLocalHost {
             Some(&claim.work.connection.admission.inner),
             |sync, database, run| {
                 let run = run.ok_or(DesktopSyncError::StaleAuthority)?;
-                admitted(sync, run, true)?;
-                self.require_execution_context(run)?;
+                admitted(self, sync, run, database, true)?;
+                self.require_afternic_execution_context(run, true)?;
                 database
                     .require_afternic_listing_write_write_open()
                     .map_err(database_error)?;
@@ -417,7 +438,7 @@ impl DesktopLocalHost {
         self.with_sync_business_write(
             &work.connection.admission.inner,
             |sync, business, run, guard| {
-                admitted(sync, run, false)?;
+                admitted(self, sync, run, business.database_for_backup(), false)?;
                 if !business.has_read_generation_capacity() {
                     return Err(DesktopSyncError::StorageRejected);
                 }
@@ -433,7 +454,7 @@ impl DesktopLocalHost {
                         &self.execution_evidence_context(run)?,
                         &mut |purpose, bytes| self.sign_execution_evidence(purpose, bytes),
                         || {
-                            self.require_execution_context(run)
+                            self.require_afternic_execution_context(run, false)
                                 .map_err(|_| BusinessDatabaseError::MutationStale)
                                 .and_then(|()| guard.verify(sync, run))
                         },
@@ -457,8 +478,10 @@ impl DesktopLocalHost {
             &work.connection.admission.inner,
             |sync, business, run, guard| {
                 admitted(
+                    self,
                     sync,
                     run,
+                    business.database_for_backup(),
                     work.seed.kind == DesktopAfternicListingWriteWorkKind::Preflight,
                 )?;
                 if !business.has_read_generation_capacity() {
@@ -476,9 +499,12 @@ impl DesktopLocalHost {
                         &self.execution_evidence_context(run)?,
                         &mut |purpose, bytes| self.sign_execution_evidence(purpose, bytes),
                         || {
-                            self.require_execution_context(run)
-                                .map_err(|_| BusinessDatabaseError::MutationStale)
-                                .and_then(|()| guard.verify(sync, run))
+                            self.require_afternic_execution_context(
+                                run,
+                                work.seed.kind == DesktopAfternicListingWriteWorkKind::Preflight,
+                            )
+                            .map_err(|_| BusinessDatabaseError::MutationStale)
+                            .and_then(|()| guard.verify(sync, run))
                         },
                     )
                     .map_err(database_error)?;

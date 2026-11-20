@@ -295,6 +295,7 @@ test("the production catalog covers the current repository inventory", () => {
   assert.deepEqual(localStorage.sourceRoots, ["examples", "src", "tests"]);
   assert.deepEqual(localStorage.publicEntrypoints, [
     entrypoint("lib", "src/lib.rs"),
+    entrypoint("build", "build.rs"),
     entrypoint("backup-evidence", "examples/backup_evidence.rs"),
     entrypoint("sqlcipher-evidence", "examples/sqlcipher_evidence.rs"),
     entrypoint("public-surface-test", "tests/public_surface.rs"),

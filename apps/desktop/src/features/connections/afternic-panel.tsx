@@ -33,7 +33,7 @@ export function AfternicPanel({ locale, port, readOnly, onChanged }: {
         const snapshot = JSON.stringify(next.connections);
         if (previous.current !== null && previous.current !== snapshot) change.current();
         previous.current = snapshot;
-        if (next.laneState === "busy" || next.laneState === "recovering") timer = setTimeout(() => { void refresh(); }, 1000);
+        if (next.controlledAcceptance !== null || next.laneState === "busy" || next.laneState === "recovering") timer = setTimeout(() => { void refresh(); }, 1000);
       } catch { if (current === ticket.current) { setView(null); setNotice("failed"); } }
     };
     void refresh();
@@ -52,15 +52,18 @@ export function AfternicPanel({ locale, port, readOnly, onChanged }: {
       if (current === ticket.current) { setPending(false); setAttempt((value) => value + 1); }
     });
   };
-  const canObserve = !readOnly && view?.observeEntitled && view.observeQualified;
+  const canObserve = !readOnly && view?.observeEntitled && (view.observeQualified || view.controlledAcceptance !== null);
+  const controlled = view?.controlledAcceptance ?? null;
+  const canConnect = canObserve && view.capturable && (controlled === null || controlled.connectionId === null);
   const busy = pending || view?.laneState === "busy" || view?.laneState === "recovering";
   const stateCopy = { prepared: copy.afternicPrepared, active: copy.afternicActive, remediation_required: copy.afternicRemediation, revoked: copy.afternicRevoked };
   return <Panel title={copy.afternicTitle} actions={<Button type="button" size="sm" disabled={pending} onClick={() => setAttempt((value) => value + 1)}>{copy.afternicRefreshStatus}</Button>}>
     <p>{copy.afternicInventoryHelp}</p>
+    {controlled !== null ? <Banner tone="warning" title={copy.afternicControlledAcceptanceTitle}>{copy.afternicControlledAcceptanceScope.replace("{domain}", controlled.domain).replace("{expiresAt}", `${formatDate(locale, Date.parse(controlled.expiresAt), { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" })} UTC`)}</Banner> : null}
     <p role="status">{notice === "queued" ? copy.afternicQueued : notice === "unknown" ? copy.afternicUnknown : ""}</p>
     {notice === "failed" && view === null ? <Banner tone="warning" title={copy.afternicReadFailed} /> : null}
     {view !== null && !readOnly && !view.observeEntitled ? <p>{copy.afternicEntitlementRequired}</p> : null}
-    {view !== null && !readOnly && !view.observeQualified ? <p>{copy.afternicQualificationPending}</p> : null}
+    {view !== null && !readOnly && !view.observeQualified && controlled === null ? <p>{copy.afternicQualificationPending}</p> : null}
     {view !== null && !readOnly && !view.capturable ? <p>{copy.afternicCaptureUnavailable}</p> : null}
     {view !== null && view.lastOperation !== null && view.lastOperation.outcome !== "confirmed" ? <Banner tone="warning" title={copy.afternicActionUnconfirmed} /> : null}
     {view !== null ? <ul className="settings-device-directory" role="list">
@@ -74,12 +77,12 @@ export function AfternicPanel({ locale, port, readOnly, onChanged }: {
           {connection.state === "remediation_required" ? <p>{copy.afternicReconnectHelp}</p> : null}
         </div>
         {!readOnly ? <div>
-          {canObserve && (connection.state === "active" || connection.state === "prepared") ? <Button type="button" disabled={busy || view.laneState !== "ready"} aria-label={`${copy.afternicScan} ${connection.displayLabel}`} onClick={() => run(() => port.refresh(connection.connectionId))}>{copy.afternicScan}</Button> : null}
+          {canObserve && (controlled === null || controlled.connectionId === connection.connectionId) && (connection.state === "active" || connection.state === "prepared") ? <Button type="button" disabled={busy || view.laneState !== "ready"} aria-label={`${copy.afternicScan} ${connection.displayLabel}`} onClick={() => run(() => port.refresh(connection.connectionId))}>{copy.afternicScan}</Button> : null}
           <Button type="button" disabled={pending || view.laneState === "busy"} aria-label={`${copy.afternicDisconnect} ${connection.displayLabel}`} onClick={() => run(() => port.revoke(connection.connectionId))}>{connection.purgePending ? copy.afternicRetryCleanup : copy.afternicDisconnect}</Button>
         </div> : null}
       </li>)}
     </ul> : null}
-    {canObserve && view.capturable ? <form aria-labelledby={`${id}-title`} onSubmit={(event) => {
+    {canConnect ? <form aria-labelledby={`${id}-title`} onSubmit={(event) => {
       event.preventDefault();
       const parsed = afternicConnectIntentSchema.safeParse({ schemaVersion: 1, displayLabel: label });
       if (!parsed.success) { setInvalid(true); document.getElementById(id)?.focus(); return; }
