@@ -4,11 +4,12 @@ use crate::native_cloud_runtime::NativeCloudCancelFence;
 use gooddealer_local_storage::{
     DesktopAtomConnection, DesktopAtomConnectionState, DesktopAtomListingFact,
     DesktopAtomListingState, DesktopAtomMarketplaceStatus, DesktopLocalHost, DesktopLocalHostError,
+    DesktopNativeCloudAdmission,
 };
 use gooddealer_secure_host_core::{
-    AtomCapture, AtomCredential, AtomCredentialPlan, AtomError, AtomListing, AtomListingState,
-    AtomPortfolioClient, NativePowerCommitGuard, NativePowerGate, load_atom_credential_guarded,
-    publish_atom_credential_guarded, purge_atom_credential_guarded,
+    AtomCapture, AtomCredential, AtomCredentialPlan, AtomError, AtomGuard, AtomListing,
+    AtomListingState, AtomPortfolioClient, NativePowerCommitGuard, NativePowerGate,
+    load_atom_credential_guarded, publish_atom_credential_guarded, purge_atom_credential_guarded,
 };
 use std::sync::Arc;
 
@@ -77,6 +78,15 @@ impl Run {
         Ok(())
     }
 
+    fn check_preparation(&self, admission: &DesktopNativeCloudAdmission) -> Result<()> {
+        drop(self.hold_power().map_err(native_error)?);
+        self.host
+            .recheck_atom_connection_preparation(admission)
+            .map_err(host_error)?;
+        drop(self.hold_power().map_err(native_error)?);
+        Ok(())
+    }
+
     fn commit<T>(
         &self,
         operation: impl FnOnce(&DesktopLocalHost) -> std::result::Result<T, DesktopLocalHostError>,
@@ -92,30 +102,41 @@ impl Run {
         if !AtomCapture::supported() {
             return Err(ProviderCredentialError::Unavailable);
         }
-        let run = Arc::clone(self);
-        let (connection, credential) = tauri::async_runtime::spawn_blocking(move || {
-            let connection = run.commit(|host| {
-                host.prepare_atom_connection(host.begin_native_cloud_run()?, "Atom")
-            })?;
-            let mut guard = || run.check(&connection);
-            let credential = match AtomCapture::capture_guarded(&mut guard) {
-                Ok(credential) => credential,
-                Err(error @ (AtomError::CaptureCancelled | AtomError::InputRejected)) => {
-                    let retired = run.commit(|host| host.abandon_atom_preparation(connection))?;
-                    run.purge_and_confirm(&retired)?;
-                    return Err(native_error(error));
-                }
-                Err(error) => return Err(native_error(error)),
-            };
-            publish_atom_credential_guarded(&Slot(&connection), &credential, &mut guard)
-                .map_err(native_error)?;
-            drop(credential);
-            let credential = load_exact(&connection, &mut guard)?;
-            Ok((connection, credential))
+        let capture = Arc::clone(self);
+        let (admission, credential) = tauri::async_runtime::spawn_blocking(move || {
+            let admission = capture.host.begin_native_cloud_run().map_err(host_error)?;
+            capture.check_preparation(&admission)?;
+            let credential = AtomCapture::capture_guarded(&mut || {
+                capture
+                    .check_preparation(&admission)
+                    .map_err(|_| AtomError::AuthorityStale)
+            })
+            .map_err(native_error)?;
+            Ok::<_, ProviderCredentialError>((admission, credential))
         })
         .await
         .map_err(|_| ProviderCredentialError::Unavailable)??;
-        self.scan_and_commit(connection, credential).await
+        // A rejected or incomplete first read never creates a durable connection. Once custody
+        // confirms the same candidate bytes, the scan can be published without a second request.
+        let listings = self
+            .scan(&credential, &mut || {
+                self.check_preparation(&admission)
+                    .map_err(|_| AtomError::AuthorityStale)
+            })
+            .await?;
+        let publish = Arc::clone(self);
+        let connection = tauri::async_runtime::spawn_blocking(move || {
+            let connection =
+                publish.commit(|host| host.prepare_atom_connection(admission, "Atom"))?;
+            publish_atom_credential_guarded(&Slot(&connection), &credential, &mut || {
+                publish.check(&connection)
+            })
+            .map_err(native_error)?;
+            Ok::<_, ProviderCredentialError>(connection)
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)??;
+        self.commit_inventory(connection, listings).await
     }
 
     pub(crate) async fn refresh(self: &Arc<Self>, id: String) -> Result<()> {
@@ -139,7 +160,11 @@ impl Run {
         .await
         .map_err(|_| ProviderCredentialError::Unavailable)??;
         let (connection, credential) = work.ok_or(ProviderCredentialError::Keychain)?;
-        self.scan_and_commit(connection, credential).await
+        let listings = self
+            .scan(&credential, &mut || self.check(&connection))
+            .await?;
+        drop(credential);
+        self.commit_inventory(connection, listings).await
     }
 
     pub(crate) async fn revoke(self: &Arc<Self>, id: String) -> Result<()> {
@@ -161,21 +186,26 @@ impl Run {
         self.commit(|host| host.confirm_atom_purge(connection))
     }
 
-    async fn scan_and_commit(
-        self: &Arc<Self>,
-        connection: DesktopAtomConnection,
-        credential: AtomCredential,
-    ) -> Result<()> {
+    async fn scan(
+        &self,
+        credential: &AtomCredential,
+        guard: &mut AtomGuard<'_>,
+    ) -> Result<Vec<DesktopAtomListingFact>> {
         let client = AtomPortfolioClient::production().map_err(native_error)?;
-        let mut guard = || self.check(&connection);
         let listings = tokio::select! {
             biased;
             _ = self.power.wait_for_epoch_change(self.epoch) => Err(AtomError::AuthorityStale),
-            result = client.scan(&credential, &mut guard) => result,
+            result = client.scan(credential, guard) => result,
         }
         .map_err(native_error)?;
-        drop(credential);
-        let listings: Vec<_> = listings.into_iter().map(listing_fact).collect();
+        Ok(listings.into_iter().map(listing_fact).collect())
+    }
+
+    async fn commit_inventory(
+        self: &Arc<Self>,
+        connection: DesktopAtomConnection,
+        listings: Vec<DesktopAtomListingFact>,
+    ) -> Result<()> {
         let run = Arc::clone(self);
         tauri::async_runtime::spawn_blocking(move || {
             run.commit(|host| {
@@ -220,15 +250,6 @@ impl Run {
         }
         Ok(())
     }
-}
-
-fn load_exact(
-    connection: &DesktopAtomConnection,
-    guard: &mut gooddealer_secure_host_core::AtomGuard<'_>,
-) -> Result<AtomCredential> {
-    load_atom_credential_guarded(&Slot(connection), guard)
-        .map_err(native_error)?
-        .ok_or(ProviderCredentialError::Keychain)
 }
 
 fn listing_fact(row: AtomListing) -> DesktopAtomListingFact {

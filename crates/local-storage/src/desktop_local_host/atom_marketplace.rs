@@ -105,6 +105,21 @@ fn require_observe(
 }
 
 impl DesktopLocalHost {
+    /// Admits Native capture and a read-only portfolio scan before creating a credential slot.
+    ///
+    /// # Errors
+    /// Refuses stale authority, missing qualification or missing commercial access.
+    pub fn recheck_atom_connection_preparation(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+    ) -> Result<(), DesktopLocalHostError> {
+        self.with_sync_runtime(Some(&admission.inner), |sync, database, run| {
+            let run = run.ok_or(DesktopSyncError::StaleAuthority)?;
+            sync.recheck_sync_run(database, run)?;
+            require_observe(sync, run)
+        })
+    }
+
     /// Returns only the public connection state and counts from the last complete local scan.
     ///
     /// # Errors
@@ -258,7 +273,7 @@ impl DesktopLocalHost {
         Ok(DesktopAtomConnection::new(admission, seed))
     }
 
-    /// Retires exactly the preparation whose Native capture was canceled or whose slot is absent.
+    /// Retires exactly the preparation whose Native slot is confirmed absent.
     ///
     /// # Errors
     /// Refuses active connections, stale authority and a replaced preparation.
@@ -307,5 +322,74 @@ impl DesktopLocalHost {
             business.advance_read_generation_after_sync_commit();
             Ok(())
         })
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use crate::active_workspace::capability_qualification::test_qualification;
+    use crate::{BusinessDatabase, LocalDatabaseKey};
+
+    #[test]
+    fn atom_preparation_is_read_only_and_requires_exact_current_authority() {
+        let directory = crate::test_tempdir::tempdir().unwrap();
+        let host = |workspace: &str, capabilities: &[&str]| {
+            let root = directory.path().join(workspace);
+            std::fs::create_dir(&root).unwrap();
+            let database = BusinessDatabase::open(
+                &root.join("workspace.db"),
+                &LocalDatabaseKey::from_bytes([0x61; 32]),
+                workspace,
+            )
+            .unwrap();
+            DesktopLocalHost::development_with_provider_capabilities(
+                database,
+                root,
+                "account-local",
+                workspace,
+                "device-local",
+                capabilities,
+            )
+            .unwrap()
+        };
+        let local = host("workspace-local", &[OBSERVE]);
+        let other = host("workspace-other", &[OBSERVE]);
+        let unentitled = host("workspace-unentitled", &[]);
+        let admission = local.begin_native_cloud_run().unwrap();
+        assert_eq!(
+            local.recheck_atom_connection_preparation(&admission),
+            Err(DesktopLocalHostError::CapabilityUnqualified)
+        );
+        let _qualification = test_qualification::qualify(OBSERVE);
+        assert!(
+            unentitled
+                .recheck_atom_connection_preparation(&unentitled.begin_native_cloud_run().unwrap())
+                .is_err()
+        );
+        assert!(
+            other
+                .recheck_atom_connection_preparation(&admission)
+                .is_err()
+        );
+        for _ in 0..2 {
+            local
+                .recheck_atom_connection_preparation(&admission)
+                .unwrap();
+        }
+        assert!(
+            local
+                .read_atom_marketplace_status()
+                .unwrap()
+                .connections
+                .is_empty()
+        );
+        local.enter_security_lock().unwrap();
+        assert!(
+            local
+                .recheck_atom_connection_preparation(&admission)
+                .is_err()
+        );
+        assert!(local.prepare_atom_connection(admission, "Atom").is_err());
     }
 }

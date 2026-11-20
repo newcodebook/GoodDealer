@@ -13,7 +13,7 @@
 | Cloudflare | 官方 Zone/DNS 读取及 Registrar 账户库存 | 单 Zone 连接与维护，设置页账户库存扫描、原子归集和最近结果已组合。当前从有效 Zone 连接查得所属账户；Registrar 需要独立授权与资格 | 未取得 |
 | Afternic | 官方库存/GET/Create/Update/Remove/Relist | 设置连接、完整市场库存归集、持久整批上架/改价/下架及重开只读对账已组合。源码支持批次内或独立的 `OWNERSHIP_REVIEW` 官方复核。Linux debug 受控范围只包括库存与 `wecin.com` 的三项 Listing 变更 | Linux 受控真实库存读取通过，挂牌写入与目标平台资格待验收 |
 | Spaceship | 官方 Registrar 域名列表 | 设置页原生连接、完整归集、持久刷新、重开续读和本地断开已组合。SellerHub 旅程待实现 | 未取得 |
-| Atom | 官方 Seller API 库存读取 | 设置连接、只读扫描、原子导入和重开续读已组合。上架、下架、DNS 与私有验证继续开发 | 匿名认证错误已取证，账号读取和实际平台资格待验收 |
+| Atom | 官方 Seller API 库存读取 | 设置首次连接完成只读库存预检后才建槽；预检通过的清单用于原子导入，凭据已保存但导入中断时重开续读。上架、下架、DNS 与私有验证继续开发 | 匿名认证错误已取证，账号读取和实际平台资格待验收 |
 | Namecheap | 未实现实际 Service | 未实现 | 未取得 |
 | Dynadot | 未实现实际 Service | 未实现 | 未取得 |
 | GoDaddy | 未实现实际 Service；Afternic 不替代它 | 账户归集未实现 | 未取得 |
