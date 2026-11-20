@@ -82,11 +82,15 @@ async fn scan_returns_only_a_complete_ordered_portfolio_on_fixed_my_paths() {
             200,
             json!({"domains":first,"pagination":{"total":51,"next":format!("{ORIGIN}{DOMAIN_PATH}?offset=50&limit=50&order=NAME_ASC")}}),
         ),
-        response(200, json!({"domains":second,"pagination":{"total":51}})),
+        response(
+            200,
+            json!({"domains":second,"pagination":{"total":51,"next":format!("{ORIGIN}{DOMAIN_PATH}?offset=100&limit=50&order=NAME_ASC")}}),
+        ),
     ]);
     let portfolio = client.scan(&credential(), &mut || Ok(())).await.unwrap();
     assert_eq!(portfolio.listings.len(), 51);
     let sent = sent.lock().unwrap();
+    assert_eq!(sent.len(), 2);
     assert_eq!(sent[0].0, Method::GET);
     assert_eq!(
         sent[0].1,
@@ -97,6 +101,21 @@ async fn scan_returns_only_a_complete_ordered_portfolio_on_fixed_my_paths() {
         format!("{DOMAIN_PATH}?offset=50&limit=50&order=NAME_ASC")
     );
 }
+
+#[tokio::test]
+async fn inventory_accepts_observed_zero_lease_period_without_loosening_other_values() {
+    for (period, valid) in [(0, true), (1, false), (2, true), (60, true), (61, false)] {
+        let mut row = listing("example.test");
+        row["maxLeasePeriod"] = json!(period);
+        let (mut client, _) = client(vec![response(
+            200,
+            json!({"domains":[row],"pagination":{"total":1}}),
+        )]);
+        let observed = client.scan(&credential(), &mut || Ok(())).await;
+        assert_eq!(observed.is_ok(), valid, "lease period {period}");
+    }
+}
+
 #[tokio::test]
 async fn hostile_pagination_never_controls_the_next_request() {
     let first = (0..50)
@@ -115,6 +134,29 @@ async fn hostile_pagination_never_controls_the_next_request() {
         let (mut client, sent) = client(vec![response(
             200,
             json!({"domains":first,"pagination":{"total":51,"next":next}}),
+        )]);
+        assert_eq!(
+            client
+                .scan(&credential(), &mut || Ok(()))
+                .await
+                .unwrap_err(),
+            AfternicError::ProtocolRejected
+        );
+        assert_eq!(sent.lock().unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn terminal_next_link_still_requires_fixed_origin_and_expected_offset() {
+    for next in [
+        "https://evil.test/v3/aftermarket/customers/my/domains?offset=50&limit=50&order=NAME_ASC"
+            .to_owned(),
+        format!("{DOMAIN_PATH}?offset=0&limit=50&order=NAME_ASC"),
+        format!("{DOMAIN_PATH}?offset=51&limit=50&order=NAME_ASC"),
+    ] {
+        let (mut client, sent) = client(vec![response(
+            200,
+            json!({"domains":[listing("example.test")],"pagination":{"total":1,"next":next}}),
         )]);
         assert_eq!(
             client

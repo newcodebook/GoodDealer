@@ -151,8 +151,13 @@ pub(super) fn parse_page(bytes: &[u8], offset: usize) -> Result<Page, AfternicEr
         {
             return Err(AfternicError::ProtocolRejected);
         }
-    } else if page.next.as_ref().is_some_and(|next| !next.is_empty()) {
-        return Err(AfternicError::ProtocolRejected);
+    } else if let Some(next) = page.next.as_deref().filter(|next| !next.is_empty()) {
+        // A real terminal page can still advertise a next offset. The declared total already
+        // equals the materialized inventory, so validate the hint without fetching another page.
+        let cursor = pagination_offset(next)?;
+        if cursor != through && Some(cursor) != offset.checked_add(PAGE_SIZE) {
+            return Err(AfternicError::ProtocolRejected);
+        }
     }
     Ok(Page {
         listings: wire
@@ -225,9 +230,11 @@ fn project(wire: ListingWire) -> Result<AfternicListing, AfternicError> {
         || wire
             .lease_down_payment_amount
             .is_some_and(|v| !valid_price(v, false))
+        // Real inventory can contain zero for the unprojected lease term. The configured
+        // term bounds still apply to every nonzero value.
         || wire
             .max_lease_period
-            .is_some_and(|v| !(2..=60).contains(&v))
+            .is_some_and(|v| v != 0 && !(2..=60).contains(&v))
         || strings
             .into_iter()
             .flatten()
