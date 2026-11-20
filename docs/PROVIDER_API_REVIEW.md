@@ -28,6 +28,8 @@ Cloudflare 官方兼容性表将 Account-owned API token 标记为与 Registrar 
 
 2026-11-20 核对了 22.cn 的真实账户入口。官网导航链接到 `i.22.cn/Domain/My/`，一口价市场导航链接到 `i.22.cn/seller/pkpage/domains` 的出售页。两个入口的匿名 GET 都返回同源 `/SSO` 重定向，域名入口的登录跳转页内嵌 `my.22.cn/sso/login.aspx`。账户资产清单及市场上下架的请求和响应仍需在用户授权登录后取证。[官网](https://www.22.cn/) [一口价市场](https://am.22.cn/ykj/) [域名入口](https://i.22.cn/Domain/My/) [出售页](https://i.22.cn/seller/pkpage/domains)
 
+2026-11-20 的公开 DNS 查询显示受控域名 `wecin.com` 的权威 NS 为 `ns1.ename.net` 和 `ns2.ename.net`。易名官网导航链接到「我的域名」`www.ename.net/manage/domainlist`、「云解析列表」`www.ename.net/cloudparse/domaincloudlist`、「等待上架」`auction.ename.com/publish/waitsale` 与「正在出售」`auction.ename.com/seller/onsale`。这些入口的匿名 GET 返回 200，出售页带尾斜杠时先 301 到规范路径。账户资产、TXT 读写、上下架及账户内结果的合同仍待从授权会话取证。若为 `wecin.com` 选择 Afternic TXT 验证，预览与执行需限定易名当前账户的 TXT 变更和新鲜读取。[易名域名管理](https://www.ename.net/) [云解析](https://www.ename.net/cloudparse) [易名交易](https://www.ename.com/)
+
 ## 所有权验证与副作用语义
 
 ### Afternic
