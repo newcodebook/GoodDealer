@@ -60,12 +60,23 @@ it("previews an import and applies only the currently confirmed plan", async () 
     state: "import_preview" as const,
     planId,
     additions: 1,
+    filled: 0,
     total: 2,
     rows: [
       { entityId: "kept.example", disposition: "preserve_existing" as const },
       { entityId: "new.example", disposition: "add" as const },
     ],
     next: null,
+  };
+  const merge = {
+    ...preview,
+    additions: 0,
+    filled: 1,
+    rows: [{
+      entityId: "kept.example",
+      disposition: "fill_missing_fields" as const,
+      fill: { entityId: "kept.example", note: "restored note", portfolioId: null, tags: [], targetPrice: null },
+    }],
   };
   port.mockResolvedValueOnce({
     state: "opened",
@@ -75,8 +86,8 @@ it("previews an import and applies only the currently confirmed plan", async () 
     next: null,
   }).mockResolvedValueOnce(preview)
     .mockResolvedValueOnce({ state: "import_cancelled" })
-    .mockResolvedValueOnce(preview)
-    .mockResolvedValueOnce({ state: "import_applied", additions: 1 });
+    .mockResolvedValueOnce(merge)
+    .mockResolvedValueOnce({ state: "import_applied", additions: 0, filled: 1 });
 
   const button = (label: string) => Array.from(node.querySelectorAll("button")).find((candidate) => candidate.textContent?.trim() === label);
   const click = async (label: string) => {
@@ -95,10 +106,13 @@ it("previews an import and applies only the currently confirmed plan", async () 
     await click("Cancel import");
     expect(port).toHaveBeenLastCalledWith({ action: "cancel_import", planId });
     expect(button("Confirm import")).toBeUndefined();
+    await act(async () => node.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click());
     await click("Preview import");
+    expect(port).toHaveBeenLastCalledWith({ action: "preview_import", viewId, fillMissingFields: true });
+    expect(node.textContent).toContain("restored note");
     await click("Confirm import");
     expect(port).toHaveBeenLastCalledWith({ action: "apply_import", planId });
-    expect(node.textContent).toContain("Imported one domain into this workspace.");
+    expect(node.textContent).toContain("Added domains (0) and filled empty fields on existing domains (1).");
   } finally {
     await act(async () => root.unmount());
     node.remove();

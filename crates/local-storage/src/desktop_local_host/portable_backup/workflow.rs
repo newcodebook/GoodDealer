@@ -34,15 +34,38 @@ enum Locale {
     deny_unknown_fields
 )]
 enum Action {
-    Create { locale: Locale },
-    Open { locale: Locale },
-    Page { view_id: String, after: String },
-    Export { locale: Locale, view_id: String },
-    PreviewImport { view_id: String },
-    ImportPage { plan_id: String, after: String },
-    ApplyImport { plan_id: String },
-    CancelImport { plan_id: String },
-    Close { view_id: String },
+    Create {
+        locale: Locale,
+    },
+    Open {
+        locale: Locale,
+    },
+    Page {
+        view_id: String,
+        after: String,
+    },
+    Export {
+        locale: Locale,
+        view_id: String,
+    },
+    PreviewImport {
+        view_id: String,
+        #[serde(default)]
+        fill_missing_fields: bool,
+    },
+    ImportPage {
+        plan_id: String,
+        after: String,
+    },
+    ApplyImport {
+        plan_id: String,
+    },
+    CancelImport {
+        plan_id: String,
+    },
+    Close {
+        view_id: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -70,10 +93,14 @@ enum Response {
         rows: Vec<PortableImportRow>,
         next: Option<String>,
         additions: usize,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        filled: Option<std::num::NonZeroUsize>,
         total: usize,
     },
     ImportApplied {
-        additions: u64,
+        additions: usize,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        filled: Option<std::num::NonZeroUsize>,
     },
     ImportCancelled,
     Cancelled,
@@ -104,9 +131,10 @@ impl DesktopLocalHost {
                 selection.get(&view_id)?.page(view_id, Some(&after))?
             }
             Action::Export { locale, view_id } => selection.get(&view_id)?.export(locale)?,
-            Action::PreviewImport { view_id } => {
-                self.preview_portable_import(&mut selection, &view_id)?
-            }
+            Action::PreviewImport {
+                view_id,
+                fill_missing_fields,
+            } => self.preview_portable_import(&mut selection, &view_id, fill_missing_fields)?,
             Action::ImportPage { plan_id, after } => {
                 self.page_portable_import(&selection, &plan_id, &after)?
             }
@@ -253,9 +281,21 @@ pub(super) struct ImportPlan {
     workspace_id: String,
     revision: u64,
     rows: Vec<PortableImportRow>,
+    fill_missing_fields: bool,
 }
 
 impl ImportPlan {
+    fn count(&self, disposition: PortableImportDisposition) -> usize {
+        self.rows
+            .iter()
+            .filter(|row| row.disposition == disposition)
+            .count()
+    }
+
+    fn fill_count(&self) -> Option<std::num::NonZeroUsize> {
+        std::num::NonZeroUsize::new(self.count(PortableImportDisposition::FillMissingFields))
+    }
+
     fn page(&self, after: Option<&str>) -> Result<Response, DesktopBackupError> {
         let start = if let Some(after) = after {
             self.rows
@@ -272,11 +312,8 @@ impl ImportPlan {
         Ok(Response::ImportPreview {
             plan_id: self.id.clone(),
             next: (end < self.rows.len()).then(|| self.rows[end - 1].entity_id.clone()),
-            additions: self
-                .rows
-                .iter()
-                .filter(|row| row.disposition == PortableImportDisposition::Add)
-                .count(),
+            additions: self.count(PortableImportDisposition::Add),
+            filled: self.fill_count(),
             total: self.rows.len(),
             rows: rows.to_vec(),
         })
@@ -303,6 +340,7 @@ impl DesktopLocalHost {
         &self,
         selection: &mut Selection,
         view_id: &str,
+        fill_missing_fields: bool,
     ) -> Result<Response, DesktopBackupError> {
         let candidate = selection
             .get(view_id)?
@@ -318,7 +356,8 @@ impl DesktopLocalHost {
                 if database.workspace_id() != authority.workspace_id {
                     return Err(BusinessDatabaseError::WorkspaceRejected);
                 }
-                let (revision, rows) = database.preview_portable_import(&candidate)?;
+                let (revision, rows) =
+                    database.preview_portable_import(&candidate, fill_missing_fields)?;
                 Ok(ImportPlan {
                     id,
                     view_id: view_id.to_owned(),
@@ -327,6 +366,7 @@ impl DesktopLocalHost {
                     workspace_id: authority.workspace_id.clone(),
                     revision,
                     rows,
+                    fill_missing_fields,
                 })
             })
             .map_err(import_host_error)?;
@@ -362,48 +402,49 @@ impl DesktopLocalHost {
             .get(&plan.view_id)?
             .import_candidate(&plan.view_id)
             .map_err(file_error)?;
-        let receipt = self
-            .with_authorized_business(true, |runtime, authority, epoch, _| {
-                plan.require_current(epoch, &authority.digest, &authority.workspace_id)?;
-                let has_generation_capacity = runtime.has_read_generation_capacity();
-                let database = runtime.database_for_backup_mut();
-                if database.workspace_id() != authority.workspace_id {
-                    return Err(BusinessDatabaseError::WorkspaceRejected);
-                }
-                let snapshot = RestoreAuthoritySnapshot {
-                    authority_snapshot_digest: hex_digest(&authority.digest),
-                    source_device_id: authority.device_id.clone(),
-                    active_lease_epoch: authority.lease_epoch,
-                    committed_at: format_timestamp(
-                        current_unix_seconds().map_err(|_| BusinessDatabaseError::MutationStale)?,
-                    ),
-                };
-                let request = RestoreRequest {
-                    operation_id: plan_id,
-                    expected_current_revision: plan.revision,
-                    expected_candidate_set_version: candidate.candidate_set_version,
-                    expected_authority_snapshot_digest: &snapshot.authority_snapshot_digest,
-                };
-                let receipt = database.import_portable_backup_guarded(
-                    &candidate,
-                    &request,
-                    &plan.rows,
-                    &snapshot,
-                    |replay| {
-                        if !replay && !has_generation_capacity {
-                            return Err(BusinessDatabaseError::SequenceExhausted);
-                        }
-                        self.require_business_commit_fence(epoch, authority)
-                    },
-                )?;
-                if receipt.disposition == "committed" {
-                    runtime.advance_read_generation_after_sync_commit();
-                }
-                Ok(receipt)
-            })
-            .map_err(import_host_error)?;
+        self.with_authorized_business(true, |runtime, authority, epoch, _| {
+            plan.require_current(epoch, &authority.digest, &authority.workspace_id)?;
+            let has_generation_capacity = runtime.has_read_generation_capacity();
+            let database = runtime.database_for_backup_mut();
+            if database.workspace_id() != authority.workspace_id {
+                return Err(BusinessDatabaseError::WorkspaceRejected);
+            }
+            let snapshot = RestoreAuthoritySnapshot {
+                authority_snapshot_digest: hex_digest(&authority.digest),
+                source_device_id: authority.device_id.clone(),
+                active_lease_epoch: authority.lease_epoch,
+                committed_at: format_timestamp(
+                    current_unix_seconds().map_err(|_| BusinessDatabaseError::MutationStale)?,
+                ),
+            };
+            let request = RestoreRequest {
+                operation_id: plan_id,
+                expected_current_revision: plan.revision,
+                expected_candidate_set_version: candidate.candidate_set_version,
+                expected_authority_snapshot_digest: &snapshot.authority_snapshot_digest,
+            };
+            let receipt = database.import_portable_backup_guarded(
+                &candidate,
+                &request,
+                &plan.rows,
+                plan.fill_missing_fields,
+                &snapshot,
+                |replay| {
+                    if !replay && !has_generation_capacity {
+                        return Err(BusinessDatabaseError::SequenceExhausted);
+                    }
+                    self.require_business_commit_fence(epoch, authority)
+                },
+            )?;
+            if receipt.disposition == "committed" {
+                runtime.advance_read_generation_after_sync_commit();
+            }
+            Ok(())
+        })
+        .map_err(import_host_error)?;
         Ok(Response::ImportApplied {
-            additions: receipt.mutations,
+            additions: plan.count(PortableImportDisposition::Add),
+            filled: plan.fill_count(),
         })
     }
 }
@@ -602,6 +643,7 @@ mod tests {
             r#"{"schemaVersion":1,"intent":{"action":"open","locale":"en-US","path":"arbitrary"}}"#,
             r#"{"schemaVersion":1,"intent":{"action":"open","locale":"en-US","recoveryKey":"arbitrary"}}"#,
             r#"{"schemaVersion":1,"intent":{"action":"import","locale":"en-US"}}"#,
+            r#"{"schemaVersion":1,"intent":{"action":"preview_import","viewId":"portable-fixture","fillMissingFields":"true"}}"#,
         ] {
             assert_eq!(
                 host.portable_backup(wire.as_bytes()),
@@ -736,7 +778,7 @@ mod tests {
         clippy::too_many_lines,
         reason = "one fixture verifies stale approval, atomic rollback, replay and SQLCipher reopen"
     )]
-    fn import_preview_applies_only_missing_assets_with_current_authority_and_a_durable_receipt() {
+    fn import_preview_applies_approved_additions_and_fills_with_a_durable_receipt() {
         let files = crate::test_tempdir::tempdir().unwrap();
         let artifact = SelectedPath::admit(&files.path().join("restore.gdbk")).unwrap();
         let key_file = SelectedPath::admit(&files.path().join("restore.gdkey")).unwrap();
@@ -760,12 +802,18 @@ mod tests {
             for domain in [
                 "archived.example",
                 "conflict.example",
+                "fill.example",
                 "new.example",
                 "second.example",
             ] {
-                database
-                    .upsert_domain_asset(domain, time, &asset(domain, "backup note"))
-                    .unwrap();
+                let mut row = asset(domain, "backup note");
+                if domain == "fill.example" {
+                    row.target_price = Some(crate::portfolio_projection::Money {
+                        currency: "USD".into(),
+                        amount: "3000".into(),
+                    });
+                }
+                database.upsert_domain_asset(domain, time, &row).unwrap();
             }
             let host = DesktopLocalHost::development(
                 database,
@@ -815,6 +863,17 @@ mod tests {
                 .upsert_domain_asset("edited", time, &asset("conflict.example", "current note"))
                 .unwrap();
             target
+                .upsert_domain_asset(
+                    "fill",
+                    time,
+                    &DomainAssetWrite {
+                        note: None,
+                        tags: vec!["current label".to_owned()],
+                        ..asset("fill.example", "unused")
+                    },
+                )
+                .unwrap();
+            target
                 .upsert_domain_asset("unrelated", time, &asset("untouched.example", "stay here"))
                 .unwrap();
             let created = target
@@ -854,17 +913,22 @@ mod tests {
             let preview_intent = serde_json::json!({"action":"preview_import", "viewId":view_id});
             let preview = call(&host, preview_intent.clone()).unwrap();
             assert_eq!(preview["additions"], 2);
+            assert!(preview.get("filled").is_none());
             assert_eq!(
                 preview["rows"],
                 serde_json::json!([
                     {"entityId":"archived.example", "disposition":"blocked_by_asset_history"},
                     {"entityId":"conflict.example", "disposition":"preserve_existing"},
+                    {"entityId":"fill.example", "disposition":"preserve_existing"},
                     {"entityId":"new.example", "disposition":"add"},
                     {"entityId":"second.example", "disposition":"add"}
                 ])
             );
             let old_id = preview["planId"].clone();
-            let stale_plan = call(&host, preview_intent.clone()).unwrap()["planId"].clone();
+            let merge_intent = serde_json::json!({
+                "action":"preview_import", "viewId":view_id, "fillMissingFields":true
+            });
+            let stale_plan = call(&host, merge_intent.clone()).unwrap()["planId"].clone();
             assert_eq!(
                 call(
                     &host,
@@ -872,14 +936,21 @@ mod tests {
                 ),
                 Err(DesktopBackupError::OperationRejected)
             );
-            host.with_authorized_business(true, |runtime, _, _, _| {
-                runtime.database_for_backup_mut().upsert_domain_asset(
-                    "unrelated-change",
-                    time,
-                    &asset("untouched.example", "changed after preview"),
-                )
-            })
-            .unwrap();
+            let edit_fill_note = |mutation: &str, note: Option<String>| {
+                host.with_authorized_business(true, |runtime, _, _, _| {
+                    runtime.database_for_backup_mut().upsert_domain_asset(
+                        mutation,
+                        time,
+                        &DomainAssetWrite {
+                            note,
+                            tags: vec!["current label".to_owned()],
+                            ..asset("fill.example", "unused")
+                        },
+                    )
+                })
+                .unwrap();
+            };
+            edit_fill_note("fill-after-preview", Some("new current note".into()));
             assert_eq!(
                 call(
                     &host,
@@ -887,8 +958,31 @@ mod tests {
                 ),
                 Err(DesktopBackupError::OperationRejected)
             );
-            let plan = call(&host, preview_intent).unwrap()["planId"].clone();
+            edit_fill_note("clear-for-new-preview", None);
+            let preview = call(&host, merge_intent).unwrap();
+            assert_eq!(preview["filled"], 1);
+            assert_eq!(
+                preview["rows"][2],
+                serde_json::json!({
+                    "entityId":"fill.example", "disposition":"fill_missing_fields",
+                    "fill": {"entityId":"fill.example", "note":"backup note", "tags":[], "portfolioId":null,
+                        "targetPrice":{"currency":"USD","amount":"3000"}}
+                })
+            );
+            let plan = preview["planId"].clone();
             let apply = serde_json::json!({"action":"apply_import", "planId":plan});
+            let writes = || {
+                host.with_authorized_business(false, |runtime, _, _, _| {
+                runtime.database_for_backup_mut().backup_connection_mut().query_row(
+                    "SELECT (SELECT count(*) FROM domain_assets WHERE entity_id IN ('new.example','second.example')),
+                        (SELECT count(*) FROM sync_outbox WHERE entity_id IN ('new.example','second.example','fill.example')),
+                        (SELECT count(*) FROM domain_asset_desired_state WHERE entity_id='fill.example' AND note IS NOT NULL),
+                        (SELECT count(*) FROM business_history_events WHERE event_kind='backup_restore_completed')",
+                    [], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?)),
+                ).map_err(|_| BusinessDatabaseError::StorageRejected)
+            }).unwrap()
+            };
+            let baseline = writes();
             let epoch = host.transition_requested_epoch.load(Ordering::Acquire);
             host.business_commit_transition_epoch
                 .store(epoch + 1, Ordering::Release);
@@ -898,16 +992,8 @@ mod tests {
             );
             host.transition_requested_epoch
                 .store(epoch, Ordering::Release);
-            let uncommitted = host.with_authorized_business(false, |runtime, _, _, _| {
-                runtime.database_for_backup_mut().backup_connection_mut().query_row(
-                    "SELECT (SELECT count(*) FROM domain_assets WHERE entity_id IN ('new.example','second.example'))
-                        + (SELECT count(*) FROM sync_outbox WHERE entity_id IN ('new.example','second.example'))
-                        + (SELECT count(*) FROM business_history_events WHERE event_kind='backup_restore_completed')",
-                    [], |row| row.get::<_, i64>(0),
-                ).map_err(|_| BusinessDatabaseError::StorageRejected)
-            }).unwrap();
-            assert_eq!(uncommitted, 0);
-            let applied = serde_json::json!({"state":"import_applied", "additions":2});
+            assert_eq!(writes(), baseline);
+            let applied = serde_json::json!({"state":"import_applied", "additions":2, "filled":1});
             assert_eq!(call(&host, apply.clone()).unwrap(), applied);
             assert_eq!(call(&host, apply).unwrap(), applied);
         }
@@ -929,8 +1015,18 @@ mod tests {
         assert_eq!(read("new.example").unwrap(), "backup note");
         assert_eq!(read("second.example").unwrap(), "backup note");
         assert_eq!(read("conflict.example").unwrap(), "current note");
-        assert_eq!(read("untouched.example").unwrap(), "changed after preview");
+        assert_eq!(read("fill.example").unwrap(), "backup note");
+        assert_eq!(read("untouched.example").unwrap(), "stay here");
         assert!(read("archived.example").is_err());
+        let kept: (String, String, i64, i64) = connection.query_row(
+            "SELECT p.tags_json,p.target_price_amount,a.entity_generation,
+                    (SELECT count(*) FROM sync_outbox_local_creations c JOIN sync_outbox o USING(workspace_id,mutation_id)
+                        WHERE o.entity_id='fill.example')
+               FROM portfolio_domain_assets p JOIN domain_assets a USING(workspace_id,entity_id)
+               WHERE p.entity_id='fill.example'",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).unwrap();
+        assert_eq!(kept, (r#"["current label"]"#.into(), "3000".into(), 1, 0));
         let receipts: i64 = connection.query_row("SELECT count(*) FROM business_history_events WHERE event_kind='backup_restore_completed'", [], |row| row.get(0)).unwrap();
         assert_eq!(receipts, 1);
     }

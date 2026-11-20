@@ -6,15 +6,20 @@ use zeroize::{Zeroize, Zeroizing};
 
 use super::source::{
     IsolatedBackupCandidate, SensitiveAsset, SensitiveDatabaseRow, bounded_revision, hex_digest,
-    read_tags_into,
+    read_tags_into, zeroize_asset,
 };
 use crate::active_workspace::business::{
-    BusinessDatabase, BusinessDatabaseError, create_recovered_asset_in_transaction,
+    BusinessDatabase, BusinessDatabaseError, write_recovered_asset_in_transaction,
 };
 use crate::portfolio_projection::DomainAssetProjectionRow;
 
 mod portable_import;
 pub(super) use portable_import::{PortableImportDisposition, PortableImportRow};
+
+struct PortableImportApproval<'a> {
+    rows: &'a [PortableImportRow],
+    fill_missing_fields: bool,
+}
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
@@ -181,6 +186,7 @@ impl BusinessDatabase {
     pub(super) fn preview_portable_import(
         &mut self,
         candidate: &IsolatedBackupCandidate,
+        fill_missing_fields: bool,
     ) -> Result<(u64, Vec<PortableImportRow>), BusinessDatabaseError> {
         let workspace_id = self.workspace_id().to_owned();
         let transaction = self
@@ -190,7 +196,13 @@ impl BusinessDatabase {
         let revision = restore_revision(&transaction, &workspace_id)?;
         require_no_open_conflicts(&transaction, &workspace_id)?;
         let current = read_current_assets(&transaction, &workspace_id)?;
-        let rows = portable_import::compare(&transaction, &workspace_id, candidate, &current)?;
+        let rows = portable_import::compare(
+            &transaction,
+            &workspace_id,
+            candidate,
+            &current,
+            fill_missing_fields,
+        )?;
         Ok((revision, rows))
     }
 
@@ -199,6 +211,7 @@ impl BusinessDatabase {
         candidate: &IsolatedBackupCandidate,
         request: &RestoreRequest<'_>,
         approved: &[PortableImportRow],
+        fill_missing_fields: bool,
         authority: &RestoreAuthoritySnapshot,
         pre_commit_authority_check: impl FnOnce(bool) -> Result<(), BusinessDatabaseError>,
     ) -> Result<RestoreReceipt, BusinessDatabaseError> {
@@ -206,7 +219,10 @@ impl BusinessDatabase {
             self,
             candidate,
             request,
-            Some(approved),
+            Some(&PortableImportApproval {
+                rows: approved,
+                fill_missing_fields,
+            }),
             &mut (),
             authority,
             |(), _, replay| pre_commit_authority_check(replay),
@@ -225,7 +241,7 @@ fn restore_with_commit_state<G>(
     database: &mut BusinessDatabase,
     candidate: &IsolatedBackupCandidate,
     request: &RestoreRequest<'_>,
-    portable_approval: Option<&[PortableImportRow]>,
+    portable_approval: Option<&PortableImportApproval<'_>>,
     authority_guard: &mut G,
     authority: &RestoreAuthoritySnapshot,
     pre_commit_authority_check: impl FnOnce(
@@ -265,11 +281,14 @@ fn restore_with_commit_state<G>(
     }
     let current = read_current_assets(&transaction, &workspace_id)?;
     if let Some(approved) = portable_approval
-        && (!approved
-            .iter()
-            .any(|row| row.disposition == PortableImportDisposition::Add)
-            || portable_import::compare(&transaction, &workspace_id, candidate, &current)?
-                != approved)
+        && (!approved.rows.iter().any(PortableImportRow::applies)
+            || portable_import::compare(
+                &transaction,
+                &workspace_id,
+                candidate,
+                &current,
+                approved.fill_missing_fields,
+            )? != approved.rows)
     {
         return Err(BusinessDatabaseError::MutationConflict);
     }
@@ -286,23 +305,41 @@ fn restore_with_commit_state<G>(
     for (index, asset) in candidate.body.assets.iter().enumerate() {
         let preserve = portable_approval.map_or_else(
             || current.get(&asset.entity_id) == Some(asset),
-            |approved| approved[index].disposition != PortableImportDisposition::Add,
+            |approved| !approved.rows[index].applies(),
         );
         if preserve {
             unchanged += 1;
             continue;
         }
-        if portable_approval.is_some() {
+        if let Some(approval) = portable_approval {
             let mutation_id = derived_id("mutation-upsert", request.operation_id, &asset.entity_id);
-            local_sequence = create_recovered_asset_in_transaction(
+            let row = &approval.rows[index];
+            let mut merged = if row.asset_version.is_some() {
+                Some(
+                    row.merge(
+                        current
+                            .get(&asset.entity_id)
+                            .ok_or(BusinessDatabaseError::MutationStale)?,
+                    )
+                    .ok_or(BusinessDatabaseError::MutationStale)?,
+                )
+            } else {
+                None
+            };
+            let result = write_recovered_asset_in_transaction(
                 &transaction,
                 &workspace_id,
                 &mutation_id,
                 &authority.source_device_id,
                 authority.active_lease_epoch,
                 &authority.committed_at,
-                asset,
-            )?;
+                merged.as_ref().unwrap_or(asset),
+                row.asset_version,
+            );
+            if let Some(merged) = &mut merged {
+                zeroize_asset(merged);
+            }
+            local_sequence = result?;
             append_root_history(
                 &transaction,
                 &workspace_id,
@@ -1731,6 +1768,87 @@ mod tests {
         attempt_restore(&mut database, &current, 7).unwrap();
         let detail = database.read_domain_detail("one.example").unwrap();
         assert_eq!(detail.asset.note.as_deref(), Some("second life"));
+    }
+
+    #[test]
+    fn portable_fill_preserves_readded_and_provisional_assets() {
+        let confirmed_dir = tempdir().unwrap();
+        let mut confirmed = open_database(confirmed_dir.path());
+        pull(
+            &mut confirmed,
+            0,
+            vec![remote("create", 1, 0, Some("first life"))],
+        );
+        let old = candidate(&mut confirmed, "artifact-first-life", 5);
+        let same_generation = reframed(&mut confirmed, "artifact-second-life", 6, |body| {
+            body.replace("\"assetGenerations\":[1]", "\"assetGenerations\":[2]")
+        });
+        let mut re_add = remote("re-add", 2, 2, Some("used to construct an upsert"));
+        re_add["changedFields"][0]["value"] = serde_json::Value::Null;
+        re_add["reAddsDeletedRevision"] = serde_json::json!(2);
+        pull(
+            &mut confirmed,
+            1,
+            vec![remote("delete", 1, 1, None), re_add],
+        );
+        assert!(
+            confirmed
+                .read_domain_detail("one.example")
+                .unwrap()
+                .asset
+                .note
+                .is_none()
+        );
+        let (_, earlier) = confirmed.preview_portable_import(&old, true).unwrap();
+        assert!(earlier[0].disposition == PortableImportDisposition::PreserveExisting);
+        let (_, current) = confirmed
+            .preview_portable_import(&same_generation, true)
+            .unwrap();
+        assert!(current[0].disposition == PortableImportDisposition::FillMissingFields);
+
+        let pending_dir = tempdir().unwrap();
+        let mut pending = open_database(pending_dir.path());
+        pull(
+            &mut pending,
+            0,
+            vec![
+                remote("create", 1, 0, Some("first life")),
+                remote("delete", 1, 1, None),
+            ],
+        );
+        pending
+            .re_add_domain_asset(
+                "local-re-add",
+                "device-restore",
+                1,
+                TIME,
+                &DomainAssetWrite {
+                    entity_id: "one.example".into(),
+                    note: None,
+                    portfolio_id: None,
+                    tags: Vec::new(),
+                    target_price: None,
+                },
+            )
+            .unwrap();
+        let before = write_footprint(&mut pending);
+        let (revision, frozen) = pending
+            .preview_portable_import(&same_generation, true)
+            .unwrap();
+        assert!(frozen[0].disposition == PortableImportDisposition::BlockedByAssetHistory);
+        let digest = "8".repeat(64);
+        assert_eq!(
+            pending.import_portable_backup_guarded(
+                &same_generation,
+                &request("fill-frozen", revision, 6, &digest),
+                &frozen,
+                true,
+                &authority(&digest),
+                |_| Ok(()),
+            ),
+            Err(BusinessDatabaseError::MutationConflict)
+        );
+        assert_eq!(write_footprint(&mut pending), before);
     }
 
     /// Rewrites the JSON body of `database`'s current projection with `rewrite`, keeping its

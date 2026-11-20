@@ -1390,9 +1390,12 @@ fn mutate_domain_asset_in_transaction(
     })
 }
 
-/// Converts an admitted recovery row to an ordinary create, using the caller's transaction.
-/// The asset owner records the creation marker alongside the Outbox for later ACK or rejection.
-pub(crate) fn create_recovered_asset_in_transaction(
+/// Converts an admitted recovery row to an ordinary create or version-checked edit.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the restore writer supplies the admitted mutation coordinates"
+)]
+pub(crate) fn write_recovered_asset_in_transaction(
     transaction: &rusqlite::Transaction<'_>,
     workspace_id: &str,
     mutation_id: &str,
@@ -1400,6 +1403,7 @@ pub(crate) fn create_recovered_asset_in_transaction(
     active_lease_epoch: u64,
     committed_at: &str,
     row: &DomainAssetProjectionRow,
+    current_asset_version: Option<u64>,
 ) -> Result<u64, BusinessDatabaseError> {
     let asset = DomainAssetWrite {
         entity_id: row.entity_id.clone(),
@@ -1409,13 +1413,15 @@ pub(crate) fn create_recovered_asset_in_transaction(
         target_price: row.target_price.clone(),
     };
     validate_domain_asset(&asset)?;
+    let (operation, version) =
+        current_asset_version.map_or(("create", 0), |version| ("edit", version));
     let receipt = mutate_domain_asset_in_transaction(
         transaction,
         workspace_id,
-        "create",
+        operation,
         mutation_id,
         &asset.entity_id,
-        0,
+        version,
         device_id,
         active_lease_epoch,
         committed_at,

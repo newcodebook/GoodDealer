@@ -10,7 +10,7 @@ export const portableBackupIntentSchema = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("create"), locale }),
   z.strictObject({ action: z.literal("page"), viewId, after: canonicalDomainNameSchema }),
   z.strictObject({ action: z.literal("export"), viewId, locale }),
-  z.strictObject({ action: z.literal("preview_import"), viewId }),
+  z.strictObject({ action: z.literal("preview_import"), viewId, fillMissingFields: z.boolean().optional() }),
   z.strictObject({ action: z.literal("import_page"), planId, after: canonicalDomainNameSchema }),
   z.strictObject({ action: z.literal("apply_import"), planId }),
   z.strictObject({ action: z.literal("cancel_import"), planId }),
@@ -39,26 +39,40 @@ const opened = z.strictObject({
   rows.every((row, index) => index === 0 || rows[index - 1]!.entityId < row.entityId) &&
   (next === null || (rows.length === 50 && rows.at(-1)?.entityId === next))
 ));
+const previewRow = z.union([
+  z.strictObject({
+    entityId: canonicalDomainNameSchema,
+    disposition: z.enum(["add", "unchanged", "preserve_existing", "blocked_by_asset_history", "missing_portfolio"]),
+  }),
+  z.strictObject({
+    entityId: canonicalDomainNameSchema,
+    disposition: z.literal("fill_missing_fields"),
+    fill: asset,
+  }).refine(({ entityId, fill }) => entityId === fill.entityId && (
+    fill.note !== null || fill.portfolioId !== null || fill.tags.length > 0 || fill.targetPrice !== null
+  )),
+]);
+const importCount = z.number().int().min(0).max(100_000);
 const importPreview = z.strictObject({
   state: z.literal("import_preview"),
   planId,
-  additions: z.number().int().min(0).max(100_000),
-  total: z.number().int().min(0).max(100_000),
+  additions: importCount,
+  filled: importCount.default(0),
+  total: importCount,
   next: canonicalDomainNameSchema.nullable(),
-  rows: z.array(z.strictObject({
-    entityId: canonicalDomainNameSchema,
-    disposition: z.enum(["add", "unchanged", "preserve_existing", "blocked_by_asset_history", "missing_portfolio"]),
-  })).max(50),
-}).refine(({ additions, total, next, rows }) => (
-  additions <= total && rows.length <= total &&
+  rows: z.array(previewRow).max(50),
+}).refine(({ additions, filled, total, next, rows }) => (
+  additions + filled <= total && rows.length <= total &&
   rows.filter((row) => row.disposition === "add").length <= additions &&
+  rows.filter((row) => row.disposition === "fill_missing_fields").length <= filled &&
   rows.every((row, index) => index === 0 || rows[index - 1]!.entityId < row.entityId) &&
   (next === null || (rows.length === 50 && rows.length < total && rows.at(-1)?.entityId === next))
 ));
 const portableBackupResultSchema = z.union([
   opened,
   importPreview,
-  z.strictObject({ state: z.literal("import_applied"), additions: z.number().int().min(1).max(100_000) }),
+  z.strictObject({ state: z.literal("import_applied"), additions: importCount, filled: importCount.default(0) })
+    .refine(({ additions, filled }) => additions + filled >= 1 && additions + filled <= 100_000),
   z.strictObject({
     state: z.enum(["cancelled", "closed", "backup_saved", "material_saved", "export_saved", "publication_unknown", "import_cancelled"]),
   }),

@@ -1,6 +1,6 @@
 import type { PortableBackupImportPreview, PortableBackupIntent, PortableBackupPage as BackupPage } from "@gooddealer/client-core";
 import { formatDate, formatNumber, getCapabilityCopy, type Locale } from "@gooddealer/i18n";
-import { Button } from "@gooddealer/ui";
+import { Button, Checkbox } from "@gooddealer/ui";
 import { useEffect, useRef, useState } from "react";
 
 import { runPortableBackup } from "../../adapters/tauri/portable-backup";
@@ -18,6 +18,7 @@ export function PortableBackupPage({ locale, windowFrame, canCreate, onBack }: P
   const copy = getCapabilityCopy(locale, "recovery");
   const [page, setPage] = useState<BackupPage | null>(null);
   const [importPreview, setImportPreview] = useState<PortableBackupImportPreview | null>(null);
+  const [fillMissingFields, setFillMissingFields] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const running = useRef(false);
@@ -36,14 +37,23 @@ export function PortableBackupPage({ locale, windowFrame, canCreate, onBack }: P
       switch (result.state) {
         case "opened":
           setPage(result);
-          if (intent.action === "open") setImportPreview(null);
+          if (intent.action === "open") {
+            setImportPreview(null);
+            setFillMissingFields(false);
+          }
           break;
         case "import_preview": setImportPreview(result); break;
         case "import_cancelled": setImportPreview(null); break;
         case "import_applied":
           setImportPreview(null);
-          setNotice(result.additions === 1 ? copy.portableImportOne :
-            copy.portableImportResult.replace("{count}", formatNumber(locale, result.additions)));
+          if (result.filled > 0) {
+            setNotice(copy.portableImportFillResult
+              .replace("{additions}", formatNumber(locale, result.additions))
+              .replace("{filled}", formatNumber(locale, result.filled)));
+          } else {
+            setNotice(result.additions === 1 ? copy.portableImportOne :
+              copy.portableImportResult.replace("{count}", formatNumber(locale, result.additions)));
+          }
           break;
         case "closed": onBack(); break;
         case "cancelled": setNotice(copy.portableCancelled); break;
@@ -118,12 +128,20 @@ export function PortableBackupPage({ locale, windowFrame, canCreate, onBack }: P
                   ))}</tbody>
                 </table>
               )}
+              {canCreate && importPreview === null ? (
+                <p><Checkbox
+                  label={copy.portableImportFillOption}
+                  checked={fillMissingFields}
+                  disabled={busy}
+                  onChange={(event) => { setFillMissingFields(event.currentTarget.checked); }}
+                /></p>
+              ) : null}
               <div className="portable-backup-actions">
                 <Button variant="secondary" disabled={busy} onClick={() => {
                   void work({ action: "export", viewId: page.viewId, locale });
                 }}>{copy.portableExport}</Button>
                 {canCreate && importPreview === null ? <Button variant="secondary" disabled={busy} onClick={() => {
-                  void work({ action: "preview_import", viewId: page.viewId });
+                  void work({ action: "preview_import", viewId: page.viewId, fillMissingFields });
                 }}>{copy.portablePreviewImport}</Button> : null}
                 {page.next === null ? null : <Button variant="secondary" disabled={busy} onClick={() => {
                   if (page.next !== null) void work({ action: "page", viewId: page.viewId, after: page.next });
@@ -138,19 +156,31 @@ export function PortableBackupPage({ locale, windowFrame, canCreate, onBack }: P
               <p>{copy.portableImportSummary
                 .replace("{additions}", formatNumber(locale, importPreview.additions))
                 .replace("{total}", formatNumber(locale, importPreview.total))}</p>
+              {importPreview.filled > 0 ? <p>{copy.portableImportFillSummary
+                .replace("{filled}", formatNumber(locale, importPreview.filled))}</p> : null}
               {importPreview.rows.length === 0 ? null : <table>
                 <caption>{copy.portableImportStatus}</caption>
                 <thead><tr><th scope="col">{copy.portableDomain}</th><th scope="col">{copy.portableImportStatus}</th></tr></thead>
-                <tbody>{importPreview.rows.map(({ entityId, disposition }) => (
-                  <tr key={entityId}>
-                    <th scope="row">{entityId}</th>
-                    <td>{{
+                <tbody>{importPreview.rows.map((row) => (
+                  <tr key={row.entityId}>
+                    <th scope="row">{row.entityId}</th>
+                    <td>{row.disposition === "fill_missing_fields" ? (
+                      <>
+                        {copy.portableImportFill}
+                        <dl>
+                          {row.fill.note !== null ? <><dt>{copy.portableNote}</dt><dd>{row.fill.note}</dd></> : null}
+                          {row.fill.tags.length > 0 ? <><dt>{copy.portableTags}</dt><dd>{row.fill.tags.join(", ")}</dd></> : null}
+                          {row.fill.targetPrice !== null ? <><dt>{copy.portablePrice}</dt><dd>{row.fill.targetPrice.currency} {row.fill.targetPrice.amount}</dd></> : null}
+                          {row.fill.portfolioId !== null ? <><dt>{copy.portablePortfolio}</dt><dd>{row.fill.portfolioId}</dd></> : null}
+                        </dl>
+                      </>
+                    ) : {
                       add: copy.portableImportAdd,
                       unchanged: copy.portableImportUnchanged,
                       preserve_existing: copy.portableImportPreserve,
                       blocked_by_asset_history: copy.portableImportHistory,
                       missing_portfolio: copy.portableImportMissingPortfolio,
-                    }[disposition]}</td>
+                    }[row.disposition]}</td>
                   </tr>
                 ))}</tbody>
               </table>}
@@ -161,7 +191,7 @@ export function PortableBackupPage({ locale, windowFrame, canCreate, onBack }: P
                 <Button variant="secondary" disabled={busy} onClick={() => {
                   void work({ action: "cancel_import", planId: importPreview.planId });
                 }}>{copy.portableImportCancel}</Button>
-                <Button variant="primary" disabled={busy || importPreview.additions === 0} onClick={() => {
+                <Button variant="primary" disabled={busy || importPreview.additions + importPreview.filled === 0} onClick={() => {
                   void work({ action: "apply_import", planId: importPreview.planId });
                 }}>{copy.portableImportConfirm}</Button>
               </div>
