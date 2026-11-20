@@ -561,3 +561,10 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 设置首次连接先用内存中的 Native 候选凭据完整读取官方账户库存。预检通过后创建连接和请求，精确读回托管凭据后同事务发布观察、资产、Outbox 与回执。权限拒绝、取消、无效响应和不完整分页不会创建待验证连接。
 - 追加迁移 `202611200006`。刷新回执前持久保存当前工作区、连接 incarnation、设备与 Lease，重开从首面续读同一请求。回执原子消费请求。旧版标记可通过显式刷新重新准入。交接、撤销和代次替换禁止迟到结果。
 - 独立审查复验 10 项，覆盖 SQLCipher/Host、注册资料读投影、IPC、Native 回执顺序和 schema manifest。修复 manifest 的迁移数、表数断言并复验通过。Linux Storage/Tauri 严格 Clippy 通过。真实验收仍需要具名开发准入、Native 输入的 `domains:read` 凭据及可核对的账户库存，Windows/macOS 分别实机取证。
+
+## 2026-11-20 阿里云 Registrar 首次连接与刷新续作
+
+- 中国站设置入口先在 Native 内存中用候选 RAM 凭据完成官方 ACS3 `QueryDomainList` 的完整库存预检。通过后发布经过精确读回的不可变凭据槽，再原子导入注册资料和资产。API 签名、入口和字段保持阿里云自己的合同，未知注册锁仍为空。
+- 追加迁移 `202611200007`。刷新在回执前入库，按工作区、连接 incarnation、设备和 Lease 重开续读。单事务写观察、资产、Outbox 和回执并消费请求。期间失败保留先前结果；交接、撤销及代次变化后不能提交迟到结果。旧版待扫描位需显式刷新。
+- 独立复验 10 项通过，包含 Native 回执顺序、IPC、Host/SQLCipher、schema manifest 及资产读投影。Linux Storage/Tauri 严格 Clippy 通过。真实只读账户仍需具名开发准入及中国站 RAM 权限 `domain:QueryCommonInfo`，Windows/macOS 实机各自验收。卖家私有上下架与验证继续实施。
+- 两个 Registrar 切片的最终整合通过根 `pnpm check`，含 SQLCipher 675 项、Tauri 190 项、Core 131 项。Windows GNU Storage/Tauri 所有目标严格 Clippy 通过。两轮 Linux 构建曾重叠并替换测试可执行文件，导致旧轮两个子进程无法启动。两项单独复验与最终整合均通过。后续需等会启动同一测试二进制子进程的检查结束，再重建对应输出。

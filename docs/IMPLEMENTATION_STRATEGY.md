@@ -108,5 +108,5 @@ Standby 协议、Cloud 签发、独立签名用途、Host 验证、路由清单�
 
 执行事实/设备审计的真实本地来源、签名、上传确认与三流 drain 折叠已组合；来源交接和无副本目标取消已有客户入口。首次目标设备安装/激活和 Fresh 强制接管已组合，已有副本保留替换与无 held 来源恢复继续交付。上架/改价已组合持久父计划、签名两流、单次发送/GET 对账及客户入口。官方 `OWNERSHIP_REVIEW` 复核接入本地父计划和独立批准用途，仍需真实账号资格和换机后可验证的前任关闭依据。并行完成 Linux 受控域名接口验收，按已发现的当前 Web 路径继续采样认证私有协议与 DNS。新目标、改价或扩大 DNS 范围必须重新预览。完整范围和安全条件见 [实施目标](IMPLEMENTATION_GOAL.md)。
 
-Cloudflare 独立 Registrar、Spaceship Registrar 和阿里云 Registrar 均复用既有资产事务、ProviderLane 与账户归集设置面板。Cloudflare 独立账户和 Spaceship 先完成 Native 账户库存预检，再发布各自的不可变凭据槽。阿里云卖家私有 HTTP 调查、22.cn/易名资产与交易流程，以及 GoDaddy 真实接口均独立保留。
+Cloudflare 独立 Registrar、Spaceship Registrar 和阿里云 Registrar 均复用既有资产事务、ProviderLane 与账户归集设置面板。三者均先完成 Native 账户库存预检，再发布各自的不可变凭据槽。阿里云卖家私有 HTTP 调查、22.cn/易名资产与交易流程，以及 GoDaddy 真实接口均独立保留。
 Atom 已组合官方卖家库存及重开续读，复用既有 Listing 绑定、设置面板和回执前持久化的 ProviderLane。后续 Standard 下架可先用官方 `type=standard` 筛选取证，写入与终态还需要核对当前卖家权限、精确 Listing 和真实对账响应。

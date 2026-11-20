@@ -237,7 +237,7 @@ mod tests {
         ).unwrap();
 
         let aliyun = db
-            .prepare_aliyun_connection("Aliyun", AT, || Ok(()))
+            .prepare_aliyun_connection("Aliyun", AT, ("device-local", 1), || Ok(()))
             .unwrap();
         db.import_aliyun_inventory(
             &AliyunInventoryCommit {

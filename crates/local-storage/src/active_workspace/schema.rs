@@ -188,6 +188,17 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "aliyun_registrar_pending_scans",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "device_id",
+            "lease_epoch",
+            "request_id",
+        ],
+    ),
+    (
         "afternic_ownership_review_preflights",
         &[
             "workspace_id",
