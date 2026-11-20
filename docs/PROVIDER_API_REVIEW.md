@@ -26,6 +26,8 @@
 
 Cloudflare 官方兼容性表将 Account-owned API token 标记为与 Registrar 不兼容。独立 Registrar 连接沿现有 Bearer 路径使用用户 API token，并在 Native 核对指定账户的注册列表读取权限。账户 ID 可从 Cloudflare Dashboard 获取。[账号令牌兼容性](https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/#compatibility-matrix) [查询账户 ID](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/)
 
+2026-11-20 核对了 22.cn 的真实账户入口。官网导航链接到 `i.22.cn/Domain/My/`，一口价市场导航链接到 `i.22.cn/seller/pkpage/domains` 的出售页。两个入口的匿名 GET 都返回同源 `/SSO` 重定向，域名入口的登录跳转页内嵌 `my.22.cn/sso/login.aspx`。账户资产清单及市场上下架的请求和响应仍需在用户授权登录后取证。[官网](https://www.22.cn/) [一口价市场](https://am.22.cn/ykj/) [域名入口](https://i.22.cn/Domain/My/) [出售页](https://i.22.cn/seller/pkpage/domains)
+
 ## 所有权验证与副作用语义
 
 ### Afternic
