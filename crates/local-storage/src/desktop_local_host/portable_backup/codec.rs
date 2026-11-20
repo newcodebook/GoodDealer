@@ -88,8 +88,16 @@ pub(super) struct OpenedArtifact {
 }
 impl OpenedArtifact {
     pub(super) fn frames(&self) -> impl Iterator<Item = &[u8]> {
-        self.projection.chunks(FRAME_LEN)
+        projection_frames(&self.projection)
     }
+
+    pub(super) fn authenticated_projection(&self) -> &[u8] {
+        self.projection.as_slice()
+    }
+}
+
+pub(super) fn projection_frames(projection: &[u8]) -> impl Iterator<Item = &[u8]> {
+    projection.chunks(FRAME_LEN)
 }
 
 pub(super) fn seal(

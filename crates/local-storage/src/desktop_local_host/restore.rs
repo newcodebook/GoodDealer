@@ -8,8 +8,13 @@ use super::source::{
     IsolatedBackupCandidate, SensitiveAsset, SensitiveDatabaseRow, bounded_revision, hex_digest,
     read_tags_into,
 };
-use crate::active_workspace::business::{BusinessDatabase, BusinessDatabaseError};
+use crate::active_workspace::business::{
+    BusinessDatabase, BusinessDatabaseError, create_recovered_asset_in_transaction,
+};
 use crate::portfolio_projection::DomainAssetProjectionRow;
+
+mod portable_import;
+pub(super) use portable_import::{PortableImportDisposition, PortableImportRow};
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
@@ -150,7 +155,7 @@ impl BusinessDatabase {
     /// Applies an authenticated candidate while the aggregate's authority guard is already held.
     ///
     /// Keeping acquisition outside this method makes the only legal order explicit: authority,
-    /// database writer, then the `IMMEDIATE` transaction opened by [`restore`].
+    /// database writer, then the `IMMEDIATE` transaction opened by [`restore_with_commit_state`].
     pub(super) fn restore_backup_candidate_guarded<G>(
         &mut self,
         candidate: &IsolatedBackupCandidate,
@@ -162,13 +167,49 @@ impl BusinessDatabase {
             &RestoreAuthoritySnapshot,
         ) -> Result<(), BusinessDatabaseError>,
     ) -> Result<RestoreReceipt, BusinessDatabaseError> {
-        restore(
+        restore_with_commit_state(
             self,
             candidate,
             request,
+            None,
             authority_guard,
             authority,
-            pre_commit_authority_check,
+            |guard, authority, _| pre_commit_authority_check(guard, authority),
+        )
+    }
+
+    pub(super) fn preview_portable_import(
+        &mut self,
+        candidate: &IsolatedBackupCandidate,
+    ) -> Result<(u64, Vec<PortableImportRow>), BusinessDatabaseError> {
+        let workspace_id = self.workspace_id().to_owned();
+        let transaction = self
+            .backup_connection_mut()
+            .transaction()
+            .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+        let revision = restore_revision(&transaction, &workspace_id)?;
+        require_no_open_conflicts(&transaction, &workspace_id)?;
+        let current = read_current_assets(&transaction, &workspace_id)?;
+        let rows = portable_import::compare(&transaction, &workspace_id, candidate, &current)?;
+        Ok((revision, rows))
+    }
+
+    pub(super) fn import_portable_backup_guarded(
+        &mut self,
+        candidate: &IsolatedBackupCandidate,
+        request: &RestoreRequest<'_>,
+        approved: &[PortableImportRow],
+        authority: &RestoreAuthoritySnapshot,
+        pre_commit_authority_check: impl FnOnce(bool) -> Result<(), BusinessDatabaseError>,
+    ) -> Result<RestoreReceipt, BusinessDatabaseError> {
+        restore_with_commit_state(
+            self,
+            candidate,
+            request,
+            Some(approved),
+            &mut (),
+            authority,
+            |(), _, replay| pre_commit_authority_check(replay),
         )
     }
 }
@@ -178,17 +219,19 @@ impl BusinessDatabase {
 /// final pre-commit boundary.
 #[expect(
     clippy::too_many_lines,
-    reason = "the restore transaction keeps all CAS, mutation, guard, and commit ordering contiguous"
+    reason = "revision guards and the original single restore writer share the transaction"
 )]
-pub(super) fn restore<G>(
+fn restore_with_commit_state<G>(
     database: &mut BusinessDatabase,
     candidate: &IsolatedBackupCandidate,
     request: &RestoreRequest<'_>,
+    portable_approval: Option<&[PortableImportRow]>,
     authority_guard: &mut G,
     authority: &RestoreAuthoritySnapshot,
     pre_commit_authority_check: impl FnOnce(
         &mut G,
         &RestoreAuthoritySnapshot,
+        bool,
     ) -> Result<(), BusinessDatabaseError>,
 ) -> Result<RestoreReceipt, BusinessDatabaseError> {
     validate_request(candidate, request)?;
@@ -203,39 +246,33 @@ pub(super) fn restore<G>(
         if !replay_matches(&existing, candidate, request) {
             return Err(BusinessDatabaseError::MutationConflict);
         }
-        pre_commit_authority_check(authority_guard, authority)?;
+        pre_commit_authority_check(authority_guard, authority, true)?;
         transaction
             .commit()
             .map_err(|_| BusinessDatabaseError::StorageRejected)?;
         return Ok(receipt_from_history(&existing, "replayed"));
     }
-    let current_revision: i64 = transaction
-        .query_row(
-            "SELECT local_commit_sequence FROM active_workspace_metadata
-              WHERE singleton=1 AND workspace_id=?1",
-            [workspace_id.as_str()],
-            |row| row.get(0),
-        )
-        .map_err(|_| BusinessDatabaseError::WorkspaceRejected)?;
-    if bounded_revision(current_revision)? != request.expected_current_revision {
+    if restore_revision(&transaction, &workspace_id)? != request.expected_current_revision {
         return Err(BusinessDatabaseError::RevisionRejected);
     }
     if candidate.candidate_set_version != request.expected_candidate_set_version {
         return Err(BusinessDatabaseError::MutationStale);
     }
-    let open_conflicts: i64 = transaction
-        .query_row(
-            "SELECT count(*) FROM sync_conflicts WHERE workspace_id=?1 AND status='open'",
-            [workspace_id.as_str()],
-            |row| row.get(0),
-        )
-        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
-    if open_conflicts != 0 {
+    require_no_open_conflicts(&transaction, &workspace_id)?;
+    if portable_approval.is_none() {
+        reject_candidate_generation_conflicts(&transaction, &workspace_id, candidate)?;
+        reject_missing_portfolios(&transaction, &workspace_id, candidate)?;
+    }
+    let current = read_current_assets(&transaction, &workspace_id)?;
+    if let Some(approved) = portable_approval
+        && (!approved
+            .iter()
+            .any(|row| row.disposition == PortableImportDisposition::Add)
+            || portable_import::compare(&transaction, &workspace_id, candidate, &current)?
+                != approved)
+    {
         return Err(BusinessDatabaseError::MutationConflict);
     }
-    reject_candidate_generation_conflicts(&transaction, &workspace_id, candidate)?;
-    reject_missing_portfolios(&transaction, &workspace_id, candidate)?;
-    let current = read_current_assets(&transaction, &workspace_id)?;
     let candidate_ids: BTreeSet<&str> = candidate
         .body
         .assets
@@ -246,29 +283,56 @@ pub(super) fn restore<G>(
     let mut mutations = 0_u64;
     let mut tombstones = 0_u64;
     let mut unchanged = 0_u64;
-    for asset in &candidate.body.assets {
-        if current.get(&asset.entity_id) == Some(asset) {
+    for (index, asset) in candidate.body.assets.iter().enumerate() {
+        let preserve = portable_approval.map_or_else(
+            || current.get(&asset.entity_id) == Some(asset),
+            |approved| approved[index].disposition != PortableImportDisposition::Add,
+        );
+        if preserve {
             unchanged += 1;
             continue;
         }
-        let (next_local, device_sequence) =
-            advance_sequences(&transaction, &authority.committed_at)?;
-        local_sequence = next_local;
-        write_asset(
-            &transaction,
-            &workspace_id,
-            asset,
-            local_sequence,
-            device_sequence,
-            authority,
-            request,
-            candidate,
-        )?;
+        if portable_approval.is_some() {
+            let mutation_id = derived_id("mutation-upsert", request.operation_id, &asset.entity_id);
+            local_sequence = create_recovered_asset_in_transaction(
+                &transaction,
+                &workspace_id,
+                &mutation_id,
+                &authority.source_device_id,
+                authority.active_lease_epoch,
+                &authority.committed_at,
+                asset,
+            )?;
+            append_root_history(
+                &transaction,
+                &workspace_id,
+                "upsert",
+                &asset.entity_id,
+                local_sequence,
+                authority,
+                request,
+                candidate,
+            )?;
+        } else {
+            let (next_local, device_sequence) =
+                advance_sequences(&transaction, &authority.committed_at)?;
+            local_sequence = next_local;
+            write_asset(
+                &transaction,
+                &workspace_id,
+                asset,
+                local_sequence,
+                device_sequence,
+                authority,
+                request,
+                candidate,
+            )?;
+        }
         mutations += 1;
     }
     for entity_id in current
         .keys()
-        .filter(|id| !candidate_ids.contains(id.as_str()))
+        .filter(|id| portable_approval.is_none() && !candidate_ids.contains(id.as_str()))
     {
         let (next_local, device_sequence) =
             advance_sequences(&transaction, &authority.committed_at)?;
@@ -328,11 +392,43 @@ pub(super) fn restore<G>(
         &authority.committed_at,
         local_sequence,
     )?;
-    pre_commit_authority_check(authority_guard, authority)?;
+    pre_commit_authority_check(authority_guard, authority, false)?;
     transaction
         .commit()
         .map_err(|_| BusinessDatabaseError::StorageRejected)?;
     Ok(receipt_from_history(&history, "committed"))
+}
+
+fn restore_revision(
+    transaction: &Transaction<'_>,
+    workspace_id: &str,
+) -> Result<u64, BusinessDatabaseError> {
+    let revision = transaction
+        .query_row(
+            "SELECT local_commit_sequence FROM active_workspace_metadata
+              WHERE singleton=1 AND workspace_id=?1",
+            [workspace_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::WorkspaceRejected)?;
+    bounded_revision(revision)
+}
+
+fn require_no_open_conflicts(
+    transaction: &Transaction<'_>,
+    workspace_id: &str,
+) -> Result<(), BusinessDatabaseError> {
+    let open: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sync_conflicts WHERE workspace_id=?1 AND status='open')",
+            [workspace_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| BusinessDatabaseError::StorageRejected)?;
+    if open {
+        return Err(BusinessDatabaseError::MutationConflict);
+    }
+    Ok(())
 }
 
 fn validate_request(

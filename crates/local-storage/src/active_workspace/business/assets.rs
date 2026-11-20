@@ -1390,6 +1390,44 @@ fn mutate_domain_asset_in_transaction(
     })
 }
 
+/// Converts an admitted recovery row to an ordinary create, using the caller's transaction.
+/// The asset owner records the creation marker alongside the Outbox for later ACK or rejection.
+pub(crate) fn create_recovered_asset_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    mutation_id: &str,
+    device_id: &str,
+    active_lease_epoch: u64,
+    committed_at: &str,
+    row: &DomainAssetProjectionRow,
+) -> Result<u64, BusinessDatabaseError> {
+    let asset = DomainAssetWrite {
+        entity_id: row.entity_id.clone(),
+        note: row.note.clone(),
+        portfolio_id: row.portfolio_id.clone(),
+        tags: row.tags.clone(),
+        target_price: row.target_price.clone(),
+    };
+    validate_domain_asset(&asset)?;
+    let receipt = mutate_domain_asset_in_transaction(
+        transaction,
+        workspace_id,
+        "create",
+        mutation_id,
+        &asset.entity_id,
+        0,
+        device_id,
+        active_lease_epoch,
+        committed_at,
+        Some(&asset),
+        true,
+    )?;
+    if receipt.disposition != "committed" {
+        return Err(BusinessDatabaseError::MutationConflict);
+    }
+    Ok(receipt.local_commit_sequence)
+}
+
 /// Portfolio discovery never resurrects a tombstone or changes a user's existing fields.
 /// `None` means the caller must report the skipped domain without publishing a new binding.
 pub(super) fn import_discovered_asset(

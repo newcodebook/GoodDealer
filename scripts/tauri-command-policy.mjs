@@ -172,17 +172,17 @@ function attributedCommandBlock(sources, command) {
 function hasRawBackupCommand(sources, command, aggregateMethod) {
   const source = attributedCommandBlock(sources, command);
   const body = rustFunctionBody(source, command);
+  const canImport = command === "local_portable_backup";
+  const syncState = canImport ? ",\\s*coordinator\\s*:\\s*State\\s*<\\s*'_,\\s*Arc\\s*<\\s*NativeCloudCoordinator\\s*>\\s*>\\s*" : "";
   const signature = new RegExp(
-    `fn\\s+${command}\\s*\\(\\s*request\\s*:\\s*tauri::ipc::Request\\s*<\\s*'_\\s*>\\s*,\\s*host\\s*:\\s*State\\s*<\\s*'_,\\s*Arc\\s*<\\s*DesktopLocalHost\\s*>\\s*>\\s*,?\\s*\\)`,
+    `fn\\s+${command}\\s*\\(\\s*request\\s*:\\s*tauri::ipc::Request\\s*<\\s*'_\\s*>\\s*,\\s*host\\s*:\\s*State\\s*<\\s*'_,\\s*Arc\\s*<\\s*DesktopLocalHost\\s*>\\s*>\\s*${syncState},?\\s*\\)`,
     "u",
   );
-  const exactBody = new RegExp(
-    `^let wire = bounded_request_wire\\(&request\\)\\?; let aggregate = Arc::clone\\(host\\.inner\\(\\)\\); tauri::async_runtime::spawn_blocking\\(move \\|\\| aggregate\\.${aggregateMethod}\\(&wire\\)\\) \\.await \\.map_err\\(\\|_\\| "BACKUP_STORAGE_REJECTED"\\.to_owned\\(\\)\\)\\? \\.map_err\\(map_desktop_backup_error\\)$`,
-    "u",
-  );
-  return signature.test(source)
-    && body !== ""
-    && exactBody.test(normalizeRust(body));
+  const call = `tauri::async_runtime::spawn_blocking(move || aggregate.${aggregateMethod}(&wire)) .await .map_err(|_| "BACKUP_STORAGE_REJECTED".to_owned())? .map_err(map_desktop_backup_error)`;
+  const exactBody = "let wire = bounded_request_wire(&request)?; let aggregate = Arc::clone(host.inner()); " + (canImport
+    ? `let result = ${call}?; if result.get("state").and_then(serde_json::Value::as_str) == Some("import_applied") { coordinator.wake_sync(); } Ok(result)`
+    : call);
+  return signature.test(source) && normalizeRust(body) === exactBody;
 }
 
 function normalizeRust(source) {

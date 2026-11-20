@@ -1,7 +1,7 @@
-import type { PortableBackupIntent, PortableBackupPage as BackupPage } from "@gooddealer/client-core";
-import { formatDate, getCapabilityCopy, type Locale } from "@gooddealer/i18n";
+import type { PortableBackupImportPreview, PortableBackupIntent, PortableBackupPage as BackupPage } from "@gooddealer/client-core";
+import { formatDate, formatNumber, getCapabilityCopy, type Locale } from "@gooddealer/i18n";
 import { Button } from "@gooddealer/ui";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { runPortableBackup } from "../../adapters/tauri/portable-backup";
 import { NativeWindow, type ShellWindowFrame } from "../../app-shell";
@@ -17,9 +17,15 @@ type Props = {
 export function PortableBackupPage({ locale, windowFrame, canCreate, onBack }: Props) {
   const copy = getCapabilityCopy(locale, "recovery");
   const [page, setPage] = useState<BackupPage | null>(null);
+  const [importPreview, setImportPreview] = useState<PortableBackupImportPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const running = useRef(false);
+  const previewHeading = useRef<HTMLHeadingElement>(null);
+  const previewId = importPreview?.planId;
+  useEffect(() => {
+    if (canCreate && previewId !== undefined) previewHeading.current?.focus();
+  }, [canCreate, previewId]);
   const work = async (intent: PortableBackupIntent) => {
     if (running.current) return;
     running.current = true;
@@ -28,7 +34,17 @@ export function PortableBackupPage({ locale, windowFrame, canCreate, onBack }: P
     try {
       const result = await runPortableBackup(intent);
       switch (result.state) {
-        case "opened": setPage(result); break;
+        case "opened":
+          setPage(result);
+          if (intent.action === "open") setImportPreview(null);
+          break;
+        case "import_preview": setImportPreview(result); break;
+        case "import_cancelled": setImportPreview(null); break;
+        case "import_applied":
+          setImportPreview(null);
+          setNotice(result.additions === 1 ? copy.portableImportOne :
+            copy.portableImportResult.replace("{count}", formatNumber(locale, result.additions)));
+          break;
         case "closed": onBack(); break;
         case "cancelled": setNotice(copy.portableCancelled); break;
         case "backup_saved": setNotice(copy.portableSaved); break;
@@ -37,7 +53,17 @@ export function PortableBackupPage({ locale, windowFrame, canCreate, onBack }: P
         case "publication_unknown": setNotice(copy.portableUnknown); break;
       }
     } catch {
-      setNotice(copy.portableError);
+      switch (intent.action) {
+        case "preview_import":
+        case "apply_import":
+        case "import_page":
+        case "cancel_import":
+          setImportPreview(null);
+          setNotice(copy.portableImportError);
+          break;
+        default:
+          setNotice(copy.portableError);
+      }
     } finally {
       running.current = false;
       setBusy(false);
@@ -96,6 +122,9 @@ export function PortableBackupPage({ locale, windowFrame, canCreate, onBack }: P
                 <Button variant="secondary" disabled={busy} onClick={() => {
                   void work({ action: "export", viewId: page.viewId, locale });
                 }}>{copy.portableExport}</Button>
+                {canCreate && importPreview === null ? <Button variant="secondary" disabled={busy} onClick={() => {
+                  void work({ action: "preview_import", viewId: page.viewId });
+                }}>{copy.portablePreviewImport}</Button> : null}
                 {page.next === null ? null : <Button variant="secondary" disabled={busy} onClick={() => {
                   if (page.next !== null) void work({ action: "page", viewId: page.viewId, after: page.next });
                 }}>{copy.portableNext}</Button>}
@@ -103,6 +132,41 @@ export function PortableBackupPage({ locale, windowFrame, canCreate, onBack }: P
               <p className="gd-t-meta">{copy.portableExportHint}</p>
             </section>
           )}
+          {canCreate && importPreview !== null ? (
+            <section>
+              <h2 ref={previewHeading} tabIndex={-1}>{copy.portableImportTitle}</h2>
+              <p>{copy.portableImportSummary
+                .replace("{additions}", formatNumber(locale, importPreview.additions))
+                .replace("{total}", formatNumber(locale, importPreview.total))}</p>
+              {importPreview.rows.length === 0 ? null : <table>
+                <caption>{copy.portableImportStatus}</caption>
+                <thead><tr><th scope="col">{copy.portableDomain}</th><th scope="col">{copy.portableImportStatus}</th></tr></thead>
+                <tbody>{importPreview.rows.map(({ entityId, disposition }) => (
+                  <tr key={entityId}>
+                    <th scope="row">{entityId}</th>
+                    <td>{{
+                      add: copy.portableImportAdd,
+                      unchanged: copy.portableImportUnchanged,
+                      preserve_existing: copy.portableImportPreserve,
+                      blocked_by_asset_history: copy.portableImportHistory,
+                      missing_portfolio: copy.portableImportMissingPortfolio,
+                    }[disposition]}</td>
+                  </tr>
+                ))}</tbody>
+              </table>}
+              <div className="portable-backup-actions">
+                {importPreview.next === null ? null : <Button variant="secondary" disabled={busy} onClick={() => {
+                  if (importPreview.next !== null) void work({ action: "import_page", planId: importPreview.planId, after: importPreview.next });
+                }}>{copy.portableNext}</Button>}
+                <Button variant="secondary" disabled={busy} onClick={() => {
+                  void work({ action: "cancel_import", planId: importPreview.planId });
+                }}>{copy.portableImportCancel}</Button>
+                <Button variant="primary" disabled={busy || importPreview.additions === 0} onClick={() => {
+                  void work({ action: "apply_import", planId: importPreview.planId });
+                }}>{copy.portableImportConfirm}</Button>
+              </div>
+            </section>
+          ) : null}
         </main>
       </NativeWindow>
     </div>

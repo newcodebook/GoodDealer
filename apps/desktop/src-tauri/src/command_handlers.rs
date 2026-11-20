@@ -492,13 +492,18 @@ pub(crate) async fn local_backup_restore_begin(
 pub(crate) async fn local_portable_backup(
     request: tauri::ipc::Request<'_>,
     host: State<'_, Arc<DesktopLocalHost>>,
+    coordinator: State<'_, Arc<NativeCloudCoordinator>>,
 ) -> Result<serde_json::Value, String> {
     let wire = bounded_request_wire(&request)?;
     let aggregate = Arc::clone(host.inner());
-    tauri::async_runtime::spawn_blocking(move || aggregate.portable_backup(&wire))
+    let result = tauri::async_runtime::spawn_blocking(move || aggregate.portable_backup(&wire))
         .await
         .map_err(|_| "BACKUP_STORAGE_REJECTED".to_owned())?
-        .map_err(map_desktop_backup_error)
+        .map_err(map_desktop_backup_error)?;
+    if result.get("state").and_then(serde_json::Value::as_str) == Some("import_applied") {
+        coordinator.wake_sync();
+    }
+    Ok(result)
 }
 
 fn map_desktop_backup_error(error: DesktopBackupError) -> String {

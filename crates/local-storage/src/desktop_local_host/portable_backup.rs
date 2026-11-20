@@ -27,6 +27,8 @@ use codec::{PortableArtifactRejected, RecoveryMaterial};
 #[derive(Default)]
 pub(super) struct Selection {
     opened: Option<(String, OfflineDataset)>,
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    import_plan: Option<workflow::ImportPlan>,
 }
 
 struct BoundedOutput<'a> {
@@ -72,6 +74,7 @@ struct OfflineDataset {
     )]
     directory: OfflineDirectory,
     created_at: u64,
+    projection_digest: [u8; 32],
 }
 
 impl OfflineDataset {
@@ -119,6 +122,10 @@ impl OfflineDataset {
                 entity_id TEXT NOT NULL REFERENCES recovered_assets(entity_id),
                 tag TEXT NOT NULL,
                 PRIMARY KEY (entity_id,tag)
+             ) STRICT;
+             CREATE TABLE authenticated_projection (
+                singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+                payload BLOB NOT NULL
              ) STRICT;",
             )
             .map_err(database_error)?;
@@ -150,6 +157,14 @@ impl OfflineDataset {
                 }
             }
         }
+        // Rebuilding an import candidate reads the authenticated representation from the same
+        // isolated SQLCipher connection, with its original generation facts intact.
+        transaction
+            .execute(
+                "INSERT INTO authenticated_projection (singleton,payload) VALUES (1,?1)",
+                [opened.authenticated_projection()],
+            )
+            .map_err(database_error)?;
         transaction.commit().map_err(database_error)?;
         database
             .pragma_update(None, "query_only", true)
@@ -160,7 +175,30 @@ impl OfflineDataset {
             database,
             directory,
             created_at: opened.manifest.created_at,
+            projection_digest: opened.manifest.projection_digest,
         })
+    }
+
+    fn import_candidate(
+        &self,
+        artifact_id: &str,
+    ) -> Result<IsolatedBackupCandidate, PortableArtifactRejected> {
+        let projection = self
+            .database
+            .query_row(
+                "SELECT payload FROM authenticated_projection WHERE singleton=1",
+                [],
+                |row| row.get::<_, Vec<u8>>(0).map(Zeroizing::new),
+            )
+            .map_err(database_error)?;
+        let frames = codec::projection_frames(&projection).collect::<Vec<_>>();
+        IsolatedBackupCandidate::from_authenticated_frames(
+            artifact_id,
+            1,
+            &self.projection_digest,
+            &frames,
+        )
+        .map_err(|_| PortableArtifactRejected)
     }
 
     fn read(

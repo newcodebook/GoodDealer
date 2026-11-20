@@ -44,6 +44,7 @@ pub use afternic::{
     DesktopAfternicConnectionSummary, DesktopAfternicConnectionsRead,
     DesktopAfternicInventoryReceipt, DesktopAfternicListingObservation, DesktopAfternicScanSummary,
 };
+pub(crate) use assets::create_recovered_asset_in_transaction;
 mod checkpoint;
 mod initial_replica;
 pub(crate) use initial_replica::{InitialReplicaProjection, InitialReplicaReceipt};

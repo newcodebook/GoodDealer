@@ -8,9 +8,13 @@ use super::{
     native_file::{Publication, SelectedPath},
 };
 use crate::desktop_local_host::{
-    DesktopBackupError, DesktopLocalHost, RuntimeRestriction, WorkspaceAuthorityKind,
-    WorkspaceAuthorityState, current_unix_seconds, format_timestamp, map_database_error,
-    random_identifier, source::ALLOWLIST_VERSION,
+    BusinessDatabaseError, DesktopBackupError, DesktopLocalHost, DesktopLocalHostError,
+    RuntimeRestriction, WorkspaceAuthorityKind, WorkspaceAuthorityState, current_unix_seconds,
+    format_timestamp, hex_digest, map_database_error, random_identifier,
+    restore::{
+        PortableImportDisposition, PortableImportRow, RestoreAuthoritySnapshot, RestoreRequest,
+    },
+    source::ALLOWLIST_VERSION,
 };
 use crate::portfolio_projection::DomainAssetProjectionRow;
 
@@ -34,6 +38,10 @@ enum Action {
     Open { locale: Locale },
     Page { view_id: String, after: String },
     Export { locale: Locale, view_id: String },
+    PreviewImport { view_id: String },
+    ImportPage { plan_id: String, after: String },
+    ApplyImport { plan_id: String },
+    CancelImport { plan_id: String },
     Close { view_id: String },
 }
 
@@ -57,6 +65,17 @@ enum Response {
         rows: Vec<DomainAssetProjectionRow>,
         next: Option<String>,
     },
+    ImportPreview {
+        plan_id: String,
+        rows: Vec<PortableImportRow>,
+        next: Option<String>,
+        additions: usize,
+        total: usize,
+    },
+    ImportApplied {
+        additions: u64,
+    },
+    ImportCancelled,
     Cancelled,
     Closed,
     BackupSaved,
@@ -85,9 +104,22 @@ impl DesktopLocalHost {
                 selection.get(&view_id)?.page(view_id, Some(&after))?
             }
             Action::Export { locale, view_id } => selection.get(&view_id)?.export(locale)?,
+            Action::PreviewImport { view_id } => {
+                self.preview_portable_import(&mut selection, &view_id)?
+            }
+            Action::ImportPage { plan_id, after } => {
+                self.page_portable_import(&selection, &plan_id, &after)?
+            }
+            Action::ApplyImport { plan_id } => self.apply_portable_import(&selection, &plan_id)?,
+            Action::CancelImport { plan_id } => {
+                let _ = selection.get_import_plan(&plan_id)?;
+                selection.import_plan = None;
+                Response::ImportCancelled
+            }
             Action::Close { view_id } => {
                 let _ = selection.get(&view_id)?;
                 selection.opened = None;
+                selection.import_plan = None;
                 Response::Closed
             }
         };
@@ -213,6 +245,176 @@ impl DesktopLocalHost {
     }
 }
 
+pub(super) struct ImportPlan {
+    id: String,
+    view_id: String,
+    epoch: u64,
+    authority_digest: [u8; 32],
+    workspace_id: String,
+    revision: u64,
+    rows: Vec<PortableImportRow>,
+}
+
+impl ImportPlan {
+    fn page(&self, after: Option<&str>) -> Result<Response, DesktopBackupError> {
+        let start = if let Some(after) = after {
+            self.rows
+                .binary_search_by(|row| row.entity_id.as_str().cmp(after))
+                .map_err(|_| DesktopBackupError::OperationRejected)?
+                + 1
+        } else {
+            0
+        };
+        let end = start
+            .saturating_add(PAGE_SIZE as usize)
+            .min(self.rows.len());
+        let rows = &self.rows[start..end];
+        Ok(Response::ImportPreview {
+            plan_id: self.id.clone(),
+            next: (end < self.rows.len()).then(|| self.rows[end - 1].entity_id.clone()),
+            additions: self
+                .rows
+                .iter()
+                .filter(|row| row.disposition == PortableImportDisposition::Add)
+                .count(),
+            total: self.rows.len(),
+            rows: rows.to_vec(),
+        })
+    }
+
+    fn require_current(
+        &self,
+        epoch: u64,
+        digest: &[u8; 32],
+        workspace_id: &str,
+    ) -> Result<(), BusinessDatabaseError> {
+        if self.epoch != epoch
+            || &self.authority_digest != digest
+            || self.workspace_id != workspace_id
+        {
+            return Err(BusinessDatabaseError::MutationStale);
+        }
+        Ok(())
+    }
+}
+
+impl DesktopLocalHost {
+    fn preview_portable_import(
+        &self,
+        selection: &mut Selection,
+        view_id: &str,
+    ) -> Result<Response, DesktopBackupError> {
+        let candidate = selection
+            .get(view_id)?
+            .import_candidate(view_id)
+            .map_err(file_error)?;
+        let id = random_identifier("portable-import")?;
+        let plan = self
+            .with_authorized_business(false, |runtime, authority, epoch, restriction| {
+                if restriction != RuntimeRestriction::Active {
+                    return Err(BusinessDatabaseError::MutationStale);
+                }
+                let database = runtime.database_for_backup_mut();
+                if database.workspace_id() != authority.workspace_id {
+                    return Err(BusinessDatabaseError::WorkspaceRejected);
+                }
+                let (revision, rows) = database.preview_portable_import(&candidate)?;
+                Ok(ImportPlan {
+                    id,
+                    view_id: view_id.to_owned(),
+                    epoch,
+                    authority_digest: authority.digest,
+                    workspace_id: authority.workspace_id.clone(),
+                    revision,
+                    rows,
+                })
+            })
+            .map_err(import_host_error)?;
+        let response = plan.page(None)?;
+        selection.import_plan = Some(plan);
+        Ok(response)
+    }
+
+    fn page_portable_import(
+        &self,
+        selection: &Selection,
+        plan_id: &str,
+        after: &str,
+    ) -> Result<Response, DesktopBackupError> {
+        let plan = selection.get_import_plan(plan_id)?;
+        self.with_authorized_business(false, |_, authority, epoch, restriction| {
+            if restriction != RuntimeRestriction::Active {
+                return Err(BusinessDatabaseError::MutationStale);
+            }
+            plan.require_current(epoch, &authority.digest, &authority.workspace_id)
+        })
+        .map_err(import_host_error)?;
+        plan.page(Some(after))
+    }
+
+    fn apply_portable_import(
+        &self,
+        selection: &Selection,
+        plan_id: &str,
+    ) -> Result<Response, DesktopBackupError> {
+        let plan = selection.get_import_plan(plan_id)?;
+        let candidate = selection
+            .get(&plan.view_id)?
+            .import_candidate(&plan.view_id)
+            .map_err(file_error)?;
+        let receipt = self
+            .with_authorized_business(true, |runtime, authority, epoch, _| {
+                plan.require_current(epoch, &authority.digest, &authority.workspace_id)?;
+                let has_generation_capacity = runtime.has_read_generation_capacity();
+                let database = runtime.database_for_backup_mut();
+                if database.workspace_id() != authority.workspace_id {
+                    return Err(BusinessDatabaseError::WorkspaceRejected);
+                }
+                let snapshot = RestoreAuthoritySnapshot {
+                    authority_snapshot_digest: hex_digest(&authority.digest),
+                    source_device_id: authority.device_id.clone(),
+                    active_lease_epoch: authority.lease_epoch,
+                    committed_at: format_timestamp(
+                        current_unix_seconds().map_err(|_| BusinessDatabaseError::MutationStale)?,
+                    ),
+                };
+                let request = RestoreRequest {
+                    operation_id: plan_id,
+                    expected_current_revision: plan.revision,
+                    expected_candidate_set_version: candidate.candidate_set_version,
+                    expected_authority_snapshot_digest: &snapshot.authority_snapshot_digest,
+                };
+                let receipt = database.import_portable_backup_guarded(
+                    &candidate,
+                    &request,
+                    &plan.rows,
+                    &snapshot,
+                    |replay| {
+                        if !replay && !has_generation_capacity {
+                            return Err(BusinessDatabaseError::SequenceExhausted);
+                        }
+                        self.require_business_commit_fence(epoch, authority)
+                    },
+                )?;
+                if receipt.disposition == "committed" {
+                    runtime.advance_read_generation_after_sync_commit();
+                }
+                Ok(receipt)
+            })
+            .map_err(import_host_error)?;
+        Ok(Response::ImportApplied {
+            additions: receipt.mutations,
+        })
+    }
+}
+
+fn import_host_error(error: DesktopLocalHostError) -> DesktopBackupError {
+    match error {
+        DesktopLocalHostError::AuthorityRejected => DesktopBackupError::AuthorityRejected,
+        _ => DesktopBackupError::OperationRejected,
+    }
+}
+
 impl Selection {
     fn open(&mut self, locale: Locale) -> Result<Response, DesktopBackupError> {
         let Some(artifact) = select(locale, FilePurpose::OpenArtifact)? else {
@@ -238,12 +440,20 @@ impl Selection {
         let view = random_identifier("portable")?;
         let first = offline.page(view.clone(), None)?;
         self.opened = Some((view, offline));
+        self.import_plan = None;
         Ok(first)
     }
 
     fn get(&self, view_id: &str) -> Result<&OfflineDataset, DesktopBackupError> {
         match self.opened.as_ref() {
             Some((id, offline)) if id == view_id => Ok(offline),
+            _ => Err(DesktopBackupError::OperationRejected),
+        }
+    }
+
+    fn get_import_plan(&self, plan_id: &str) -> Result<&ImportPlan, DesktopBackupError> {
+        match self.import_plan.as_ref() {
+            Some(plan) if plan.id == plan_id => Ok(plan),
             _ => Err(DesktopBackupError::OperationRejected),
         }
     }
@@ -408,6 +618,10 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one test verifies the file pair through source removal and offline close"
+    )]
     fn full_host_creation_and_offline_export_after_source_removal() {
         let output = crate::test_tempdir::tempdir().unwrap();
         let select = |name| SelectedPath::admit(&output.path().join(name)).unwrap();
@@ -514,5 +728,210 @@ mod tests {
             host.portable_backup(&wire),
             Err(DesktopBackupError::OperationRejected)
         );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture verifies stale approval, atomic rollback, replay and SQLCipher reopen"
+    )]
+    fn import_preview_applies_only_missing_assets_with_current_authority_and_a_durable_receipt() {
+        let files = crate::test_tempdir::tempdir().unwrap();
+        let artifact = SelectedPath::admit(&files.path().join("restore.gdbk")).unwrap();
+        let key_file = SelectedPath::admit(&files.path().join("restore.gdkey")).unwrap();
+        let asset = |domain: &str, note: &str| DomainAssetWrite {
+            entity_id: domain.to_owned(),
+            note: Some(note.to_owned()),
+            portfolio_id: None,
+            tags: vec!["recovered".to_owned()],
+            target_price: None,
+        };
+        let time = "2026-11-20T00:00:00Z";
+        {
+            let source = crate::test_tempdir::tempdir().unwrap();
+            let key = LocalDatabaseKey::from_bytes([0x24; 32]);
+            let mut database = BusinessDatabase::open(
+                &source.path().join("workspace.db"),
+                &key,
+                "original-workspace",
+            )
+            .unwrap();
+            for domain in [
+                "archived.example",
+                "conflict.example",
+                "new.example",
+                "second.example",
+            ] {
+                database
+                    .upsert_domain_asset(domain, time, &asset(domain, "backup note"))
+                    .unwrap();
+            }
+            let host = DesktopLocalHost::development(
+                database,
+                source.path().join("native"),
+                "old-account",
+                "original-workspace",
+                "old-device",
+            )
+            .unwrap();
+            let epoch = host.transition_requested_epoch.load(Ordering::Acquire);
+            assert!(matches!(
+                host.write_portable_backup(epoch, &artifact, &key_file),
+                Ok(Response::BackupSaved)
+            ));
+        }
+        let open = |host: &DesktopLocalHost| {
+            let mut selection = host.portable_backup_selection.lock().unwrap();
+            let Response::Opened { view_id, .. } =
+                selection.open_files(&artifact, &key_file).unwrap()
+            else {
+                panic!("missing offline view");
+            };
+            view_id
+        };
+        let call = |host: &DesktopLocalHost, intent: Value| {
+            let wire = serde_json::to_vec(&serde_json::json!({"schemaVersion":1,"intent":intent}))
+                .unwrap();
+            host.portable_backup(&wire)
+        };
+        let offline = DesktopLocalHost::production_unavailable();
+        let offline_id = open(&offline);
+        assert_eq!(
+            call(
+                &offline,
+                serde_json::json!({"action":"preview_import", "viewId":offline_id})
+            ),
+            Err(DesktopBackupError::AuthorityRejected)
+        );
+
+        let target_dir = crate::test_tempdir::tempdir().unwrap();
+        let target_path = target_dir.path().join("workspace.db");
+        let target_key = LocalDatabaseKey::from_bytes([0x48; 32]);
+        {
+            let mut target =
+                BusinessDatabase::open(&target_path, &target_key, "current-workspace").unwrap();
+            target
+                .upsert_domain_asset("edited", time, &asset("conflict.example", "current note"))
+                .unwrap();
+            target
+                .upsert_domain_asset("unrelated", time, &asset("untouched.example", "stay here"))
+                .unwrap();
+            let created = target
+                .create_domain_asset_guarded(
+                    "archive-add",
+                    "new-device",
+                    1,
+                    time,
+                    &asset("archived.example", "retired"),
+                    true,
+                    |_| Ok(()),
+                    |(), _| Ok(()),
+                )
+                .unwrap();
+            target
+                .delete_domain_asset_guarded(
+                    "archive-delete",
+                    created.local_commit_sequence,
+                    "new-device",
+                    1,
+                    time,
+                    "archived.example",
+                    true,
+                    |_| Ok(()),
+                    |(), _| Ok(()),
+                )
+                .unwrap();
+            let host = DesktopLocalHost::development(
+                target,
+                target_dir.path().join("native"),
+                "new-account",
+                "current-workspace",
+                "new-device",
+            )
+            .unwrap();
+            let view_id = open(&host);
+            let preview_intent = serde_json::json!({"action":"preview_import", "viewId":view_id});
+            let preview = call(&host, preview_intent.clone()).unwrap();
+            assert_eq!(preview["additions"], 2);
+            assert_eq!(
+                preview["rows"],
+                serde_json::json!([
+                    {"entityId":"archived.example", "disposition":"blocked_by_asset_history"},
+                    {"entityId":"conflict.example", "disposition":"preserve_existing"},
+                    {"entityId":"new.example", "disposition":"add"},
+                    {"entityId":"second.example", "disposition":"add"}
+                ])
+            );
+            let old_id = preview["planId"].clone();
+            let stale_plan = call(&host, preview_intent.clone()).unwrap()["planId"].clone();
+            assert_eq!(
+                call(
+                    &host,
+                    serde_json::json!({"action":"apply_import", "planId":old_id})
+                ),
+                Err(DesktopBackupError::OperationRejected)
+            );
+            host.with_authorized_business(true, |runtime, _, _, _| {
+                runtime.database_for_backup_mut().upsert_domain_asset(
+                    "unrelated-change",
+                    time,
+                    &asset("untouched.example", "changed after preview"),
+                )
+            })
+            .unwrap();
+            assert_eq!(
+                call(
+                    &host,
+                    serde_json::json!({"action":"apply_import", "planId":stale_plan})
+                ),
+                Err(DesktopBackupError::OperationRejected)
+            );
+            let plan = call(&host, preview_intent).unwrap()["planId"].clone();
+            let apply = serde_json::json!({"action":"apply_import", "planId":plan});
+            let epoch = host.transition_requested_epoch.load(Ordering::Acquire);
+            host.business_commit_transition_epoch
+                .store(epoch + 1, Ordering::Release);
+            assert_eq!(
+                call(&host, apply.clone()),
+                Err(DesktopBackupError::AuthorityRejected)
+            );
+            host.transition_requested_epoch
+                .store(epoch, Ordering::Release);
+            let uncommitted = host.with_authorized_business(false, |runtime, _, _, _| {
+                runtime.database_for_backup_mut().backup_connection_mut().query_row(
+                    "SELECT (SELECT count(*) FROM domain_assets WHERE entity_id IN ('new.example','second.example'))
+                        + (SELECT count(*) FROM sync_outbox WHERE entity_id IN ('new.example','second.example'))
+                        + (SELECT count(*) FROM business_history_events WHERE event_kind='backup_restore_completed')",
+                    [], |row| row.get::<_, i64>(0),
+                ).map_err(|_| BusinessDatabaseError::StorageRejected)
+            }).unwrap();
+            assert_eq!(uncommitted, 0);
+            let applied = serde_json::json!({"state":"import_applied", "additions":2});
+            assert_eq!(call(&host, apply.clone()).unwrap(), applied);
+            assert_eq!(call(&host, apply).unwrap(), applied);
+        }
+        let mut target =
+            BusinessDatabase::open(&target_path, &target_key, "current-workspace").unwrap();
+        let connection = target.backup_connection_mut();
+        let count: i64 = connection.query_row(
+            "SELECT count(*) FROM sync_outbox o JOIN sync_outbox_local_creations c USING (workspace_id, mutation_id)
+                WHERE o.entity_id IN ('new.example', 'second.example') AND o.workspace_id='current-workspace' AND o.source_device_id='new-device'",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 2);
+        let read = |domain: &str| {
+            connection.query_row(
+            "SELECT note FROM domain_asset_desired_state d JOIN domain_assets a USING (workspace_id,entity_id)
+              WHERE d.entity_id=?1 AND a.deleted_at IS NULL", [domain], |row| row.get::<_,String>(0),
+        )
+        };
+        assert_eq!(read("new.example").unwrap(), "backup note");
+        assert_eq!(read("second.example").unwrap(), "backup note");
+        assert_eq!(read("conflict.example").unwrap(), "current note");
+        assert_eq!(read("untouched.example").unwrap(), "changed after preview");
+        assert!(read("archived.example").is_err());
+        let receipts: i64 = connection.query_row("SELECT count(*) FROM business_history_events WHERE event_kind='backup_restore_completed'", [], |row| row.get(0)).unwrap();
+        assert_eq!(receipts, 1);
     }
 }
