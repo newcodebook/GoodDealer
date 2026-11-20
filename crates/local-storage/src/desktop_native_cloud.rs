@@ -3013,6 +3013,20 @@ mod tests {
             .commit_cloudflare_registrar_inventory(prepared, &digest, &rows)
             .unwrap();
         assert_eq!((repeat.observed, repeat.imported), (2, 0));
+        let read_asset = || {
+            local
+                .read_domain_detail(DesktopDomainDetailReadRequest {
+                    entity_id: "existing-inventory.test".to_owned(),
+                })
+                .unwrap()
+                .asset
+        };
+        let asset = read_asset();
+        assert_eq!(asset.expires_on.as_deref(), Some("2027-10-02"));
+        assert_eq!(
+            (asset.auto_renew, asset.registrar_lock),
+            (Some(true), Some(true))
+        );
         let empty = prepare_registrar(&local, &connection).unwrap();
         assert_eq!(
             local
@@ -3021,7 +3035,7 @@ mod tests {
                 .observed,
             0
         );
-        assert!(detail_exists(&local, "existing-inventory.test"));
+        assert!(read_asset().expires_on.is_none());
     }
 
     #[test]

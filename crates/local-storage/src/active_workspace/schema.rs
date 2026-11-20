@@ -1014,6 +1014,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "observed_at",
             "provider_version_token",
             "normalized_evidence_sha256",
+            "observed_asset_generation",
         ],
     ),
     (

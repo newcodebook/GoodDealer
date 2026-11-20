@@ -24,6 +24,8 @@
 | 阿里云 | [域名 API 2018-01-29](https://help.aliyun.com/zh/dws/developer-reference/api-domain-2018-01-29-overview)有 QueryDomainList、ScrollDomainList；本轮重读[交易 API 2018-02-08 目录](https://help.aliyun.com/zh/dws/developer-reference/api-domain-2018-02-08-overview)，列出 QueryBrokerDemand、CreateFixedPriceSelectedOrder、CheckSelectedDomainStatus、SelectedDomainList、QueryExchangeRate。 | 归集使用官方 SDK 5.1.1 核对的中国站 `QueryDomainList`，固定域名 endpoint、HTTPS POST、`PageNum/PageSize` 与 ACS3 签名。方法文档列出的 RAM action 是 `domain:QueryCommonInfo`。当前公开交易目录没有卖家发布/下架方法；直接进入卖家控制台私有 API 开发。CreateFixedPriceSelectedOrder 是扣款购买，SelectedDomainList 是市场在售列表，均不能代替账户卖家操作。[严选交易说明](https://help.aliyun.com/zh/dws/user-guide/fixed-price-1)确认可发布外部注册商域名；买家付款后可能禁止下架/改价，必须建模交易锁定状态。 |
 | 22.cn | [API 域名代理介绍](https://www.22.cn/help_139.html)明确支持二次开发与 ASP/PHP/ASP.NET 示例；[文档下载](https://www.22.cn/help_141.html)提供 ZIP。[开放平台](https://www.22.cn/open.html)另提供“交易数据开放”的申请表和流程。 | 域名代理 API、交易数据开放均已确认存在，仍不能据此推断卖家发布/下架或账户资产端点。ZIP 前轮读取为 403，本轮公开 HTTP/HTTPS 下载得到 `T_T` HTML，未取得 ZIP 内容；交易数据申请未提交。当前尚未核实官方支持的资产读取、上下架及验证缺口统一进入私有 API 开发，代理文档下载不作为开工前置条件。 |
 
+Cloudflare 官方兼容性表将 Account-owned API token 标记为与 Registrar 不兼容。独立 Registrar 连接沿现有 Bearer 路径使用用户 API token，并在 Native 核对指定账户的注册列表读取权限。账户 ID 可从 Cloudflare Dashboard 获取。[账号令牌兼容性](https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/#compatibility-matrix) [查询账户 ID](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/)
+
 ## 所有权验证与副作用语义
 
 ### Afternic

@@ -14,6 +14,8 @@ use crate::portfolio_projection::{DomainAssetProjectionRow, validate_projection}
 #[cfg(test)]
 use crate::active_workspace::schema::ACTIVE_TABLE_MANIFEST;
 
+use super::renewals::RegistrarInventoryRead;
+
 pub(crate) struct ActivePortfolioReader<'a> {
     connection: &'a Connection,
 }
@@ -141,6 +143,8 @@ impl<'a> ActivePortfolioReader<'a> {
         let query = canonical_query(query)?;
         // One day for the count and every row's flag, so they cannot disagree across midnight.
         let today = super::renewals::HostDay::read(&transaction)?;
+        let inventory =
+            RegistrarInventoryRead::for_workspace(&transaction, requested_workspace_id)?;
         let upper = format!("{query}{{");
         let filter = "workspace_id = ?1 AND deleted_at IS NULL AND (?2 = '' OR (entity_id >= ?2 AND entity_id < ?3))";
         let aliased_filter = "a.workspace_id = ?1 AND a.deleted_at IS NULL AND (?2 = '' OR (a.entity_id >= ?2 AND a.entity_id < ?3))";
@@ -159,7 +163,7 @@ impl<'a> ActivePortfolioReader<'a> {
             // the workspace fails the read rather than hiding on a page nobody reads; `date()`
             // returns a value unchanged only for a valid `YYYY-MM-DD` date.
             &format!("SELECT
-                (SELECT count(*) FROM domain_assets e WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND {expiring}),
+                (SELECT count(*) FROM domain_assets e {registrar_inventory} WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND {expiring}),
                 (SELECT count(*) FROM domain_assets e WHERE e.workspace_id = ?1 AND e.deleted_at IS NULL AND {malformed_expiry}),
                 sum(CASE WHEN EXISTS (SELECT 1 FROM sync_conflicts c WHERE c.workspace_id = domain_assets.workspace_id AND c.entity_kind = 'domain_asset' AND c.entity_id = domain_assets.entity_id AND c.status = 'open') THEN 1 ELSE 0 END),
                 sum(CASE WHEN EXISTS (
@@ -171,7 +175,8 @@ impl<'a> ActivePortfolioReader<'a> {
                     AND NOT EXISTS (SELECT 1 FROM storage_repair_receipts x WHERE x.workspace_id = m.workspace_id AND x.repair_kind = 'listing_observation' AND x.row_key = m.listing_observation_id)
                 ) THEN 1 ELSE 0 END)
               FROM domain_assets WHERE {filter}",
-                expiring = super::renewals::expiring_asset("e", &today),
+                registrar_inventory = inventory.join("e"),
+                expiring = super::renewals::expiring_at("e", &inventory.field("e", "expires_on"), &today),
                 malformed_expiry = super::renewals::malformed_expiry("e")),
             params![requested_workspace_id, query, upper],
             |row| Ok((row.get::<_, Option<i64>>(0)?.unwrap_or(0), row.get::<_, Option<i64>>(1)?.unwrap_or(0), row.get::<_, Option<i64>>(2)?.unwrap_or(0), row.get::<_, Option<i64>>(3)?.unwrap_or(0))),
@@ -205,11 +210,14 @@ impl<'a> ActivePortfolioReader<'a> {
                  WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='pending') THEN 'pending'
                  WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='local_only') THEN 'local_only'
                  ELSE 'clean' END,
-               d.target_price_currency, d.target_price_amount, a.expires_on, a.local_commit_sequence, {expiring}
+               d.target_price_currency, d.target_price_amount, {expiry}, a.local_commit_sequence, {expiring}
              FROM domain_assets a LEFT JOIN domain_asset_desired_state d ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
+             {registrar_inventory}
              WHERE {aliased_filter} ORDER BY a.entity_id COLLATE BINARY LIMIT ?4 OFFSET ?5",
-            registrar_name = super::renewals::registrar_name("a"),
-            expiring = expiring_column(&today),
+            registrar_name = inventory.name("a"),
+            registrar_inventory = inventory.join("a"),
+            expiry = inventory.field("a", "expires_on"),
+            expiring = expiring_column(inventory, &today),
         )).map_err(|_| PortfolioReadError::SchemaRejected)?;
         let rows = statement
             .query_map(
@@ -260,6 +268,8 @@ impl<'a> ActivePortfolioReader<'a> {
             .map_err(|_| PortfolioReadError::StorageRejected)?;
         validate_workspace(&transaction, requested_workspace_id)?;
         crate::portfolio_projection::validate_domain_asset_id(entity_id)?;
+        let inventory =
+            RegistrarInventoryRead::for_workspace(&transaction, requested_workspace_id)?;
         let sql = format!("SELECT a.entity_id,
           (SELECT json_group_array(tag) FROM (SELECT tag FROM domain_asset_tags t WHERE t.workspace_id=a.workspace_id AND t.entity_id=a.entity_id ORDER BY tag COLLATE BINARY)),
           {registrar_name},
@@ -267,12 +277,17 @@ impl<'a> ActivePortfolioReader<'a> {
           CASE WHEN EXISTS (SELECT 1 FROM sync_conflicts c WHERE c.workspace_id=a.workspace_id AND c.entity_kind='domain_asset' AND c.entity_id=a.entity_id AND c.status='open') THEN 'conflicted'
                WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='pending') THEN 'pending'
                WHEN EXISTS (SELECT 1 FROM domain_asset_field_versions f WHERE f.workspace_id=a.workspace_id AND f.entity_id=a.entity_id AND f.sync_state='local_only') THEN 'local_only' ELSE 'clean' END,
-          d.target_price_currency, d.target_price_amount, a.expires_on, a.local_commit_sequence, {expiring},
-          a.acquired_on, a.acquisition_cost_currency, a.acquisition_cost_amount, a.auto_renew, a.registrar_lock, d.note, d.portfolio_id
+          d.target_price_currency, d.target_price_amount, {expiry}, a.local_commit_sequence, {expiring},
+          a.acquired_on, a.acquisition_cost_currency, a.acquisition_cost_amount, {auto_renew}, {registrar_lock}, d.note, d.portfolio_id
           FROM domain_assets a LEFT JOIN domain_asset_desired_state d ON d.workspace_id=a.workspace_id AND d.entity_id=a.entity_id
+          {registrar_inventory}
           WHERE a.workspace_id=?1 AND a.entity_id=?2 AND a.deleted_at IS NULL",
-          registrar_name = super::renewals::registrar_name("a"),
-          expiring = expiring_column(&super::renewals::HostDay::read(&transaction)?));
+          registrar_name = inventory.name("a"),
+          registrar_inventory = inventory.join("a"),
+          expiry = inventory.field("a", "expires_on"),
+          auto_renew = inventory.field("a", "auto_renew"),
+          registrar_lock = inventory.field("a", "registrar_lock"),
+          expiring = expiring_column(inventory, &super::renewals::HostDay::read(&transaction)?));
         let detail = transaction
             .query_row(&sql, params![requested_workspace_id, entity_id], |row| {
                 let base = map_asset_row(row)?;
@@ -399,10 +414,10 @@ fn map_asset_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetLibraryRow> {
 }
 
 /// The `expiring` column both asset queries select at index 9, from the renewals predicate.
-fn expiring_column(today: &super::renewals::HostDay) -> String {
+fn expiring_column(inventory: RegistrarInventoryRead, today: &super::renewals::HostDay) -> String {
     format!(
         "CASE WHEN {} THEN 1 ELSE 0 END",
-        super::renewals::expiring_asset("a", today)
+        super::renewals::expiring_at("a", &inventory.field("a", "expires_on"), today)
     )
 }
 

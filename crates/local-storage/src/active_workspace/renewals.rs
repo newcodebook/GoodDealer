@@ -15,16 +15,18 @@ use super::portfolio::{read_freshness, validate_workspace};
 
 /// An asset of `alias` the workspace still has to renew whose recorded expiry falls in `[today,
 /// today + 61 days)` in UTC. Sold, dropped and archived assets are no longer the workspace's to
-/// renew, so they never count as expiring; the schema admits only those three and `active` and
-/// `expired`, so naming the two kept states selects the same rows while letting SQLite seek
-/// `domain_assets_by_status_expiry` by status and expiry range instead of scanning the workspace.
+/// renew, so they never count as expiring.
 /// The column references carry the alias so a join cannot bind them to another table's columns. The
 /// portfolio's expiring count and row flags use this same predicate.
 pub(super) fn expiring_asset(alias: &str, today: &HostDay) -> String {
+    expiring_at(alias, &format!("{alias}.expires_on"), today)
+}
+
+pub(super) fn expiring_at(alias: &str, expiry: &str, today: &HostDay) -> String {
     let today = today.as_str();
     format!(
         "{alias}.lifecycle_status IN ('active', 'expired')
-       AND {alias}.expires_on >= '{today}' AND {alias}.expires_on < date('{today}', '+61 days')"
+       AND {expiry} >= '{today}' AND {expiry} < date('{today}', '+61 days')"
     )
 }
 
@@ -56,7 +58,81 @@ impl HostDay {
     }
 }
 
-const ASSETS: &str = "FROM domain_assets WHERE workspace_id = ?1 AND deleted_at IS NULL";
+#[derive(Clone, Copy)]
+pub(super) enum RegistrarInventoryRead {
+    Legacy,
+    Account,
+}
+
+impl RegistrarInventoryRead {
+    pub(super) fn for_workspace(
+        connection: &Connection,
+        workspace: &str,
+    ) -> Result<Self, PortfolioReadError> {
+        let has_history: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM cloudflare_registrar_inventory_scans WHERE workspace_id=?1)
+                 OR EXISTS(SELECT 1 FROM spaceship_registrar_scans WHERE workspace_id=?1)
+                 OR EXISTS(SELECT 1 FROM aliyun_registrar_scans WHERE workspace_id=?1)",
+            [workspace], |row| row.get(0),
+        ).map_err(|_| PortfolioReadError::StorageRejected)?;
+        Ok(if has_history {
+            Self::Account
+        } else {
+            Self::Legacy
+        })
+    }
+
+    pub(super) fn join(self, alias: &str) -> String {
+        match self {
+            Self::Legacy => String::new(),
+            Self::Account => format!(
+                "LEFT JOIN registrar_inventory_read_facts f
+                 ON f.workspace_id={alias}.workspace_id AND f.entity_id={alias}.entity_id"
+            ),
+        }
+    }
+
+    /// A managed asset can have an explicit unknown account result. Only assets outside
+    /// that history still derive their values from the pre-inventory columns.
+    pub(super) fn field(self, alias: &str, field: &str) -> String {
+        match self {
+            Self::Legacy => format!("{alias}.{field}"),
+            Self::Account => {
+                format!("CASE WHEN f.entity_id IS NULL THEN {alias}.{field} ELSE f.{field} END")
+            }
+        }
+    }
+
+    pub(super) fn name(self, alias: &str) -> String {
+        let legacy = legacy_registrar_name(alias);
+        match self {
+            Self::Legacy => legacy,
+            Self::Account => {
+                format!("CASE WHEN f.entity_id IS NOT NULL THEN f.registrar_name ELSE {legacy} END")
+            }
+        }
+    }
+
+    fn renewable_assets(self) -> String {
+        let account_fields = match self {
+            Self::Legacy => "0 AS account_managed,NULL AS account_registrar",
+            Self::Account => {
+                "f.entity_id IS NOT NULL AS account_managed,f.registrar_name AS account_registrar"
+            }
+        };
+        format!(
+            "FROM (
+               SELECT a.workspace_id,a.entity_id,a.entity_generation,a.lifecycle_status,
+                      {expiry} AS expires_on,{auto_renew} AS auto_renew,{account_fields}
+               FROM domain_assets a {inventory}
+               WHERE a.workspace_id=?1 AND a.deleted_at IS NULL
+             ) effective",
+            expiry = self.field("a", "expires_on"),
+            auto_renew = self.field("a", "auto_renew"),
+            inventory = self.join("a"),
+        )
+    }
+}
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -115,15 +191,17 @@ impl<'a> ActiveRenewalsReader<'a> {
             return Err(PortfolioReadError::WindowRejected);
         }
         let today = HostDay::read(&transaction)?;
-        let expiring = expiring_asset("domain_assets", &today);
+        let expiring = expiring_asset("effective", &today);
+        let assets = RegistrarInventoryRead::for_workspace(&transaction, requested_workspace_id)?
+            .renewable_assets();
         let (total_rows, enabled, disabled, malformed): (i64, i64, i64, i64) = transaction
             .query_row(
                 &format!(
                     "SELECT count(*),
                            coalesce(sum(auto_renew = 1), 0), coalesce(sum(auto_renew = 0), 0),
                            coalesce(sum(auto_renew NOT IN (0, 1) OR {malformed_expiry}), 0)
-                         {ASSETS} AND {expiring}",
-                    malformed_expiry = malformed_expiry("domain_assets")
+                         {assets} WHERE {expiring}",
+                    malformed_expiry = malformed_expiry("effective")
                 ),
                 [requested_workspace_id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
@@ -140,7 +218,6 @@ impl<'a> ActiveRenewalsReader<'a> {
         }
         let count =
             |value: i64| u32::try_from(value).map_err(|_| PortfolioReadError::ProjectionRejected);
-        let latest_name = registrar_name("domain_assets");
         // Every expiring asset's registrar name is validated, not only the page's: a bad name on a
         // page nobody reads would otherwise stay counted while no read ever rejects it. Names repeat,
         // so only distinct ones reach Rust. Every available observation's name is checked first; the
@@ -159,7 +236,10 @@ impl<'a> ActiveRenewalsReader<'a> {
         if !all_valid
             && !registrar_names_valid(
                 &transaction,
-                &format!("SELECT DISTINCT {latest_name} {ASSETS} AND {expiring}"),
+                &format!(
+                    "SELECT DISTINCT {registrar} {assets} WHERE {expiring}",
+                    registrar = renewal_registrar_name("effective")
+                ),
                 requested_workspace_id,
             )?
         {
@@ -167,15 +247,14 @@ impl<'a> ActiveRenewalsReader<'a> {
         }
         let mut statement = transaction
             .prepare(&format!(
-                // The page is cut first, so the registrar lookup runs for its rows only rather than
-                // for every row the offset skips.
-                "SELECT page.entity_id, page.expires_on, page.auto_renew, {page_registrar_name}
-                 FROM (SELECT workspace_id, entity_id, expires_on, auto_renew
-                       {ASSETS} AND {expiring}
+                // Keep the legacy observation lookup outside the ordered window. Otherwise an
+                // offset page asks SQLite to evaluate the correlated lookup for earlier rows.
+                "SELECT page.entity_id,page.expires_on,page.auto_renew,{registrar}
+                 FROM (SELECT effective.* {assets} WHERE {expiring}
                        ORDER BY expires_on COLLATE BINARY, entity_id COLLATE BINARY
                        LIMIT ?2 OFFSET ?3) page
                  ORDER BY page.expires_on COLLATE BINARY, page.entity_id COLLATE BINARY",
-                page_registrar_name = registrar_name("page")
+                registrar = renewal_registrar_name("page")
             ))
             .map_err(|_| PortfolioReadError::SchemaRejected)?;
         let rows = statement
@@ -215,6 +294,13 @@ impl<'a> ActiveRenewalsReader<'a> {
             },
         })
     }
+}
+
+fn renewal_registrar_name(alias: &str) -> String {
+    format!(
+        "CASE WHEN {alias}.account_managed THEN {alias}.account_registrar ELSE {legacy} END",
+        legacy = legacy_registrar_name(alias),
+    )
 }
 
 /// Whether the `alias` row's recorded expiry is anything but a real `YYYY-MM-DD` date. `date()`
@@ -325,10 +411,9 @@ fn registrar_names_valid(
     Ok(true)
 }
 
-/// The latest confirmed, available registrar observation's registrar name for each `alias` row. A
-/// latest observation a storage repair quarantined (ADR-0019) shows no name; an older observation
-/// does not stand in for it.
-pub(super) fn registrar_name(alias: &str) -> String {
+/// The current account result, including unknown, or the latest available legacy registrar name.
+/// A quarantined legacy observation shows no name.
+fn legacy_registrar_name(alias: &str) -> String {
     format!(
         "(SELECT CASE WHEN EXISTS (SELECT 1 FROM storage_repair_receipts x
                                    WHERE x.workspace_id = r.workspace_id
@@ -338,7 +423,15 @@ pub(super) fn registrar_name(alias: &str) -> String {
           FROM registrar_observations r
           WHERE r.workspace_id = {alias}.workspace_id
             AND r.entity_id = {alias}.entity_id
+            AND coalesce(r.observed_asset_generation,1)={alias}.entity_generation
             AND r.observation_availability = 'available' AND {confirmed}
+            AND NOT EXISTS (
+                SELECT 1 FROM provider_observation_runs account
+                WHERE account.workspace_id=r.workspace_id AND account.observation_run_id=r.observation_run_id
+                  AND account.connector_version IN (
+                    'cloudflare-registrar-v4','spaceship-registrar-v1','aliyun-registrar-v1'
+                )
+            )
           ORDER BY r.observed_at DESC, r.observation_id DESC LIMIT 1)",
         confirmed = super::observation_runs::confirmed("r")
     )

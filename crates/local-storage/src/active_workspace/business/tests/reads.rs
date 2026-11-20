@@ -2191,16 +2191,19 @@ fn bounded_asset_library_and_detail_read_the_bound_workspace() {
 #[test]
 fn asset_library_window_uses_the_workspace_entity_index_without_a_sort() {
     let database = database();
+    let inventory = crate::active_workspace::renewals::RegistrarInventoryRead::Account;
+    let registrar_inventory = inventory.join("a");
+    let expiry = inventory.field("a", "expires_on");
     let mut statement = database
         .store
         .raw_connection()
-        .prepare(
+        .prepare(&format!(
             "EXPLAIN QUERY PLAN
-         SELECT a.entity_id FROM domain_assets a
+         SELECT a.entity_id, {expiry} FROM domain_assets a {registrar_inventory}
          WHERE a.workspace_id = ?1 AND a.deleted_at IS NULL
            AND (?2 = '' OR (a.entity_id >= ?2 AND a.entity_id < ?3))
-         ORDER BY a.entity_id COLLATE BINARY LIMIT ?4 OFFSET ?5",
-        )
+         ORDER BY a.entity_id COLLATE BINARY LIMIT ?4 OFFSET ?5"
+        ))
         .unwrap();
     let plan = statement
         .query_map(
