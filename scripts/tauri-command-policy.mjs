@@ -62,6 +62,7 @@ const reviewedCommands = [
   "local_domain_detail_read",
   "local_history_read",
   "local_manual_tasks_read",
+  "local_portable_backup",
   "local_renewals_read",
   "local_sales_read",
   "local_settings_read",
@@ -322,6 +323,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     "apps/desktop/src/adapters/tauri/spaceship-registrar.ts",
     "apps/desktop/src/adapters/tauri/aliyun-registrar.ts",
     "apps/desktop/src/adapters/tauri/atom-marketplace.ts",
+    "apps/desktop/src/adapters/tauri/portable-backup.ts",
   ].map((path) => requiredRegularFile(root, path, errors));
   const desktopManifest = requiredRegularFile(root, "apps/desktop/src-tauri/Cargo.toml", errors);
   const backupIpcSource = requiredRegularFile(
@@ -422,6 +424,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     ["local_backup_export", "export_backup"],
     ["local_backup_artifact_select", "inspect_backup"],
     ["local_backup_restore_begin", "restore_backup"],
+    ["local_portable_backup", "portable_backup"],
   ]) {
     if (!hasRawBackupCommand(sources, command, method)) {
       errors.push(`${command} must use bounded raw IPC and one blocking aggregate call`);

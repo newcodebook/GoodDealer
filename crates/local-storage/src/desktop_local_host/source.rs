@@ -483,7 +483,7 @@ impl<'a> BackupSource<'a> {
 /// checked: the umask can only remove bits, but an owner or mode that is not this user's alone
 /// (another user's directory raced into place, an unusual filesystem) fails the snapshot closed.
 #[cfg(not(windows))]
-fn private_snapshot_directory() -> Result<TempDir, BusinessDatabaseError> {
+pub(super) fn private_snapshot_directory() -> Result<TempDir, BusinessDatabaseError> {
     let builder = tempfile::Builder::new();
     #[cfg(unix)]
     let mut builder = builder;
@@ -502,7 +502,8 @@ fn private_snapshot_directory() -> Result<TempDir, BusinessDatabaseError> {
 // Windows retains verified ancestor handles and a closed user-only DACL until the snapshot closes.
 // This internal scratch location does not constrain user-selected backup destinations.
 #[cfg(windows)]
-fn private_snapshot_directory() -> Result<PrivateSnapshotDirectory, BusinessDatabaseError> {
+pub(super) fn private_snapshot_directory() -> Result<PrivateSnapshotDirectory, BusinessDatabaseError>
+{
     PrivateSnapshotDirectory::create().map_err(|_| BusinessDatabaseError::StorageRejected)
 }
 

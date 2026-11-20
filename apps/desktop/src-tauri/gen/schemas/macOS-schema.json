@@ -693,6 +693,12 @@
           "markdownDescription": "Enables the local_manual_tasks_read command without any pre-configured scope."
         },
         {
+          "description": "Enables the local_portable_backup command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-portable-backup",
+          "markdownDescription": "Enables the local_portable_backup command without any pre-configured scope."
+        },
+        {
           "description": "Enables the local_renewals_read command without any pre-configured scope.",
           "type": "string",
           "const": "allow-local-renewals-read",
@@ -1105,6 +1111,12 @@
           "type": "string",
           "const": "deny-local-manual-tasks-read",
           "markdownDescription": "Denies the local_manual_tasks_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_portable_backup command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-portable-backup",
+          "markdownDescription": "Denies the local_portable_backup command without any pre-configured scope."
         },
         {
           "description": "Denies the local_renewals_read command without any pre-configured scope.",

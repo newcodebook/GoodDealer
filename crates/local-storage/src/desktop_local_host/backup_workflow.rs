@@ -34,7 +34,7 @@ impl DesktopLocalHost {
         Ok(captured_epoch)
     }
 
-    fn require_captured_epoch(
+    pub(super) fn require_captured_epoch(
         &self,
         state: &WorkspaceAuthorityState,
         captured_epoch: u64,

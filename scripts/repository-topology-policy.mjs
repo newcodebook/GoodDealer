@@ -528,6 +528,7 @@ export const repositoryTopology = Object.freeze([
       "dirs",
       "fs2",
       "getrandom",
+      "gtk",
       "keyring-core",
       "libc",
       "ring",

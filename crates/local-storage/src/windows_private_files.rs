@@ -286,6 +286,52 @@ fn create_private_object(
     }
 }
 
+/// Pins chooser-selected ancestors without creating directories. The final parent must
+/// belong to the current user, and its write surface is limited to the existing trust domain.
+pub(crate) fn pin_portable_parent(path: &Path) -> io::Result<Vec<File>> {
+    let mut current = PathBuf::new();
+    let mut ancestors = Vec::new();
+    for component in path.components() {
+        current.push(component.as_os_str());
+        if matches!(component, Component::Prefix(_)) {
+            continue;
+        }
+        let handle = open_directory(&current)?;
+        validate_kind(&handle, true)?;
+        ancestors.push(handle);
+    }
+    validate_parent(ancestors.last().ok_or_else(rejected)?)?;
+    Ok(ancestors)
+}
+
+pub(crate) fn admit_portable_file(file: &File) -> io::Result<()> {
+    validate_kind(file, false)?;
+    validate_parent(file)
+}
+
+pub(crate) fn create_portable_file(path: &Path) -> io::Result<File> {
+    let handle = create_private_object(path, false)?.ok_or_else(rejected)?;
+    let metadata = handle.GetFileInformationByHandle().map_err(windows_error)?;
+    let expected = FileIdentity {
+        volume: u64::from(metadata.dwVolumeSerialNumber),
+        index: metadata.nFileIndex(),
+    };
+    // Share deletion with the later write-through no-clobber rename. The original creation
+    // handle pins the new name until this second handle has matched its exact identity.
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .share_mode(7)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    validate_kind(&file, false)?;
+    validate_private(&file, false)?;
+    if file_identity(&file)? != expected {
+        return Err(rejected());
+    }
+    Ok(file)
+}
+
 fn open_directory(path: &Path) -> io::Result<File> {
     OpenOptions::new()
         .access_mode(FILE_READ_ATTRIBUTES | READ_CONTROL)

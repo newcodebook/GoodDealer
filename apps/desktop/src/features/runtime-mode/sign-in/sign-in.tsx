@@ -1,4 +1,4 @@
-import { defaultLocale, getPresentationCopy, supportedLocales, type Locale } from "@gooddealer/i18n";
+import { defaultLocale, getCapabilityCopy, getPresentationCopy, supportedLocales, type Locale } from "@gooddealer/i18n";
 import { AlertTriangleIcon, Button, ExternalLinkIcon, RefreshCwIcon, SegmentedControl, ShieldIcon, StatusDot } from "@gooddealer/ui";
 import markUrl from "@gooddealer/ui/assets/logo/mark.svg";
 
@@ -26,10 +26,11 @@ export interface SignInProps {
   /** Asks Native to retry the authorization refresh; offered only for the retryable state. */
   readonly onRetry?: () => void;
   readonly onLocaleChange?: (locale: Locale) => void;
+  readonly onOpenBackup?: () => void;
 }
 
 /** Account gate: brand panel beside the browser sign-in progress. No credential is entered here. */
-export function SignIn({ locale, state, windowFrame, onBegin, onRetry, onLocaleChange }: SignInProps) {
+export function SignIn({ locale, state, windowFrame, onBegin, onRetry, onLocaleChange, onOpenBackup }: SignInProps) {
   const copy = getPresentationCopy(locale, "signIn");
   const busy = state === "pending" || state === "establishing";
 
@@ -91,6 +92,8 @@ export function SignIn({ locale, state, windowFrame, onBegin, onRetry, onLocaleC
                   {state === "pending" ? copy.reopenBrowser : state === "signed_out" ? copy.continueInBrowser : copy.signInAgain}
                 </Button>
               ) : null}
+
+              {onOpenBackup === undefined ? null : <Button variant="ghost" onClick={onOpenBackup}>{getCapabilityCopy(locale, "recovery").portableOpen}</Button>}
 
               <p className="signin-switch gd-t-meta">{copy.accountPagesNotice}</p>
             </div>

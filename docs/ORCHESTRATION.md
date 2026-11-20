@@ -116,7 +116,7 @@ master → architect（仅跨边界设计）→ 有界构建者（可并行）�
 ## 当前源码范围与声明控制
 
 当前 Desktop Renderer production 入口使用窄本地业务、认证、Cloudflare、Afternic、Atom、Spaceship 与阿里云 Registrar adapter。Tauri 已精确注册具名本地业务、
-备份、认证与 Provider 命令，manifest/capability/adapter 策略测试拒绝清单漂移；Cloudflare 激活、
+备份、认证与 Provider 命令，manifest/capability/adapter 策略测试拒绝清单漂移。独立备份通过一条有界 raw IPC 调用 Local Host，原生选择器、文件句柄、密钥与隔离 SQLCipher 数据集由该所有者处理。Cloudflare 激活、
 状态、观察和读取已进入 Renderer。Cloud 的公开业务 route 已有精确 allowlist，周期作业只允许 Licensing provider
 operation/inbox/reconciliation/due-authority/release。共享开发环境已部署 systemd self-hosted worker 和
 Stripe test-mode Provider；生产 worker、live Provider、全系统 V1 验收和发行仍未完成，因此产品

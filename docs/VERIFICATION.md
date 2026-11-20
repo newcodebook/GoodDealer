@@ -118,8 +118,12 @@ PASS 只覆盖该阶段，后续改动会使旧证据失效。
 [ADR-0023](adr/0023-business-backup-and-recovery.md)。下列门槛描述既有安装绑定 GDBK v1 和 rebootstrap 协议，
 不预先限制新恢复方案必须继续使用同一安装绑定，也不把当前缺口排除出交付目标。
 `gooddealer-local-storage` 已有 strict format、allowlisted projection、isolated candidate、guarded
-current-DB replay 和私有测试协议，但生产 capability 统一保持 `unavailable`。它们不能被用于弥补
+current-DB replay 和私有测试协议，但该 v1 组合的生产 capability 保持 `unavailable`。它们不能被用于弥补
 账号、授权、本地业务、同步或 Connector 的 V1 验收缺口，也不能被描述为灾难恢复。
+
+### GDBK v2 独立备份
+
+验证从当前授权创建两份文件，关闭并移除源库及其 SQLCipher key，以无授权 Host 打开，按页查看并导出 JSON。验证材料缺失、错钥、篡改、重排、尾随数据、目标已存在、发布前撤销授权及用户取消。Linux GTK 隔离显示验证原生选择和取消。Windows/macOS 分别需要在目标系统核对文件权限、原生选择、持久发布以及双向复制后离线恢复。
 
 ### 既有 GDBK v1 本地实现证据门槛
 

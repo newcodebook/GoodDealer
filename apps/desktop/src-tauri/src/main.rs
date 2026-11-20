@@ -139,13 +139,17 @@ fn setup_native_app(
     let app_data_root = app.path().app_data_dir()?.join("local-host");
     #[cfg(windows)]
     let app_data_root = app.path().app_local_data_dir()?.join("local-host");
-    let application_root = DesktopApplicationRoot::validate(&app_data_root)?;
     let identity = load_or_create_desktop_device_identity().ok().map(Arc::new);
-    let local_host = Arc::new(execution_context_native::production_host(
-        application_root,
-        identity.clone(),
-        power_gate,
-    )?);
+    // A fresh machine can open a portable backup even when the ordinary workspace's
+    // custody is unavailable. This aggregate has no verifier, authority, or workspace database.
+    let local_host = Arc::new(
+        DesktopApplicationRoot::validate(&app_data_root)
+            .ok()
+            .and_then(|root| {
+                execution_context_native::production_host(root, identity.clone(), power_gate).ok()
+            })
+            .unwrap_or_else(gooddealer_local_storage::DesktopLocalHost::production_unavailable),
+    );
     app.manage(Arc::clone(&local_host));
     let oauth = Arc::new(oauth_runtime::DesktopOAuthRuntime::new(
         Some(native_cloud_session::PRODUCTION_CLOUD_ORIGIN),
@@ -226,6 +230,7 @@ fn main() {
             command_handlers::local_backup_export,
             command_handlers::local_backup_artifact_select,
             command_handlers::local_backup_restore_begin,
+            command_handlers::local_portable_backup,
             oauth_runtime::desktop_authentication_status,
             oauth_runtime::desktop_authentication_begin,
             oauth_runtime::desktop_authentication_refresh,

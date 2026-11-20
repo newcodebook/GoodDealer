@@ -83,6 +83,7 @@ fn main() {
             "local_backup_export",
             "local_backup_artifact_select",
             "local_backup_restore_begin",
+            "local_portable_backup",
             "desktop_authentication_status",
             "desktop_authentication_begin",
             "desktop_authentication_refresh",

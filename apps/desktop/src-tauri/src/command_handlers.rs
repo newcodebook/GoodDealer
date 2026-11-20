@@ -487,6 +487,20 @@ pub(crate) async fn local_backup_restore_begin(
         .map_err(map_desktop_backup_error)
 }
 
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) async fn local_portable_backup(
+    request: tauri::ipc::Request<'_>,
+    host: State<'_, Arc<DesktopLocalHost>>,
+) -> Result<serde_json::Value, String> {
+    let wire = bounded_request_wire(&request)?;
+    let aggregate = Arc::clone(host.inner());
+    tauri::async_runtime::spawn_blocking(move || aggregate.portable_backup(&wire))
+        .await
+        .map_err(|_| "BACKUP_STORAGE_REJECTED".to_owned())?
+        .map_err(map_desktop_backup_error)
+}
+
 fn map_desktop_backup_error(error: DesktopBackupError) -> String {
     error.code().to_owned()
 }

@@ -20,6 +20,7 @@ pub(crate) mod execution_evidence_delivery;
 pub(crate) mod forced_takeover;
 mod native_backup;
 mod normal_handoff;
+mod portable_backup;
 mod provider;
 mod recovery;
 mod restore;
@@ -737,6 +738,7 @@ pub struct DesktopLocalHost {
     provider_connection_generation: AtomicU64,
     /// Lock order begins here for every backup selection or operation.
     operation_selection: Mutex<HostOperationState>,
+    portable_backup_selection: Mutex<portable_backup::Selection>,
     /// Authority and publication are fenced while the operation lock is held.
     authority_publication: Mutex<WorkspaceAuthorityState>,
     /// The aggregate, not Desktop composition, owns the database and sync coordinator together.
@@ -794,6 +796,7 @@ impl DesktopLocalHost {
             transition_requested_epoch: AtomicU64::new(0),
             provider_connection_generation: AtomicU64::new(0),
             operation_selection: Mutex::new(HostOperationState::default()),
+            portable_backup_selection: Mutex::default(),
             authority_publication: Mutex::new(WorkspaceAuthorityState::default()),
             runtime_state: Mutex::new(None),
             #[cfg_attr(not(unix), cfg(any()))]

@@ -49,6 +49,7 @@ import {
 import { StandbyAwaitingReplica, TargetInstallationPending } from "./app/standby-awaiting-replica";
 import { WorkspaceView } from "./app/workspace-view";
 import { RuntimeStatusPage, SignIn } from "./features/runtime-mode";
+import { PortableBackupPage } from "./features/recovery/portable-backup-page";
 import "./app.css";
 
 const deviceDirectory = createDeviceDirectoryPort();
@@ -127,6 +128,8 @@ export function App() {
   const [failure, setFailure] = useState(false);
   const [authentication, setAuthentication] = useState<DesktopAuthenticationStatus | null>(null);
   const [locale, setLocale] = useState<Locale>(defaultLocale);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const openBackup = () => setBackupOpen(true);
   const [onboarding, setOnboarding] = useState<OnboardingDecision>({ state: "undecided" });
   const synchronizeRef = useRef<() => void>(() => undefined);
 
@@ -234,12 +237,19 @@ export function App() {
       () => setOnboarding({ state: "declined" }),
     );
   }, [workspace]);
-  const page = (() => {
+  const page = backupOpen ? (
+    <PortableBackupPage
+      locale={locale}
+      windowFrame={windowFrame}
+      canCreate={presentation.view === "workspace" && presentation.readOnly === null}
+      onBack={() => setBackupOpen(false)}
+    />
+  ) : (() => {
     switch (presentation.view) {
       case "opening":
         return <RuntimeStatusPage locale={locale} kind="opening" windowFrame={windowFrame} />;
       case "host_unavailable":
-        return <RuntimeStatusPage locale={locale} kind="host_unavailable" windowFrame={windowFrame} onRetry={retryHost} />;
+        return <RuntimeStatusPage locale={locale} kind="host_unavailable" windowFrame={windowFrame} onRetry={retryHost} onOpenBackup={openBackup} />;
       case "sign_in":
         return (
           <SignIn
@@ -249,6 +259,7 @@ export function App() {
             onBegin={beginSignIn}
             onRetry={refreshAuthorization}
             onLocaleChange={setLocale}
+            onOpenBackup={openBackup}
           />
         );
       case "locked":
@@ -259,6 +270,7 @@ export function App() {
             windowFrame={windowFrame}
             onSignInAgain={beginSignIn}
             onRetry={refreshAuthorization}
+            onOpenBackup={openBackup}
           />
         );
       case "target_installation_pending":
@@ -292,6 +304,7 @@ export function App() {
             onRefresh={() => synchronizeRef.current()}
             onLocaleChange={setLocale}
             onRunOnboarding={runOnboarding}
+            onOpenBackup={openBackup}
           />
         );
     }

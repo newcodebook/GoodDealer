@@ -488,3 +488,9 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - 本地追加迁移 `202611190012`，复用既有市场观察与 Listing 绑定。单一事务提交归集结果及普通资产 Outbox；未知或不完整响应保留上次扫描。连接替换、撤销和过期授权均由 Host 准入检查。
 - 根 `pnpm check`、PostgreSQL 18.6 授权回归 184 项、SQLCipher 三项专项、生产 Linux 构建、Linux GTK 和独立 Secret Service 验证通过。Windows GNU 目标严格 Clippy 通过，Windows 与 macOS 实机仍待验收。
 - 真实验收需具名开发准入、获批的 Atom Seller API 用户 ID 和 token，以及账户中可核对的 Listing。上架、下架和自动验证尚待实现。接口与边界见 [独立审查记录](../reviews/2026-11-20-atom-marketplace-inventory-review.md)。
+
+## 2026-11-20 GDBK v2 独立备份与离线恢复
+
+- 当前授权下，设置可创建加密 `.gdbk` 和独立 `.gdkey`。无旧安装、旧 SQLCipher 密钥或 Cloud 时，登录或锁定页可进入隔离数据集，分页查看并导出域名资产 JSON。新工件的协议、密钥及文件路径均由 Native 拥有，Renderer 只接收业务视图。活动库 schema 和 GDBK v1 解析保持原样。
+- 已验证源库关闭并移除、无授权 Host 恢复、JSON 字段边界、恢复材料缺失或错配、现有目标保护、仅密钥发布成功、发布前拒绝和 GTK 原生取消。独立审查与平台证据见 [审查记录](../reviews/2026-11-20-portable-backup-review.md)。
+- 下一切片在当前 Active 授权下显示差异并按确认纳入现有业务事务。Windows/macOS 实机双向恢复、跨用户文件准入与发行资格仍单独验收。

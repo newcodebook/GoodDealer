@@ -1,0 +1,34 @@
+.portable-backup {
+  box-sizing: border-box;
+  width: min(100%, 64rem);
+  min-height: 0;
+  margin-inline: auto;
+  padding: clamp(1rem, 5vw, 3rem);
+  overflow: auto;
+}
+
+.portable-backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block: 1rem 0.5rem;
+}
+
+.portable-backup table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: start;
+}
+
+.portable-backup caption {
+  text-align: start;
+  font-weight: 600;
+}
+
+.portable-backup :is(th, td) {
+  padding: 0.5rem;
+  text-align: start;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}

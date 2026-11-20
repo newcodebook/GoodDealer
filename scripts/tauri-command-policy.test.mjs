@@ -74,6 +74,7 @@ function createFixture() {
     "local_domain_detail_read",
     "local_history_read",
     "local_manual_tasks_read",
+    "local_portable_backup",
     "local_renewals_read",
     "local_sales_read",
     "local_settings_read",
@@ -98,7 +99,7 @@ pub(crate) fn production_host(root: DesktopApplicationRoot) -> Result<DesktopLoc
   Ok(host)
 }
 `);
-  const ordinaryCommands = commands.filter((command) => !command.startsWith("local_backup_"));
+  const ordinaryCommands = commands.filter((command) => !command.startsWith("local_backup_") && command !== "local_portable_backup");
   writeFile(root, "apps/desktop/src-tauri/src/handler.rs", `${ordinaryCommands.map((command) => `#[tauri::command]\nfn ${command}() {}`).join("\n")}
 #[tauri::command]
 async fn local_backup_restore_status(host: State<'_, Arc<DesktopLocalHost>>) -> Result<Status, String> {
@@ -134,6 +135,15 @@ async fn local_backup_restore_begin(request: tauri::ipc::Request<'_>, host: Stat
     .map_err(|_| "BACKUP_STORAGE_REJECTED".to_owned())?
     .map_err(map_desktop_backup_error)
 }
+#[tauri::command]
+async fn local_portable_backup(request: tauri::ipc::Request<'_>, host: State<'_, Arc<DesktopLocalHost>>) -> Result<Status, String> {
+  let wire = bounded_request_wire(&request)?;
+  let aggregate = Arc::clone(host.inner());
+  tauri::async_runtime::spawn_blocking(move || aggregate.portable_backup(&wire))
+    .await
+    .map_err(|_| "BACKUP_STORAGE_REJECTED".to_owned())?
+    .map_err(map_desktop_backup_error)
+}
 fn map_desktop_backup_error(error: DesktopBackupError) -> String { error.code().to_owned() }
 `);
   writeFile(root, "apps/desktop/src-tauri/src/backup_ipc.rs", `
@@ -153,7 +163,7 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
   writeFile(
     root,
     "apps/desktop/src/adapters/tauri/index.ts",
-    commands.filter((command) => !command.startsWith("local_backup_") && !command.startsWith("afternic_") && !command.startsWith("forced_takeover_") && !command.startsWith("spaceship_") && !command.startsWith("aliyun_") && !command.startsWith("atom_"))
+    commands.filter((command) => !command.startsWith("local_backup_") && !command.startsWith("afternic_") && !command.startsWith("forced_takeover_") && !command.startsWith("spaceship_") && !command.startsWith("aliyun_") && !command.startsWith("atom_") && command !== "local_portable_backup")
       .map((command) => `invoke("${command}")`)
       .join("\n"),
   );
@@ -163,6 +173,8 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
     commands.filter(command => command.startsWith("spaceship_")).map(command => `invoke("${command}")`).join("\n"));
   writeFile(root, "apps/desktop/src/adapters/tauri/aliyun-registrar.ts",
     commands.filter(command => command.startsWith("aliyun_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/portable-backup.ts",
+    commands.includes("local_portable_backup") ? 'invoke("local_portable_backup")' : "");
   writeFile(root, "apps/desktop/src/adapters/tauri/atom-marketplace.ts",
     commands.filter(command => command.startsWith("atom_")).map(command => `invoke("${command}")`).join("\n"));
   writeFile(

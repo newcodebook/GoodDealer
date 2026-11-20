@@ -307,6 +307,7 @@ test("the production catalog covers the current repository inventory", () => {
     "dirs",
     "fs2",
     "getrandom",
+    "gtk",
     "keyring-core",
     "libc",
     "ring",

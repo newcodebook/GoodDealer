@@ -150,6 +150,8 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
 换机云恢复与独立业务备份均为明确需要交付的能力。现有 GDBK v1 是安装绑定格式；其私有
 开发组合和 rebootstrap 故障协议已有测试，但生产 native 文件、密钥 custody 和恢复链路
 尚未完成，已有副本替换入口仍拒绝执行。普通交接后的首次新机安装已实现上文的受限路径；上述强制接管接续其安装能力，但不能替代无来源 Lease、已有副本或独立灾难恢复。
+GDBK v2 独立备份已从桌面设置接入加密创建，登录页、锁定页及本地工作区不可用时可打开备份。用户分别选择加密工件和恢复密钥。两份文件可在隔离的 SQLCipher 数据集中恢复域名、备注、标签与目标价，再另存可读 JSON。创建沿当前工作区授权复核，打开和导出使用独立入口。Linux 已验证源库与源密钥移除后的离线恢复与 JSON 导出，并实跑 GTK 选择和取消。当前数据范围为域名资产投影，授权后的差异预览、业务导入和 Windows/macOS 实机互恢复继续实施。[实现与验证记录](reviews/2026-11-20-portable-backup-review.md)
+
 恢复场景和设计修订见 [ADR-0023](adr/0023-business-backup-and-recovery.md)，现有格式边界见
 [数据生命周期](DATA_LIFECYCLE.md) 与 [ADR-0023](adr/0023-business-backup-and-recovery.md)。
 

@@ -11,3 +11,4 @@ export * from "./operations/index";
 export * from "./sync/index";
 export * from "./recovery/index";
 export * from "./backup/index";
+export { parsePortableBackupResult, portableBackupIntentSchema, type PortableBackupIntent, type PortableBackupPage, type PortableBackupResult } from "./recovery/portable-backup";

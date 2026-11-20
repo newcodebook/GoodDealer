@@ -52,6 +52,7 @@ export interface WorkspaceViewProps {
    * offers it only while the presentation is writable; the app root checks again before entering.
    */
   readonly onRunOnboarding?: () => void;
+  readonly onOpenBackup?: () => void;
 }
 
 const windowSize = 25;
@@ -61,7 +62,7 @@ const windowSize = 25;
  * are passed only when the adjudicated presentation is writable, so a read-only surface cannot
  * reach a mutation even if a feature would otherwise render the control.
  */
-export function WorkspaceView({ locale, presentation, ports, windowFrame, onPublication, onRefresh, onLocaleChange, onRunOnboarding }: WorkspaceViewProps) {
+export function WorkspaceView({ locale, presentation, ports, windowFrame, onPublication, onRefresh, onLocaleChange, onRunOnboarding, onOpenBackup }: WorkspaceViewProps) {
   const shellCopy = getPresentationCopy(locale, "shell");
   const runtimeCopy = getCapabilityCopy(locale, "runtimeMode");
   const { surface, publication, readOnly } = presentation;
@@ -214,6 +215,7 @@ export function WorkspaceView({ locale, presentation, ports, windowFrame, onPubl
               revisionBase={publication.sync?.appliedThroughServerRevision ?? null}
               onRepaired={onRefresh}
               onLocaleChange={onLocaleChange}
+              {...(onOpenBackup === undefined ? {} : { onOpenBackup })}
               {...(readOnly === null && onRunOnboarding !== undefined ? { onRunOnboarding } : {})}
             />
           ),
@@ -251,7 +253,7 @@ type SettingsState =
  * pull cadence and build facts have no Host source yet, so
  * the panel shows those as unavailable instead of placeholder values.
  */
-function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepaired, onLocaleChange, onRunOnboarding }: {
+function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepaired, onLocaleChange, onRunOnboarding, onOpenBackup }: {
   readonly locale: Locale;
   readonly ports: AuthoritativeWorkspacePorts;
   readonly revisionBase: number | null;
@@ -261,6 +263,7 @@ function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepai
   readonly onRepaired: () => void;
   readonly onLocaleChange: (locale: Locale) => void;
   readonly onRunOnboarding?: () => void;
+  readonly onOpenBackup?: () => void;
 }) {
   const copy = getPresentationCopy(locale, "settings");
   const [state, setState] = useState<SettingsState>({ kind: "loading" });
@@ -300,6 +303,7 @@ function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepai
       initialSection="connections"
       connections={state.connections}
       connectionMaintenance={<>
+        {onOpenBackup === undefined ? null : <Button variant="secondary" onClick={onOpenBackup}>{getCapabilityCopy(locale, "recovery").portableTitle}</Button>}
         <AfternicPanel locale={locale} port={ports.afternic} readOnly={!writable} onChanged={() => setAttempt((current) => current + 1)} />
         <CloudflareRegistrarPanel locale={locale} port={ports.cloudflare} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />
         {ports.spaceship === undefined ? null : <SpaceshipRegistrarPanel locale={locale} port={ports.spaceship} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}

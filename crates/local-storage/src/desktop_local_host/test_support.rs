@@ -149,6 +149,7 @@ impl DesktopLocalHost {
             transition_requested_epoch: AtomicU64::new(generation),
             provider_connection_generation: AtomicU64::new(0),
             operation_selection: Mutex::new(HostOperationState::default()),
+            portable_backup_selection: Mutex::default(),
             authority_publication: Mutex::new(WorkspaceAuthorityState {
                 authority: Some(authority),
                 backup: BackupArtifactState {

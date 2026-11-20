@@ -104,6 +104,7 @@ describe("Desktop native policy", () => {
       "allow-local-backup-export",
       "allow-local-backup-artifact-select",
       "allow-local-backup-restore-begin",
+      "allow-local-portable-backup",
       "allow-local-business-status",
       "allow-local-device-lease-read",
       "allow-device-directory-read",

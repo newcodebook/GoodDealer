@@ -46,6 +46,7 @@ name = "backup_evidence"
 path = "examples/backup_evidence.rs"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+gtk = "=0.18.2"
 secret-service = { version = "=5.2.0", default-features = false, features = ["rt-async-io-crypto-rust"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -56,4 +57,4 @@ winapi-util = "=0.1.11"
 winapi = { version = "=0.3.9", features = ["processthreadsapi"] }
 dirs = "=7.0.0"
 
-winsafe = { version = "=0.0.29", default-features = false, features = ["kernel"] }
+winsafe = { version = "=0.0.29", default-features = false, features = ["kernel", "shell"] }
