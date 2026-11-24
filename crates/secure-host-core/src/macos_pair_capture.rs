@@ -1,6 +1,7 @@
 //! Fixed masked Provider credential pairs on macOS. Each purpose owns its labels and decoder.
 use zeroize::Zeroizing;
 
+#[derive(Clone, Copy)]
 pub(super) enum Purpose {
     Afternic,
     CloudflareRegistrar,

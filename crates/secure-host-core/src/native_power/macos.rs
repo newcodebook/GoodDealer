@@ -1,4 +1,4 @@
-//! ADR-0006's fixed NSWorkspace power-notification exception, with retained callback lifetime.
+//! ADR-0006's fixed `NSWorkspace` power-notification exception, with retained callback lifetime.
 #![allow(unsafe_code)]
 
 use super::State;
