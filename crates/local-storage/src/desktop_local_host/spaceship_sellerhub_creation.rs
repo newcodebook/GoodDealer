@@ -2,8 +2,8 @@
 use super::{
     BusinessDatabaseError, DesktopLocalHost, DesktopLocalHostError, DesktopNativeCloudAdmission,
     DesktopSellerHubConnection, DesktopSpaceshipConnectionState, DesktopSyncError,
-    DesktopSyncRunAdmission, DesktopSyncRuntime, OBSERVE, RuntimeRestriction, Serialize,
-    WRITE, capability_qualified, database_error, now, require_observe, require_provider_dispatch,
+    DesktopSyncRunAdmission, DesktopSyncRuntime, OBSERVE, RuntimeRestriction, Serialize, WRITE,
+    capability_qualified, database_error, now, require_observe, require_provider_dispatch,
 };
 use crate::{
     DesktopSellerHubCreateApproval, DesktopSellerHubCreateApproveRequest,
