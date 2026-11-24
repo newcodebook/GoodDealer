@@ -73,10 +73,10 @@ pub use atom::{
 };
 
 pub use godaddy::{
-    GoDaddyCapture, GoDaddyCredential, GoDaddyCredentialPlan, GoDaddyError, GoDaddyGuard,
-    GoDaddyRegistrarClient, GoDaddyRegistration, GoDaddyRegistrationStanding,
-    load_godaddy_credential_guarded, publish_godaddy_credential_guarded,
-    purge_godaddy_credential_guarded,
+    GoDaddyCapture, GoDaddyCredential, GoDaddyCredentialPlan, GoDaddyDnsClient, GoDaddyDnsRecord,
+    GoDaddyDnsRecordType, GoDaddyDnsZone, GoDaddyError, GoDaddyGuard, GoDaddyRegistrarClient,
+    GoDaddyRegistration, GoDaddyRegistrationStanding, load_godaddy_credential_guarded,
+    publish_godaddy_credential_guarded, purge_godaddy_credential_guarded,
 };
 
 pub use porkbun::{

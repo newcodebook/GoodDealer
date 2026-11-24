@@ -37,6 +37,7 @@ const expectedSourceFiles = [
   "desktop_oauth.rs",
   "godaddy.rs",
   "godaddy/credentials.rs",
+  "godaddy/dns_wire.rs",
   "godaddy/registrar_wire.rs",
   "lib.rs",
   "linux_credential_capture.rs",
@@ -102,7 +103,8 @@ const expectedAliyunExports = [
   "load_aliyun_credential_guarded", "publish_aliyun_credential_guarded", "purge_aliyun_credential_guarded",
 ];
 const expectedGoDaddyExports = [
-  "GoDaddyCapture", "GoDaddyCredential", "GoDaddyCredentialPlan", "GoDaddyError", "GoDaddyGuard",
+  "GoDaddyCapture", "GoDaddyCredential", "GoDaddyCredentialPlan", "GoDaddyDnsClient",
+  "GoDaddyDnsRecord", "GoDaddyDnsRecordType", "GoDaddyDnsZone", "GoDaddyError", "GoDaddyGuard",
   "GoDaddyRegistrarClient", "GoDaddyRegistration", "GoDaddyRegistrationStanding",
   "load_godaddy_credential_guarded", "publish_godaddy_credential_guarded", "purge_godaddy_credential_guarded",
 ];

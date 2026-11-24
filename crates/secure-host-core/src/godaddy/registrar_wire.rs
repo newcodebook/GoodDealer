@@ -48,19 +48,19 @@ enum DomainStatus {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct LinkWire {
-    rel: String,
-    href: String,
+pub(super) struct LinkWire {
+    pub(super) rel: String,
+    pub(super) href: String,
     title: Option<String>,
     target_media_type: Option<String>,
     target_schema: Option<serde_json::Value>,
-    method: Option<String>,
+    pub(super) method: Option<String>,
     submission_media_type: Option<String>,
     submission_schema: Option<serde_json::Value>,
 }
 
 impl LinkWire {
-    fn validate(&self) -> Result<(), GoDaddyError> {
+    pub(super) fn validate(&self) -> Result<(), GoDaddyError> {
         if !bounded_text(&self.rel, 128)
             || !bounded_text(&self.href, 8192)
             || self
@@ -243,11 +243,11 @@ impl DomainWire {
     }
 }
 
-fn bounded_text(value: &str, max: usize) -> bool {
+pub(super) fn bounded_text(value: &str, max: usize) -> bool {
     !value.is_empty() && value.len() <= max && !value.chars().any(char::is_control)
 }
 
-fn valid_hostname(value: &str) -> bool {
+pub(super) fn valid_hostname(value: &str) -> bool {
     value.len() <= 253
         && value.contains('.')
         && value.split('.').all(|label| {

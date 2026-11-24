@@ -286,6 +286,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 
 - [ ] GoDaddy：官方 v3 账户归集已实现，真实生产账户与双系统实机待验收，其他能力按当前策略实施
 - [ ] Afternic：核对事实、列出能力清单，实现 Portfolio API 的 Listing 与改价，取得资格证据（待实现；按当前策略的能力依赖推进）
+- [ ] GoDaddy DNS 记录读取（`dns.records.observe`）：[Task Frame](GODADDY_DNS_RECORDS_OBSERVE_TASK_FRAME.md)；Native 只读客户端与严格分页解析已完成，协议、本地证据、Tauri 与界面组合待实施
 
 ### 10. Atom（含 AtomRegistrar）
 
