@@ -11,6 +11,7 @@ pub(super) enum Service {
     Sedo,
     CloudflareRegistrar,
     GoDaddy,
+    Porkbun,
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
@@ -24,6 +25,7 @@ impl Service {
             Self::Sedo => "com.gooddealer.desktop.sedo.marketplace.v1",
             Self::CloudflareRegistrar => "com.gooddealer.desktop.cloudflare.registrar.v1",
             Self::GoDaddy => "com.gooddealer.desktop.godaddy.registrar.v3",
+            Self::Porkbun => "com.gooddealer.desktop.porkbun.registrar.v3",
         }
     }
 }

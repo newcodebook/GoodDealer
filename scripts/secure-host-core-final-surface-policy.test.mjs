@@ -49,6 +49,9 @@ const expectedSourceFiles = [
   "native_power/linux.rs",
   "native_power/macos.rs",
   "native_power/windows.rs",
+  "porkbun.rs",
+  "porkbun/credentials.rs",
+  "porkbun/registrar_wire.rs",
   "provider_credential_slot.rs",
   // ADR-0027 per-platform Service skeleton: crate-private, no public export.
   "provider_services/afternic.rs",
@@ -102,6 +105,11 @@ const expectedGoDaddyExports = [
   "GoDaddyCapture", "GoDaddyCredential", "GoDaddyCredentialPlan", "GoDaddyError", "GoDaddyGuard",
   "GoDaddyRegistrarClient", "GoDaddyRegistration", "GoDaddyRegistrationStanding",
   "load_godaddy_credential_guarded", "publish_godaddy_credential_guarded", "purge_godaddy_credential_guarded",
+];
+const expectedPorkbunExports = [
+  "PorkbunCapture", "PorkbunCredential", "PorkbunCredentialPlan", "PorkbunError", "PorkbunGuard",
+  "PorkbunRegistrarClient", "PorkbunRegistration",
+  "load_porkbun_credential_guarded", "publish_porkbun_credential_guarded", "purge_porkbun_credential_guarded",
 ];
 const expectedAtomExports = [
   "AtomCapture", "AtomCredential", "AtomCredentialPlan", "AtomError", "AtomGuard",
@@ -619,12 +627,13 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   if (pathState(libPath) !== "file") return errors;
   const libSource = readRegularFile(libPath, errors);
   if (libSource === null) return errors;
-  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory|native_power|native_continuous_clock|aliyun|atom|godaddy|sedo|spaceship)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
+  const exportPattern = /^[\t ]*pub[\t ]+use[\t ]+(afternic_credentials|afternic_provider|cloudflare_capture|cloudflare_keychain|cloudflare_provider|desktop_authorization_verifier|desktop_device_identity|desktop_oauth|local_workspace_binding|desktop_device_directory|native_power|native_continuous_clock|aliyun|atom|godaddy|porkbun|sedo|spaceship)::[\t ]*(?:\{([\s\S]*?)\}|([A-Za-z_][A-Za-z0-9_]*))[\t ]*;/gmu;
   const exportMatches = [...libSource.matchAll(exportPattern)];
   const expectedExportModules = [
     "aliyun",
     "atom",
     "godaddy",
+    "porkbun",
     "sedo",
     "spaceship",
     "afternic_credentials",
@@ -655,6 +664,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
     ...expectedSpaceshipExports,
     ...expectedAliyunExports,
     ...expectedGoDaddyExports,
+    ...expectedPorkbunExports,
     ...expectedAtomExports,
     ...expectedSedoExports,
     ...expectedCloudflareCaptureExports,

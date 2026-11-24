@@ -17,7 +17,7 @@
 | Namecheap | 未实现实际 Service | 未实现 | 未取得 |
 | Dynadot | 未实现实际 Service | 未实现 | 未取得 |
 | GoDaddy | 官方 Domains v3 账户列表，Native PAT 与受限游标 | 设置中预检完整库存后托管、原子导入、持久刷新和重开续读；注册资料供资产及续费读取 | OTE 匿名 401 已核实；生产真实账户待验收 |
-| Porkbun | 未实现实际 Service | 未实现 | 未取得 |
+| Porkbun | 官方 v3 `/domain/listAll` 只读客户端（Native 成对密钥、请求头认证、按域名排序的偏移分页） | 尚未接入 Host 存储、命令与设置页，客户不可用 | 未取得 |
 | Sedo | 官方 Basic `DomainListExtended` | 设置已组合 Native 录入、账户库存归集、持久刷新与断开。同一设备和 Lease 可重开续读。Listing 写入和自动验证继续开发 | 匿名 XML 认证错误已取证，认证分页和目标系统资格待验收 |
 | 易名 | 未实现实际 Service | 账户归集及上下架未实现 | 未取得 |
 | 阿里云 | 官方 `QueryDomainList`，ACS3 签名 | 中国站账户通过 Native 预检全量库存后托管凭据并原子导入。刷新受理前提交，重开使用同一连接、设备和 Lease 续读。本地断开可清理凭据。卖家上下架和所有权验证待实现 | 未取得 |
@@ -99,7 +99,7 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
 
 ## Provider
 
-- 十二个首发平台在 `secure-host-core` 的 `provider_services` 各有一个私有 Service 骨架（ADR-0027“平台 Service 骨架”），镜像协议能力 manifest；唯一准入入口目前拒绝一切能力。Dynadot、易名、Namecheap、Porkbun、22.cn 只有骨架，没有 Native transport。骨架不是平台交付。
+- 十二个首发平台在 `secure-host-core` 的 `provider_services` 各有一个私有 Service 骨架（ADR-0027“平台 Service 骨架”），镜像协议能力 manifest；唯一准入入口目前拒绝一切能力。Dynadot、易名、Namecheap、22.cn 只有骨架，没有 Native transport；Porkbun 已有 Native 只读库存 transport，尚未组合。骨架不是平台交付。
 - Cloudflare Zone/DNS 只读 Service 位于 Secure Host 私有实现，包括固定来源 HTTPS、
   Native 凭据录入和 custody、观察、撤销和被拒凭据清除。Renderer 不接收 Token。
 - 接入向导已组合连接创建/激活，设置已组合连接维护；单独主动观察的完整客户入口仍需交付。

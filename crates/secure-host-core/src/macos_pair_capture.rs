@@ -11,6 +11,7 @@ pub(super) enum Purpose {
     SedoIdentity,
     SedoAccess,
     GoDaddy,
+    Porkbun,
 }
 
 pub(super) enum CaptureError {
@@ -68,6 +69,11 @@ return partnerId & linefeed & userName"#
             r#"set signKey to text returned of (display dialog "Sedo sign key" default answer "" with hidden answer)
 set apiPassword to text returned of (display dialog "Sedo password" default answer "" with hidden answer)
 return signKey & linefeed & apiPassword"#
+        }
+        Purpose::Porkbun => {
+            r#"set apiKey to text returned of (display dialog "Porkbun API key" default answer "" with hidden answer)
+set apiSecret to text returned of (display dialog "Porkbun Secret API key" default answer "" with hidden answer)
+return apiKey & linefeed & apiSecret"#
         }
         Purpose::GoDaddy => {
             r#"return text returned of (display dialog "GoDaddy Personal Access Token" default answer "" with hidden answer)"#

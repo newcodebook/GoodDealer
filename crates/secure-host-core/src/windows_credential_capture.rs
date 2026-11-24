@@ -24,6 +24,7 @@ pub(crate) enum Purpose {
     SedoIdentity,
     SedoAccess,
     GoDaddy,
+    Porkbun,
 }
 impl Purpose {
     const fn dialog_labels(self) -> (&'static str, &'static str, &'static str, bool) {
@@ -74,6 +75,12 @@ impl Purpose {
                 "Sedo API credentials - GoodDealer",
                 "Sedo sign key",
                 "Sedo password",
+                true,
+            ),
+            Self::Porkbun => (
+                "Connect Porkbun - GoodDealer",
+                "Porkbun API key",
+                "Porkbun Secret API key",
                 true,
             ),
             Self::GoDaddy => (

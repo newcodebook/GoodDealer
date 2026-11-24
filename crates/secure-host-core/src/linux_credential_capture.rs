@@ -29,6 +29,7 @@ pub(super) enum Purpose {
     SedoIdentity,
     SedoAccess,
     GoDaddy,
+    Porkbun,
 }
 impl Purpose {
     const fn title(self) -> &'static str {
@@ -42,6 +43,7 @@ impl Purpose {
             Self::SedoIdentity => "GoodDealer — Sedo account",
             Self::SedoAccess => "GoodDealer — Sedo API credentials",
             Self::GoDaddy => "GoodDealer — Connect GoDaddy Registrar",
+            Self::Porkbun => "GoodDealer — Connect Porkbun",
         }
     }
 }
@@ -208,6 +210,11 @@ fn capture_controls(purpose: Purpose, form: &Form) -> (gtk::Grid, gtk::Button, g
         Purpose::SedoIdentity => ("Sedo _partner ID", "Sedo _username", "Continue"),
         Purpose::SedoAccess => ("Sedo _sign key", "Sedo _password", "Connect Sedo"),
         Purpose::GoDaddy => ("", "GoDaddy Personal Access _Token", "Connect GoDaddy"),
+        Purpose::Porkbun => (
+            "Porkbun API _key",
+            "Porkbun _Secret API key",
+            "Connect Porkbun",
+        ),
     };
     if !first_label.is_empty() {
         let key_label = gtk::Label::new(Some(first_label));
@@ -481,7 +488,7 @@ mod tests {
                 Purpose::SedoIdentity => ("1234", "native-canary-seller"),
                 Purpose::SedoAccess => ("native-canary-key", "canary-pass"),
                 Purpose::GoDaddy => ("", "native_canary_token_1234"),
-                Purpose::Afternic | Purpose::Spaceship => {
+                Purpose::Afternic | Purpose::Spaceship | Purpose::Porkbun => {
                     ("native_canary_key_1234", "native_canary_secret_1234")
                 }
                 Purpose::Cloudflare | Purpose::CloudflareRegistrar => (
@@ -530,6 +537,23 @@ mod tests {
             }
             NativeCase::Revoke => matches!(result, Err(SpaceshipError::AuthorityStale)),
             NativeCase::Invalid => matches!(result, Err(SpaceshipError::InputRejected)),
+        }
+    }
+
+    fn run_porkbun_case(worker_revoked: &AtomicBool, case: NativeCase) -> bool {
+        use crate::{PorkbunCapture, PorkbunError};
+        let result = PorkbunCapture::capture_guarded(&mut || {
+            if worker_revoked.load(Ordering::SeqCst) {
+                Err(PorkbunError::AuthorityStale)
+            } else {
+                Ok(())
+            }
+        });
+        match case {
+            NativeCase::Submit => result.is_ok(),
+            NativeCase::Cancel => matches!(result, Err(PorkbunError::CaptureCancelled)),
+            NativeCase::Revoke => matches!(result, Err(PorkbunError::AuthorityStale)),
+            NativeCase::Invalid => matches!(result, Err(PorkbunError::InputRejected)),
         }
     }
 
@@ -619,6 +643,7 @@ mod tests {
                 Purpose::Aliyun => run_aliyun_case(&worker_revoked, case),
                 Purpose::Atom => run_atom_case(&worker_revoked, case),
                 Purpose::GoDaddy => run_godaddy_case(&worker_revoked, case),
+                Purpose::Porkbun => run_porkbun_case(&worker_revoked, case),
                 Purpose::SedoIdentity | Purpose::SedoAccess => {
                     let result = capture(purpose, &mut || !worker_revoked.load(Ordering::SeqCst));
                     match case {
@@ -747,6 +772,7 @@ mod tests {
             Purpose::SedoIdentity,
             Purpose::SedoAccess,
             Purpose::GoDaddy,
+            Purpose::Porkbun,
         ] {
             assert!(matches!(
                 capture(purpose, &mut || true),
