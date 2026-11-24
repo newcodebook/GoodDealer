@@ -120,7 +120,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [x] DNS 页引导文案与真实能力对齐（移除未接入的 TXT 所有权与修复流程描述） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 健康路由补 generation 过期与重试路径测试 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 页区分 Zone 分配的 nameserver 与注册商委派，并展示 DNSSEC 状态 https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 设置页逐角色展示能力可用性与原因；未声明角色的连接不得被隐藏（随阶段 5 角色模型）（待实现；复用现有角色目录，随平台客户切片补齐）
+- [x] 设置页逐角色展示能力可用性与原因；未声明角色的连接不得被隐藏（随阶段 5 角色模型）（Host 逐角色报告 `unavailable`/`qualification_pending`；连接在其声明的每个角色组各列一行，说明按该行角色选择；未声明角色的连接列在末尾“未声明角色”组，不提供任何操作，view-model 拒绝该组的可用操作与错放的类别；该组沿用 `brand/ui_kits/desktop` 设置页角色分组的同一面板形式，设计稿本身没有此组；当前没有已认证角色，可执行状态随首个能力资格扩展设置合同） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 连接标签长度限制在写入与各读取之间对齐：统一为 1–120 个 UTF-16 单元、拒绝 Cc/Cf 字符，写入与设置、DNS 健康、人工任务读取共用同一规则（此前写入 512 字节、设置读取 120 字节；开发库中超出新规则的已存标签会使这些读取失败关闭） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 设置读取补 65 条上限、未知 Provider 与已删除连接排除的 Rust 负向测试 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 设置读取（Rust 与 Zod）接受 ADR-0027 的 8 个平台，须在首个非 Cloudflare 连接写入之前完成（当前非 Cloudflare 连接会使整个设置读取失败关闭）（8 个平台均列出、每个角色仍不可用；清单外平台使读取失败关闭；非 Cloudflare 的接入方式为未知，不臆测） https://github.com/newcodebook/GoodDealer/pull/53

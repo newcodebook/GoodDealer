@@ -52,13 +52,20 @@ export const deviceCredentialCandidateStateSchema = z.enum([
 
 export const connectionSettingsActionSchema = z.enum(["connect", "reauthorize", "manage"]);
 
+/**
+ * The settings group a connection is listed under: one of the four ADR-0027 roles it declares, or
+ * `undeclared` when it declares none. A connection without a role is still stored credential
+ * custody, so settings lists it rather than hiding it, and it never offers an action.
+ */
+export const connectionSettingsCategorySchema = z.union([domainProviderRoleSchema, z.literal("undeclared")]);
+
 const connectionMetadataSchema = z
   .object({
     providerConnectionId: identifierSchema,
     provider: z.string().min(1).max(80),
     accountAlias: z.string().min(1).max(120),
     remoteAccountId: z.string().min(1).max(160).nullable(),
-    category: domainProviderRoleSchema,
+    category: connectionSettingsCategorySchema,
     method: z.enum(["api", "oauth"]).nullable(),
     summary: z.string().min(1).max(240),
   })
@@ -120,7 +127,7 @@ export const connectionSettingsItemSchema = z.discriminatedUnion("view", [
 
 export const connectionSettingsGroupSchema = z
   .object({
-    category: domainProviderRoleSchema,
+    category: connectionSettingsCategorySchema,
     connections: z.array(connectionSettingsItemSchema).max(100),
   })
   .strict()
@@ -133,6 +140,13 @@ export const connectionSettingsGroupSchema = z
           message: "connection category must match its settings group",
         });
       }
+      if (group.category === "undeclared" && connection.admission.actionAvailability !== "unavailable") {
+        context.addIssue({
+          code: "custom",
+          path: ["connections", index, "admission"],
+          message: "a connection without a declared role offers no action",
+        });
+      }
     });
   });
 
@@ -140,7 +154,7 @@ export const connectionSettingsViewModelSchema = z
   .object({
     schemaVersion: z.literal(1),
     surface: z.enum(["active", "standby"]),
-    groups: z.array(connectionSettingsGroupSchema).min(1).max(4),
+    groups: z.array(connectionSettingsGroupSchema).min(1).max(5),
   })
   .strict()
   .superRefine((model, context) => {
@@ -183,6 +197,7 @@ export type DeviceCredentialCandidateState = z.infer<
   typeof deviceCredentialCandidateStateSchema
 >;
 export type ConnectionSettingsAction = z.infer<typeof connectionSettingsActionSchema>;
+export type ConnectionSettingsCategory = z.infer<typeof connectionSettingsCategorySchema>;
 export type ConnectionSettingsItemViewModel = z.infer<typeof connectionSettingsItemSchema>;
 export type ConnectionSettingsGroupViewModel = z.infer<typeof connectionSettingsGroupSchema>;
 export type ConnectionSettingsViewModel = z.infer<typeof connectionSettingsViewModelSchema>;

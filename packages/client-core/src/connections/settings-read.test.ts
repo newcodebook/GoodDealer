@@ -61,6 +61,41 @@ describe("settings Host read", () => {
     });
   });
 
+  it("lists a connection that declares no role once, last, with no action, instead of hiding it", () => {
+    const seen: Array<[string, string | null]> = [];
+    const view = projectConnectionSettings(parseSettingsRead(read({ connections: [
+      { ...connection, providerKind: "porkbun", connectionLabel: "Porkbun", roles: [] },
+      connection,
+      { ...connection, providerKind: "spaceship", connectionLabel: "Spaceship", roles: [
+        { role: "registrar", availability: "unavailable", unavailableReason: "qualification_pending" },
+        { role: "marketplace", availability: "unavailable", unavailableReason: "qualification_pending" },
+      ] },
+    ] })), (item, role) => {
+      seen.push([item.connectionLabel, role]);
+      return role === null ? "no declared role" : `${role} pending`;
+    });
+    expect(parseConnectionSettingsViewModel(view)).toEqual(view);
+    expect(view.groups.map((group) => group.category)).toEqual(["registrar", "dns", "marketplace", "acquisition", "undeclared"]);
+    expect(view.groups.at(-1)?.connections).toEqual([expect.objectContaining({
+      provider: "Porkbun", category: "undeclared", summary: "no declared role", admission: { actionAvailability: "unavailable" },
+    })]);
+    // Each row's line is asked for the role it is listed under, so one connection can differ per role.
+    expect(seen).toEqual(expect.arrayContaining([["Spaceship", "registrar"], ["Spaceship", "marketplace"], ["Porkbun", null]]));
+    expect(view.groups.find((group) => group.category === "marketplace")?.connections[0]?.summary).toBe("marketplace pending");
+    // With every connection declaring a role there is no empty undeclared group.
+    const declared = projectConnectionSettings(parseSettingsRead(read()), () => "pending");
+    expect(declared.groups.map((group) => group.category)).not.toContain("undeclared");
+  });
+
+  it("refuses an action on a connection that declares no role", () => {
+    const view = projectConnectionSettings(parseSettingsRead(read({ connections: [{ ...connection, roles: [] }] })), () => "none");
+    const undeclared = view.groups.at(-1)!;
+    const actionable = { ...view, groups: [...view.groups.slice(0, -1), { ...undeclared, connections: [{ ...undeclared.connections[0]!, admission: { actionAvailability: "available", action: "manage" } }] }] };
+    expect(() => parseConnectionSettingsViewModel(actionable)).toThrow(TypeError);
+    const misfiled = { ...view, groups: [...view.groups.slice(0, -1), { ...undeclared, connections: [{ ...undeclared.connections[0]!, category: "dns" }] }] };
+    expect(() => parseConnectionSettingsViewModel(misfiled)).toThrow(TypeError);
+  });
+
   it("rejects unknown fields, identifiers, executable roles and unknown roles", () => {
     for (const bad of [
       read({ extra: true }),

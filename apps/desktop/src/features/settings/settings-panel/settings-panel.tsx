@@ -371,7 +371,7 @@ function ConnectionsSection({ locale, view, onAction }: {
   readonly onAction?: (connection: ConnectionSettingsItemViewModel, action: ConnectionSettingsAction) => void;
 }) {
   const copy = getPresentationCopy(locale, "settings");
-  const groups = { registrar: [copy.registrar, copy.registrarDescription], dns: [copy.dnsProvider, copy.dnsProviderDescription], marketplace: [copy.salesPlatform, copy.salesPlatformDescription], acquisition: [copy.acquisitionPlatform, copy.acquisitionPlatformDescription] } as const;
+  const groups = { registrar: [copy.registrar, copy.registrarDescription], dns: [copy.dnsProvider, copy.dnsProviderDescription], marketplace: [copy.salesPlatform, copy.salesPlatformDescription], acquisition: [copy.acquisitionPlatform, copy.acquisitionPlatformDescription], undeclared: [copy.undeclaredRole, copy.undeclaredRoleDescription] } as const;
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   // A check from an earlier day keeps its date so an old validation never reads as current.
   const checked = (value: string | null) => {

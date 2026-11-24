@@ -1,4 +1,4 @@
-import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type SettingsStorageIntegrity, type StorageRepairKind, type CanonicalDomainName, type ConflictResolutionChoice, type DomainDetailViewModel, type SettingsConnection } from "@gooddealer/client-core";
+import { historyEntryLimit, parseAssetLibraryQuery, projectManualTaskInbox, type ManualTasksRead, projectBatchOperationList, projectOperationHistory, type HistoryRead, projectConnectionSettings, projectDnsHealthViewModel, projectRenewalDeskViewModel, projectSalesDeskViewModel, type RenewalsRead, type AssetLibraryViewModel, type ConnectionSettingsViewModel, type SettingsStorageIntegrity, type StorageRepairKind, type CanonicalDomainName, type ConflictResolutionChoice, type DomainDetailViewModel, type SettingsConnection, type SettingsConnectionRole } from "@gooddealer/client-core";
 import { getCapabilityCopy, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { AlertTriangleIcon, Banner, Button, CoinsIcon, GlobeIcon, HistoryIcon, InboxIcon, ListChecksIcon, SettingsIcon, ShieldIcon } from "@gooddealer/ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -275,11 +275,17 @@ function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepai
     // The Cloudflare reason comes from its own Host status; an unreadable status says only that.
     Promise.all([ports.settings.loadSettings(), readCloudflareNotice(ports.cloudflare)])
       .then(([read, cloudflare]) => {
-        const summary = (connection: SettingsConnection) => {
+        // Each row is chosen by the role it is listed under; a connection with no role has no capability.
+        const summary = (connection: SettingsConnection, role: SettingsConnectionRole | null) => {
+          if (role === null) return copy.undeclaredRoleSummary;
+          // The registrar account line says the connection needs no Zone, so it is shown only for a
+          // registrar-only connection; a Zone connection that also reads its registrar keeps the Zone notice.
           if (connection.providerKind === "cloudflare" && connection.roles.length === 1 && connection.roles[0]?.role === "registrar") return copy.cloudflareRegistrarAccountHelp;
           if (connection.providerKind === "cloudflare") return copy[cloudflareNoticeCopyKey[cloudflare.notice]];
           if (connection.providerKind === "spaceship") {
-            return connection.roles.some(({ role }) => role === "marketplace") ? copy.sellerHubHelp : copy.spaceshipRegistrarHelp;
+            if (role === "marketplace") return copy.sellerHubHelp;
+            if (role === "registrar") return copy.spaceshipRegistrarHelp;
+            return copy.capabilityPendingSummary;
           }
           if (connection.providerKind === "aliyun") return copy.aliyunRegistrarHelp;
           if (connection.providerKind === "godaddy") return copy.godaddyRegistrarHelp;

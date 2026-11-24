@@ -1858,6 +1858,26 @@ fn a_quarantined_latest_listing_is_not_replaced_by_an_older_one() {
 }
 
 #[test]
+fn settings_lists_a_connection_that_declares_no_role() {
+    // A connection that declares no role is still stored credential custody, so it is listed with
+    // no role and so nothing runnable; the Desktop shows it under its own heading.
+    let mut database = database();
+    database
+        .store
+        .fixture_connection()
+        .execute(
+            // No `capabilities_json`, so the row takes the column's `'[]'` default.
+            "INSERT INTO local_provider_connections (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at) VALUES ('workspace-local','porkbun-none','porkbun','Porkbun',?1)",
+            [TIMESTAMP],
+        )
+        .unwrap();
+    let settings = database.read_settings().unwrap();
+    assert_eq!(settings.connections.len(), 1);
+    assert_eq!(settings.connections[0].provider_kind, "porkbun");
+    assert!(settings.connections[0].roles.is_empty());
+}
+
+#[test]
 fn settings_reports_connection_roles_as_unqualified_without_identifiers() {
     let mut database = database();
     assert!(database.read_settings().unwrap().connections.is_empty());

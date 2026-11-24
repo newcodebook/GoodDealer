@@ -61,6 +61,7 @@ export const settingsReadSchema = z.object({
 export type SettingsRead = z.infer<typeof settingsReadSchema>;
 export type SettingsConnection = z.infer<typeof settingsConnectionSchema>;
 export type SettingsStorageIntegrity = z.infer<typeof storageIntegritySchema>;
+export type SettingsConnectionRole = SettingsConnection["roles"][number]["role"];
 
 export function parseSettingsRead(input: unknown): SettingsRead {
   return settingsReadSchema.parse(copyPlainData(input));
@@ -123,33 +124,39 @@ function providerMethod(kind: SettingsConnection["providerKind"]): "api" | null 
 
 /**
  * Projects the Host read into the settings connection groups. A connection appears once per
- * declared role. Its key is a presentation key scoped to this read, not a Provider identifier, and
- * no connection offers an action: connect, reauthorize and manage need Host capabilities that are
- * not composed yet. `summary` supplies the localized unavailable-capability line.
+ * declared role, and a connection that declares none appears once in a trailing `undeclared` group
+ * instead of being hidden. Its key is a presentation key scoped to this read, not a Provider
+ * identifier, and no connection offers an action: connect, reauthorize and manage need Host
+ * capabilities that are not composed yet. `summary` supplies the localized unavailable-capability
+ * line for the role the row is listed under, or `null` for the undeclared group.
  */
 export function projectConnectionSettings(
   read: SettingsRead,
-  summary: (connection: SettingsConnection) => string,
+  summary: (connection: SettingsConnection, role: SettingsConnectionRole | null) => string,
 ): ConnectionSettingsViewModel {
+  const item = (connection: SettingsConnection, index: number, category: SettingsConnectionRole | null): ConnectionSettingsItemViewModel => ({
+    view: "active",
+    providerConnectionId: `${category ?? "undeclared"}-${index}`,
+    provider: launchPlatformNames[connection.providerKind],
+    accountAlias: connection.connectionLabel,
+    remoteAccountId: null,
+    category: category ?? "undeclared",
+    method: providerMethod(connection.providerKind),
+    summary: summary(connection, category),
+    credentialHealth: settingsConnectionHealth(connection),
+    quotaSummary: null,
+    lastCheckedAt: connection.lastValidatedAt,
+    admission: { actionAvailability: "unavailable" },
+  });
   const groups = settingsConnectionRoles.map((category) => ({
     category,
-    connections: read.connections.flatMap((connection, index): ConnectionSettingsItemViewModel[] =>
-      connection.roles.some((item) => item.role === category)
-        ? [{
-          view: "active",
-          providerConnectionId: `${category}-${index}`,
-          provider: launchPlatformNames[connection.providerKind],
-          accountAlias: connection.connectionLabel,
-          remoteAccountId: null,
-          category,
-          method: providerMethod(connection.providerKind),
-          summary: summary(connection),
-          credentialHealth: settingsConnectionHealth(connection),
-          quotaSummary: null,
-          lastCheckedAt: connection.lastValidatedAt,
-          admission: { actionAvailability: "unavailable" },
-        }]
-        : []),
+    connections: read.connections.flatMap((connection, index) =>
+      connection.roles.some((role) => role.role === category) ? [item(connection, index, category)] : []),
   }));
-  return { schemaVersion: 1, surface: "active", groups };
+  const undeclared = read.connections.flatMap((connection, index) => connection.roles.length === 0 ? [item(connection, index, null)] : []);
+  return {
+    schemaVersion: 1,
+    surface: "active",
+    groups: undeclared.length === 0 ? groups : [...groups, { category: "undeclared" as const, connections: undeclared }],
+  };
 }

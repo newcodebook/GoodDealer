@@ -158,6 +158,24 @@ describe("Settings from the Host projection", () => {
       // The acquisition role is listed even with no connection, so its absence is never silent.
       expect(html).toContain(locale === "zh-CN" ? "获取平台" : "Acquisition platform");
     }
+    const roleless = projectConnectionSettings(parseSettingsRead({
+      schemaVersion: 2, kind: "settings", readGeneration: 1,
+      freshness: { source: "active_local", readOnlyReason: null, serverRevision: 1, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+      storageIntegrity: { malformedExpiries: 0, invalidRegistrarObservations: 0, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 0 },
+      connections: [{
+        providerKind: "porkbun", connectionLabel: "Porkbun main", lifecycleStatus: "active", validationStatus: "unknown",
+        credentialUseState: "inactive", lastValidatedAt: null, roles: [],
+      }],
+    }), () => "无可用能力");
+    for (const locale of ["zh-CN", "en-US"] as const) {
+      const html = renderToStaticMarkup(
+        <SettingsPanel locale={locale} initialSection="connections" connections={roleless} devices={null} license="unavailable" sync={null} about={{ version: null, dataDirectory: null, revisionBase: 7, storageIntegrity: null }} />,
+      );
+      // A connection with no declared role is listed under its own heading, never dropped.
+      expect(html).toContain(locale === "zh-CN" ? "未声明角色" : "No declared role");
+      expect(html).toContain("Porkbun main");
+      expect(html).not.toMatch(/<span class="settings-conn-action"><button/u);
+    }
   });
 
   it("says each section without a Host source is unavailable instead of inventing values", () => {
