@@ -35,6 +35,8 @@ Transport、按平台速率限制、闭合错误、能力准入与未知结果�
 非资金操作整批预览确认一次；按 ADR-0027 限定 DNS 修改范围，重开先对账再续作，
 Service 之间不直接调用、不共享凭据。
 
+十二个平台的 Service 骨架位于 `crates/secure-host-core/src/provider_services/`，每个平台一个模块，`IMPLEMENTED` 列出本地已实现、待资格的能力，必须与协议 manifest 的 `qualification_pending` 条目一致（协议测试 `domain-provider-host-mirror.test.ts` 校验）。修改协议 manifest 的已实现清单时同步修改对应模块。
+
 ### 连接器所有权
 
 - 每个提供商连接由具体连接器领域拥有，公开最小、严格的请求、响应和错误合同。

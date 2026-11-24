@@ -99,6 +99,7 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
 
 ## Provider
 
+- 十二个首发平台在 `secure-host-core` 的 `provider_services` 各有一个私有 Service 骨架（ADR-0027“平台 Service 骨架”），镜像协议能力 manifest；唯一准入入口目前拒绝一切能力。Dynadot、易名、Namecheap、Porkbun、22.cn 只有骨架，没有 Native transport。骨架不是平台交付。
 - Cloudflare Zone/DNS 只读 Service 位于 Secure Host 私有实现，包括固定来源 HTTPS、
   Native 凭据录入和 custody、观察、撤销和被拒凭据清除。Renderer 不接收 Token。
 - 接入向导已组合连接创建/激活，设置已组合连接维护；单独主动观察的完整客户入口仍需交付。

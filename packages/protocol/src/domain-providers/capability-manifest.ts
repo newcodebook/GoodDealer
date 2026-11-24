@@ -39,8 +39,8 @@ export type DomainProviderManifestEntry = z.infer<typeof domainProviderManifestE
  * Locally implemented capabilities awaiting qualification include Cloudflare's registration,
  * Zone and DNS observation, Spaceship, Alibaba Cloud and GoDaddy registration observation, and Atom
  * seller inventory.
- * docs/CONNECTORS.md records what the Host implements and must be
- * changed with this list; the Host qualification register, not this list, decides what may run.
+ * docs/CONNECTORS.md records what the Host implements, and the matching `secure-host-core`
+ * `provider_services` module's `IMPLEMENTED` list mirrors it; both must change with this list; the Host qualification register, not this list, decides what may run.
  * Every other entry waits on its platform's facts.
  */
 const implemented: Readonly<Partial<Record<LaunchPlatformKind, readonly DomainProviderCapabilityId[]>>> = {

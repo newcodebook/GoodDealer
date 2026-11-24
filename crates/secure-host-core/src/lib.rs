@@ -47,6 +47,13 @@ mod local_workspace_binding;
 #[cfg(target_os = "macos")]
 mod macos_pair_capture;
 mod provider_credential_slot;
+// ADR-0027 per-platform Service skeleton. Crate-private: nothing outside the crate reaches a
+// Service, and it admits nothing until a capability gains an executable manifest state.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "no capability is admitted through a Service yet")
+)]
+mod provider_services;
 #[cfg(target_os = "linux")]
 mod secret_service_custody;
 mod sedo;

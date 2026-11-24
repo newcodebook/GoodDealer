@@ -16,14 +16,14 @@
 
 Provider 业务是持续推进的主线。完整设备生命周期、全部恢复场景、全部注册商能力和全部 Cloudflare 写能力均不得成为资产归集或 Afternic 的统一前置。当前强制接管只完成已冻结客户旅程的组合、验证与提交，不不断吸收已有副本恢复、无来源 Lease 等相邻场景；这些仍是总目标的待交付项。共享接口与文件所有权允许时立即并行 Provider，设备切片完成后不默认继续占用全部开发力量。
 
-首先复用 Afternic 库存、Listing 绑定、下架父计划、尝试与结果，完成真实连接 → 完整库存归集 → 持久整批预览 → 一次确认 → 上下架 → 必要所有权验证与 DNS → 新鲜读取确认 → 退出/崩溃后重开对账续作。六来源归集按实际依赖独立推进；后续市场依既定优先级，以第二个平台的真实需求确定最小复用，不预铺空 Service 或通用框架。
+首先复用 Afternic 库存、Listing 绑定、下架父计划、尝试与结果，完成真实连接 → 完整库存归集 → 持久整批预览 → 一次确认 → 上下架 → 必要所有权验证与 DNS → 新鲜读取确认 → 退出/崩溃后重开对账续作。六来源归集按实际依赖独立推进；后续市场依既定优先级推进。2026-11-24 起十二平台预先建立各自的私有 Service 骨架（ADR-0027 “平台 Service 骨架”），骨架只持有全部 unavailable 的能力 manifest 与唯一拒绝入口，origin、凭据形态和错误分类在平台事实核实后写入，骨架不算交付；仍不建通用框架。
 
 ## 按实际依赖完成的客户旅程
 
 1. **设备授权、交接与换机云恢复。** 接续已有独立 Standby Grant 协议，完成版本匹配的 Cloud/Host 合同、独立签名用途、严格角色路由准入、Host 持久防重放地板、第二台设备登录/只读、Active→Standby 原子停写；随后打通普通交接、目标引导与激活、丢机强制接管和云恢复。Cloud 是身份/设备/Lease/Epoch 权威；最多两台绑定设备、单 Active，遵守最终 ADR 的期限、重新认证、撤销和 pending epoch 终结规则。云恢复只承诺最后成功同步的允许字段；保留强制接管后旧机未同步库，不覆盖或推送它。目标设备重新连接 Provider 凭据。
 2. **资产归集与市场批量闭环。** 从真实连接经分页完整扫描和资源绑定进入资产库，先完成 Afternic Listing，并由 local-storage 的持久父计划编排必要 DNS/私有验证步骤，贯通预览、确认、上下架、所有权验证、未知结果对账、崩溃及重启续作。非资金整批预览确认一次，之后自动完成独立平台步骤；费用、出价等资金操作逐笔确认。新增目标、改价或扩大 DNS 范围必须重新预览。未知结果先对账，不能盲重发。应用运行时后台继续，退出/休眠暂停，重开自动续作；Cloud 不代执行 Provider 操作。不等待全部 Cloudflare 写能力或整个注册商目录完成再做 Afternic。
 3. **独立业务备份与离线恢复。** 用户手动选择本地备份位置，使用独立新版本工件和用户保管的恢复材料；旧机和 GoodDealer Cloud 均不可用时，仍能仅凭用户自己的恢复材料在新机验证并打开最近一次备份为隔离加密数据集（不要求登录、付费或连接 Cloud），离线查看/导出。之后实现有当前授权的业务差异预览和导入。安装绑定 GDBK v1 不算换机备份；不能把活动库替换的防回滚条件强加给历史备份的隔离读取。恢复材料、文件 handle 留在 Native。无需添加自动备份调度或固定 RPO。
-4. **后续平台、双系统与运营。** 按市场优先级扩大真实能力，补齐六个资产来源和十二平台目录中的产品能力；实现 Windows 加密工作区启动/关闭重开、设备与平台秘密 custody、恢复，完成 Windows/macOS 双向恢复和真实构件验收。保留 Licensing 的受控配置、审计与运营空间，商业计划变化不指导技术架构。
+4. **后续平台、双系统与运营。** 按市场优先级扩大真实能力，补齐六个资产来源和十二平台目录中的产品能力；实现 Windows 加密工作区启动/关闭重开、设备与平台秘密 custody、恢复，完成 Windows/macOS 双向恢复和真实构件验收。功能开发阶段不以实机为前置；基础功能完成后统一进行 Windows/macOS 与第二台设备的跨平台验收（2026-11-24 用户决定）。保留 Licensing 的受控配置、审计与运营空间，商业计划变化不指导技术架构。
 
 ## 实施与信任边界
 
@@ -31,7 +31,7 @@ Provider 业务是持续推进的主线。完整设备生命周期、全部恢�
 - 每项 Provider 能力开工就确定当前接口证据、账户权限、受控测试域名、Native 凭据录入方式、操作效果及结果验证。缺真实账号/会话/设备时尽早提出本步骤最小条件；不能把未写代码或未组合一概称作缺真实资格。
 - 每个平台一个 secure-host-core 私有 Service；local-storage 独占业务事务、绑定、观察、计划/尝试/结果、备份与恢复；Cloud 只拥有身份、设备、商业与允许字段的副本；Renderer 只传有界业务意图和展示脱敏结果。
 - 保持单一业务数据库 writer、原 publication mutex、锁序与最终提交栅栏。秘密、Cookie、CSRF、恢复材料与文件 handle 不离开 Native；Provider 账号身份/凭据不进入 Cloud、普通 TypeScript、日志或业务备份。所有不可信输入从 unknown 严格验证；授权、租户隔离、签名用途与依赖边界失败关闭。
-- 复用已完成的工程结构、WorkspaceAuthority/BackupArtifactState 分离、业务私有模块、Native Provider facade 和 Unix custody。复用已追加的 Listing 资源绑定迁移：连接+资源 digest 身份，同域名/连接一个未 detached 绑定，保留历史 incarnation；不再建重复 repository 或第二 writer。不预铺十二个空 Service，不新增通用 Provider 代理、工作流或规则引擎；由两个平台真实需求验证复用面。
+- 复用已完成的工程结构、WorkspaceAuthority/BackupArtifactState 分离、业务私有模块、Native Provider facade 和 Unix custody。复用已追加的 Listing 资源绑定迁移：连接+资源 digest 身份，同域名/连接一个未 detached 绑定，保留历史 incarnation；不再建重复 repository 或第二 writer。十二平台按 ADR-0027 预建私有 Service 骨架，未核实能力保持 unavailable 且无可执行路径；不新增通用 Provider 代理、工作流或规则引擎。
 - 最终 ADR 决定目标，源码决定现状。阅读 ADR 索引、CURRENT_IMPLEMENTATION、IMPLEMENTATION_STRATEGY、ENGINEERING_STRUCTURE_REVIEW、PRODUCT_DISCOVERY、PROVIDER_API_REVIEW、ROADMAP、VERIFICATION、ORCHESTRATION 与执行台账。普通文档冲突应核对更新，不能据过时快照缩减目标；必要的架构修订更新对应最终 ADR，不塞入实施日志。
 
 ## 工作区保护与完成条件
