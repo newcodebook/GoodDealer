@@ -66,6 +66,8 @@ Native 已组合无筛选和 `type=standard` 的双完整读取。仅当两个�
 
 已接入的 Standard 下架使用同账户的 `domain-details` 复核正向挂牌，要求精确域名、同一 Listing 摘要、明确 Standard 和已观察的 `Seller Approved`。Native 只接受官方 `Successfully removed the domain` 作为请求回执。重开只读 `domain-details`，挂牌仍在或无法确认的结果均保留未核实。通用 404、空数组、null、筛选缺席和匿名错误无法证明账户内缺席。[官方详情](https://apidocs.atom.com/api-reference/seller_apis/domain_details) [官方下架](https://apidocs.atom.com/api-reference/seller_apis/remove_domain)
 
+2026-11-24 重读官方 OpenAPI 1.0.0 的 [add-domain](https://apidocs.atom.com/api-reference/seller_apis/add_domain)：`GET https://www.atom.com/api/marketplace/add-domain`，查询参数 `api_token`、整数 `user_id`、`domain_type`（standard | premium | geo，可选且未写默认）、`domain_name`、`price`（字符串，未写币种或上限）。200 响应示例为 `{"message":"Successfully uploaded"}`，schema 示例为 “Successfully updated”；未记录错误响应与幂等性。Native 已组合 Standard 上架发送：显式发送 `domain_type=standard`，价格为 1–49,999,999 的整数美元字符串，只接受上述两条文档回执，且回执不代表挂牌存在。同日 [domain-details](https://apidocs.atom.com/api-reference/seller_apis/domain_details) 仍返回 `selling_price`、`full_price`、`listing_type`（示例 “Plus”）；Native 只把精确整数的 `selling_price` 作为写后价格比对值。**币种按 USD 实施仍待真实账号核对**：受控上架后 `selling_price` 必须等于提交的整数美元，否则该项为冲突，能力不得取得资格。
+
 `verify-dns` 只返回 `DNS check request accepted`。详情示例的 `status: Seller Approved` 是 Listing 状态示例，
 文档未证明它可替代 DNS/owner 验证终态；需核实 challenge 获取和可观测终态，不能据此宣称验证闭环完成。
 

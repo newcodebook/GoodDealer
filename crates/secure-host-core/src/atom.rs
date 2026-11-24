@@ -19,6 +19,10 @@ pub use credentials::{
 const DOMAINS: &str = "https://www.atom.com/api/marketplace/domains";
 const DOMAIN_DETAILS: &str = "https://www.atom.com/api/marketplace/domain-details";
 const REMOVE_DOMAIN: &str = "https://www.atom.com/api/marketplace/remove-domain";
+const ADD_DOMAIN: &str = "https://www.atom.com/api/marketplace/add-domain";
+/// Highest whole-dollar Standard price this client sends. The official contract documents
+/// `price` only as a string without a currency or bound; this is the marketplace price ceiling.
+pub const MAX_ATOM_STANDARD_PRICE_USD: u64 = 49_999_999;
 const PAGE_SIZE: usize = 100;
 const MAX_LISTINGS: usize = 10_000;
 const MAX_PAGES: usize = MAX_LISTINGS / PAGE_SIZE + 1;
@@ -81,6 +85,7 @@ pub struct AtomListing {
     pub state: AtomListingState,
     pub observed_in_standard_scan: bool,
     reported_standard: bool,
+    selling_price_whole_usd: Option<u64>,
 }
 
 impl AtomListing {
@@ -88,6 +93,13 @@ impl AtomListing {
     #[must_use]
     pub const fn reports_standard(&self) -> bool {
         self.reported_standard
+    }
+
+    /// The reported selling price when it is an exact whole number within the sendable range.
+    /// The documented response gives no currency; treating it as USD is pending account acceptance.
+    #[must_use]
+    pub const fn selling_price_whole_usd(&self) -> Option<u64> {
+        self.selling_price_whole_usd
     }
 }
 
@@ -112,6 +124,11 @@ pub struct AtomPortfolioClient {
 enum DomainEndpoint {
     Details,
     RemoveStandard,
+    /// `add-domain` with `domain_type=standard` and a whole-dollar price. Premium listings spend a
+    /// coin and Geo listings are not admitted, so neither type can be requested.
+    AddStandard {
+        price_whole_usd: u64,
+    },
 }
 
 impl AtomPortfolioClient {
@@ -207,6 +224,31 @@ impl AtomPortfolioClient {
         guard()
     }
 
+    /// Sends one already claimed Standard listing creation (`add-domain`, `domain_type=standard`).
+    /// The receipt only acknowledges the request; the caller must confirm the listing with an
+    /// independent exact read. Atom documents no idempotency, so no outcome here authorizes a resend.
+    ///
+    /// # Errors
+    /// Rejects a stale guard, invalid input or price, or any response other than a documented receipt.
+    pub async fn send_standard_listing(
+        &self,
+        credential: &AtomCredential,
+        domain: &str,
+        price_whole_usd: u64,
+        guard: &mut AtomGuard<'_>,
+    ) -> Result<(), AtomError> {
+        let (is_json, body) = self
+            .request_exact(
+                credential,
+                domain,
+                DomainEndpoint::AddStandard { price_whole_usd },
+                guard,
+            )
+            .await?;
+        portfolio_wire::require_add_acknowledgement(require_inventory_json(is_json, &body)?)?;
+        guard()
+    }
+
     async fn request_exact(
         &self,
         credential: &AtomCredential,
@@ -230,15 +272,30 @@ impl AtomPortfolioClient {
         if !portfolio_wire::valid_domain(domain) {
             return Err(AtomError::InputRejected);
         }
-        let endpoint = match endpoint {
-            DomainEndpoint::Details => DOMAIN_DETAILS,
-            DomainEndpoint::RemoveStandard => REMOVE_DOMAIN,
+        let (path, price) = match endpoint {
+            DomainEndpoint::Details => (DOMAIN_DETAILS, None),
+            DomainEndpoint::RemoveStandard => (REMOVE_DOMAIN, None),
+            DomainEndpoint::AddStandard { price_whole_usd } => {
+                if !(1..=MAX_ATOM_STANDARD_PRICE_USD).contains(&price_whole_usd) {
+                    return Err(AtomError::InputRejected);
+                }
+                (ADD_DOMAIN, Some(price_whole_usd))
+            }
         };
-        let mut url = reqwest::Url::parse(endpoint).map_err(|_| AtomError::Unavailable)?;
-        url.query_pairs_mut()
-            .append_pair("api_token", &credential.token)
-            .append_pair("user_id", &credential.user_id)
-            .append_pair("domain_name", domain);
+        let mut url = reqwest::Url::parse(path).map_err(|_| AtomError::Unavailable)?;
+        {
+            let mut query = url.query_pairs_mut();
+            query
+                .append_pair("api_token", &credential.token)
+                .append_pair("user_id", &credential.user_id);
+            if price.is_some() {
+                query.append_pair("domain_type", "standard");
+            }
+            query.append_pair("domain_name", domain);
+            if let Some(price) = price {
+                query.append_pair("price", &price.to_string());
+            }
+        }
         // The official operation is a GET with a side effect. It is never cached or automatically retried.
         self.client
             .get(url)
@@ -431,6 +488,58 @@ mod tests {
     }
 
     #[test]
+    fn standard_listing_sends_only_the_fixed_standard_type_and_a_bounded_whole_price() {
+        let credential = AtomCredential {
+            user_id: Zeroizing::new("123".into()),
+            token: Zeroizing::new("synthetic&domain_type=premium".into()),
+        };
+        let client = AtomPortfolioClient::production().unwrap();
+        let request = client
+            .exact_request(
+                &credential,
+                "example.test",
+                DomainEndpoint::AddStandard {
+                    price_whole_usd: 2500,
+                },
+            )
+            .unwrap();
+        assert_eq!(request.method(), reqwest::Method::GET);
+        assert_eq!(request.url().host_str(), Some("www.atom.com"));
+        assert_eq!(request.url().path(), "/api/marketplace/add-domain");
+        assert_eq!(
+            request.url().query_pairs().collect::<Vec<_>>(),
+            [
+                ("api_token".into(), credential.token.as_str().into()),
+                ("user_id".into(), "123".into()),
+                ("domain_type".into(), "standard".into()),
+                ("domain_name".into(), "example.test".into()),
+                ("price".into(), "2500".into()),
+            ]
+        );
+        assert_eq!(request.headers()[header::CACHE_CONTROL], "no-store");
+        for price_whole_usd in [0, MAX_ATOM_STANDARD_PRICE_USD + 1, u64::MAX] {
+            assert!(matches!(
+                client.exact_request(
+                    &credential,
+                    "example.test",
+                    DomainEndpoint::AddStandard { price_whole_usd }
+                ),
+                Err(AtomError::InputRejected)
+            ));
+        }
+        assert!(matches!(
+            client.exact_request(
+                &credential,
+                "example.test&domain_type=premium",
+                DomainEndpoint::AddStandard {
+                    price_whole_usd: 2500
+                }
+            ),
+            Err(AtomError::InputRejected)
+        ));
+    }
+
+    #[test]
     fn token_is_percent_encoded_and_endpoint_has_no_caller_selected_segments() {
         let credential = AtomCredential {
             user_id: Zeroizing::new("123".into()),
@@ -477,6 +586,7 @@ mod tests {
             state: AtomListingState::SellerApproved,
             observed_in_standard_scan: false,
             reported_standard: standard,
+            selling_price_whole_usd: None,
         };
         let all = [
             sample("standard.test", 1, true),

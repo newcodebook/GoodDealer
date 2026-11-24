@@ -26,6 +26,8 @@
 2. 这是带副作用的 GET：不缓存、不预取、不自动重试；HTTP 客户端不跟随重定向。
 3. 无幂等保证：每项持久认领后至多发送一次；超时、断网、非 JSON、未知文案、登录页都是**结果未知**，只能靠 `domain-details` 对账，不能重发。
 4. 回执只接受两个文档文案（`Successfully uploaded`、`Successfully updated`）的严格 JSON 对象；其他任何响应都不是成功。回执本身也不是挂牌成功，必须写后 `domain-details` 精确命中同一域名、`listing_type` 为 Standard。
+5. 发送后的任何错误（含 `ProtocolRejected`、超时、非 JSON）都只能进入 `reconciling`，不得记为失败或“未上架”；失败终态只来自发送前已签名的拒绝。
+6. 文档回执 “Successfully updated” 暗示 `add-domain` 可能覆盖已有挂牌的价格，因此写前精确 `domain-details` 命中（任何类型）必须判为 `already_listed` 且不发送，这是硬性前置条件。
 
 ## 价格合同
 

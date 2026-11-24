@@ -47,6 +47,36 @@ pub(super) fn require_remove_acknowledgement(body: &[u8]) -> Result<(), AtomErro
     Ok(())
 }
 
+/// Accepts only the two documented `add-domain` receipts: the response example reads
+/// "Successfully uploaded" and the schema example "Successfully updated" (`OpenAPI` 1.0.0,
+/// read 2026-11-24). Neither proves the listing exists.
+pub(super) fn require_add_acknowledgement(body: &[u8]) -> Result<(), AtomError> {
+    let wire: MessageWire =
+        serde_json::from_slice(body).map_err(|_| AtomError::ProtocolRejected)?;
+    if !matches!(
+        wire.message.as_str(),
+        "Successfully uploaded" | "Successfully updated"
+    ) {
+        return Err(AtomError::ProtocolRejected);
+    }
+    Ok(())
+}
+
+/// The selling price as an exact whole number in the sendable range; anything else is unknown.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    reason = "the value is checked to be a finite whole number below 2^53 before the cast"
+)]
+fn whole_price(value: Option<f64>) -> Option<u64> {
+    let value = value?;
+    (value.is_finite()
+        && value.fract() == 0.0
+        && (1.0..=super::MAX_ATOM_STANDARD_PRICE_USD as f64).contains(&value))
+    .then_some(value as u64)
+}
+
 fn decode_listing(record: ListingWire) -> Result<(AtomListing, u64), AtomError> {
     let domain = record.domain_name.to_ascii_lowercase();
     let reported_standard = record.listing_type.as_deref() == Some("Standard");
@@ -83,6 +113,7 @@ fn decode_listing(record: ListingWire) -> Result<(AtomListing, u64), AtomError> 
             state,
             reported_standard,
             observed_in_standard_scan: false,
+            selling_price_whole_usd: whole_price(record.selling_price),
         },
         record.id,
     ))
@@ -212,6 +243,47 @@ mod tests {
                 parse_exact_listing(wire, "test.com"),
                 Err(AtomError::ProtocolRejected)
             );
+        }
+    }
+
+    #[test]
+    fn add_receipt_accepts_only_the_two_documented_messages() {
+        for wire in [
+            br#"{"message":"Successfully uploaded"}"# as &[u8],
+            br#"{"message":"Successfully updated"}"#,
+        ] {
+            assert_eq!(require_add_acknowledgement(wire), Ok(()));
+        }
+        for wire in [
+            br#"{"message":"Successfully removed the domain"}"# as &[u8],
+            br#"{"message":"successfully uploaded"}"#,
+            br#"{"message":"Successfully uploaded","success":true}"#,
+            br#"{"message":"Rejected","message":"Successfully uploaded"}"#,
+            br#"{"success":true,"message":"DNS check request accepted"}"#,
+            br"<html>Successfully uploaded</html>",
+            br"[]",
+        ] {
+            assert_eq!(
+                require_add_acknowledgement(wire),
+                Err(AtomError::ProtocolRejected)
+            );
+        }
+    }
+
+    #[test]
+    fn exact_listing_keeps_only_an_exact_whole_selling_price() {
+        let read = |price: &str| {
+            parse_exact_listing(
+                format!(r#"{{"id":7,"domain_name":"test.com","status":"Seller Approved","listing_type":"Standard","selling_price":{price}}}"#).as_bytes(),
+                "test.com",
+            )
+            .unwrap()
+            .selling_price_whole_usd()
+        };
+        assert_eq!(read("2500"), Some(2500));
+        assert_eq!(read("2500.0"), Some(2500));
+        for unknown in ["2500.5", "0", "null", "50000000"] {
+            assert_eq!(read(unknown), None, "{unknown}");
         }
     }
 
