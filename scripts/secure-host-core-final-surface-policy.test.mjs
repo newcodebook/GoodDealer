@@ -52,6 +52,7 @@ const expectedSourceFiles = [
   "native_power/windows.rs",
   "porkbun.rs",
   "porkbun/credentials.rs",
+  "porkbun/dns_wire.rs",
   "porkbun/registrar_wire.rs",
   "provider_credential_slot.rs",
   // ADR-0027 per-platform Service skeleton: crate-private, no public export.
@@ -109,7 +110,8 @@ const expectedGoDaddyExports = [
   "load_godaddy_credential_guarded", "publish_godaddy_credential_guarded", "purge_godaddy_credential_guarded",
 ];
 const expectedPorkbunExports = [
-  "PorkbunCapture", "PorkbunCredential", "PorkbunCredentialPlan", "PorkbunError", "PorkbunGuard",
+  "PorkbunCapture", "PorkbunCredential", "PorkbunCredentialPlan", "PorkbunDnsClient", "PorkbunDnsRecord",
+  "PorkbunDnsRecordType", "PorkbunDnsZone", "PorkbunError", "PorkbunGuard",
   "PorkbunRegistrarClient", "PorkbunRegistration",
   "load_porkbun_credential_guarded", "publish_porkbun_credential_guarded", "purge_porkbun_credential_guarded",
 ];

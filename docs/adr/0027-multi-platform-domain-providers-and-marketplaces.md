@@ -148,6 +148,10 @@ Provider 页面回跳只构成不可信的 reconciliation hint，不能作为成
   `domains.domain:read` 为域名读取，`domains.dns:update` 为 DNS 记录增删改，写 scope 同时满足同一资源的读取，选择
   “Domains & DNS”整包即勾选全部 Domains scope，可缩减为子集；官方未给出端点与 scope 的对应，也没有只读 DNS scope）。账户归集预期的
   最小 scope 是 `domains.domain:read`（官方描述未明列域名列表，待受控账户核实）；DNS 记录读取所需的 scope 未核实前，不扩展 GoDaddy 连接的角色。
+  Porkbun API 密钥同样按权限授权（2026-11-24 核对[官方 OpenAPI v3.112](https://porkbun.com/api/json/v3/spec) 说明与各操作的
+  `x-porkbun-scope`）：`read` 只读且总是包含，另有 `dns`、`domains`、`purchase`、`funding` 等权限，设置页提供“Read-only”预设；
+  密钥还可限定允许的域名（范围外 403 `DOMAIN_NOT_ALLOWED`），权限不足为 403 `INSUFFICIENT_SCOPE`。`/domain/listAll` 与
+  `/dns/retrieve/{domain}` 都只需要 `read`，因此账户归集与 DNS 读取共用一把 Read-only 密钥。
 - **Linux**：Provider 秘密按 [ADR-0025](0025-linux-secret-service-custody.md) 的具名条目准入。固定 Native GTK 窗口只捕获已列明用途的字段，条目存入 Secret Service。新增 Provider 与备份条目须分别明确威胁接受。Linux 开发验收与 Windows/macOS 完整目标及实机资格分别记录。
 
 Cloudflare 观察的 401/403 统一表示凭据被拒绝，不据此区分失效与权限不足；429、408、425 与服务端错误

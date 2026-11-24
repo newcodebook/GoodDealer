@@ -269,6 +269,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [ ] 私有 Service、合同与负向测试（账户归集已在源码组合：Native 只读 `/domain/listAll`、成对凭据 custody 与三系统掩码输入、Host 库存迁移 `202611240001`、`porkbun:registrar:observe` 授权能力、Tauri 命令与 ProviderLane、设置页面板。余项：资格登记与真实账户验收，以及 DNS/续费等其他能力）
 - [ ] 逐项能力资格证据（使用沙箱或 `dryRun`）（待实现；按当前策略的能力依赖推进）
 - [ ] 证明框架核心模型未改动（待实现；按当前策略的能力依赖推进）
+- [ ] Porkbun DNS 记录读取（`dns.records.observe`）：[Task Frame](PORKBUN_DNS_RECORDS_OBSERVE_TASK_FRAME.md)；Native 只读 `GET /dns/retrieve/{domain}` 与严格解析已完成，协议、连接角色扩展、本地证据、Tauri 与界面组合待实施
 
 ### 7. Spaceship（含 SellerHub）
 
