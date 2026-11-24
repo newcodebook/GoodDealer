@@ -9,6 +9,10 @@
 use tempfile::TempDir;
 
 /// Drop-in replacement for `tempfile::tempdir()` that always creates the directory as `0700`.
+///
+/// The directory is created under the canonical temporary directory. On macOS the default lies
+/// under `/var`, a symbolic link to `/private/var`, and the application-root and selected-file
+/// checks rightly reject any path with a symbolic-link component.
 pub(crate) fn tempdir() -> std::io::Result<TempDir> {
     let builder = tempfile::Builder::new();
     #[cfg(unix)]
@@ -18,5 +22,5 @@ pub(crate) fn tempdir() -> std::io::Result<TempDir> {
         use std::os::unix::fs::PermissionsExt as _;
         builder.permissions(std::fs::Permissions::from_mode(0o700));
     }
-    builder.tempdir()
+    builder.tempdir_in(std::fs::canonicalize(std::env::temp_dir())?)
 }

@@ -77,6 +77,7 @@ export const IMMUTABLE_DRAIN_TEST_NAMES = [
 /** ADR-0032 S1b: the normal switch request that a drain proof later completes. */
 export const SWITCH_REQUEST_TEST_NAMES = [
   "starts a normal switch only from the Lease holder, binds the target's key, and replays its idempotency key",
+  "admits a desktop-login allocation only through the exact personal default workspace",
   "denies a caller without the current unexpired Lease and refuses ineligible targets without writing",
   "shows a switch only to its two devices and lets the source cancel it once before bootstrap",
   "isolates identical workspace, device, and idempotency ids across two accounts",
@@ -87,6 +88,21 @@ export const SWITCH_REQUEST_TEST_NAMES = [
 /** ADR-0032 S1c2: the source's signed drain proof hands its switch to bootstrap. */
 export const SWITCH_DRAIN_TEST_NAMES = [
   "admits the source's signed proof, seals all three streams including empty ones, and replays as bootstrapping",
+  "keeps handoff evidence after bootstrap becomes completed",
+  "keeps handoff evidence after bootstrap becomes failed",
+  "does not turn inconsistent source history into a receipt",
+  "does not turn inconsistent epoch history into a receipt",
+  "does not turn inconsistent released reason history into a receipt",
+  "does not turn inconsistent unreleased Lease history into a receipt",
+  "does not turn inconsistent release time history into a receipt",
+  "does not turn inconsistent acceptance time history into a receipt",
+  "does not turn inconsistent capability target history into a receipt",
+  "retains the original switch target after a normal handoff",
+  "retains the original switch mode after a normal handoff",
+  "does not infer handoff from bootstrapping status or an unconsumed proof",
+  "refuses ambiguous consumed proofs",
+  "never reads a forced workflow as a normal handoff",
+  "terminates a real drained bootstrap when its one-hour capability expires before the old drain deadline",
   "refuses a forged, expired, or stale-stream proof and leaves the switch draining for a corrected one",
   "gives the target device and other tenants no drain path, and keeps the proof table owner-written",
 ];
@@ -96,6 +112,10 @@ export const DEVICE_DIRECTORY_TEST_NAMES = [
   "lists the account's devices with roles from the Lease, before any device reports itself",
   "records a report for the session's own device, floors last seen to the hour, and bumps the revision only on change",
   "denies web sessions, revoked or stale sessions, removed devices, and recovery without writing",
+  "does not describe an unreleased but expired Lease as Active",
+  "denies a bound device whose signing key is revoked and gives it no role",
+  "denies a bound device whose signing key is rotated and gives it no role",
+  "waits for concurrent key revocation before allowing a report",
   "serializes renames with writers that lock in drain order, without deadlock",
   "rejects a report naming a device or carrying an invalid name before touching the database",
   "isolates identical device and session ids across two accounts",
@@ -126,6 +146,10 @@ export const HARDENED_DRAIN_TABLES = [
   "workspace_device_audit_drain_heads", "workspace_device_audit_drain_records",
   "workspace_device_audit_drain_seals",
 ].sort();
+
+// Migrations 202611190009 and 202611190010 moved authenticated evidence appends to `gd_account_api`
+// and withdrew the app role's read of the two record streams those appends write.
+export const APP_UNREADABLE_DRAIN_TABLES = new Set(["execution_fact_drain_records", "workspace_device_audit_drain_records"]);
 
 export const ROLE_EXPECTATIONS = [
   {
@@ -174,7 +198,7 @@ export const ROUTINE_EXPECTATIONS = [
   ["audit_recompute_workspace_device_drain_head(text,bigint)", false],
   ["device_consume_drain_proof(text,bytea,text,bigint,text)", true],
   ["device_read_just_consumed_drain_proof(text)", false],
-  ["execution_fact_drain_append_record(text,bigint,bigint,bytea,bytea,text,text)", true],
+  ["execution_fact_drain_append_record(text,bigint,bigint,bytea,bytea,text,text)", false],
   ["execution_fact_drain_install_accepted_seal(text)", true],
   ["execution_fact_drain_recompute_head(text,bigint)", false],
   ["workspace_mutation_drain_append_record(text,bigint,bigint,bytea)", true],
@@ -401,7 +425,7 @@ function exactHardenedTablePrivileges(value) {
   return exactJson(value, HARDENED_DRAIN_TABLES.map((table) => ({
     table,
     owner: "gooddealer_cloud_owner",
-    canSelect: true,
+    canSelect: !APP_UNREADABLE_DRAIN_TABLES.has(table),
     canInsert: false,
     canUpdate: false,
     canDelete: false,

@@ -38,6 +38,10 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
+      # local-storage and secure-host-core link GTK on Linux for the restricted native secret window
+      # (ADR-0025), so compiling them needs the GTK 3 development libraries.
+      - name: Install Linux GTK development libraries
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libgtk-3-dev
       - name: Install pinned pnpm
         run: npm install --global pnpm@12.16.1
       - name: Install JavaScript dependencies

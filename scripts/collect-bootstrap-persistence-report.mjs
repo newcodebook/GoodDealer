@@ -10,7 +10,7 @@ import { tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
 const root = resolve(import.meta.dirname, "..");
 
 export const BOOTSTRAP_PORTABLE_TEST_NAMES = [
-  "keeps Bootstrap verification closed while requiring explicit Lease signing custody",
+  "rejects a capability absent from the independently configured trust root",
   "rejects accessor and custom-prototype input before querying a verification key",
   "cryptographically admits only the fixed-purpose fixture presentation and binds its owner",
   "keeps signed readiness all-or-none and cursor generations historical",
@@ -23,11 +23,14 @@ export const BOOTSTRAP_POSTGRES_TEST_NAMES = [
   "binds authority to signed capability and pending epoch with compound foreign keys",
   "retains cursor history with generation in the primary key and one active workspace row",
   "rejects a second active device cursor in one tenant workspace while allowing distinct scopes",
+  "keeps first-device bootstrap source-free and refuses cross-purpose source epochs",
   "persists pin and returns byte-identical replay after service reconstruction with zero port calls",
   "rejects a same-step different canonical request before workspace ports",
   "rolls back nonce, pin-side writes, ledger, and workflow revision on an injected write-boundary fault",
+  "rolls back a bootstrap step when workspace I/O crosses the capability deadline",
   "production Lease signing denial changes zero rows and never reaches cursor or pin release ports",
   "fixture signer installs every activation effect atomically and creates a new cursor generation",
+  "refuses activation when its signer crosses the bootstrap deadline and rolls back every write",
   "fixture activation fault rolls back Lease Epoch capability workflow attempt pin and cursors together",
 ];
 export const BOOTSTRAP_TABLES = [
@@ -116,7 +119,9 @@ function main() {
       productionComposition: false,
       productionLeaseIssued: false,
       normalHandoffEnabled: false,
-      verifier: /class DenyingBootstrapVerificationKeySource/u.test(verifier) ? "Denying" : "unresolved",
+      // Target installation (d285644) replaced the denying key source with a registry that admits only
+      // Ed25519 keys configured for the bootstrap-capability purpose and answers no other purpose.
+      verifier: verifierIsFixedPurposeRegistry(verifier) ? "FixedPurposeRegistry" : "unresolved",
       leaseSigner: /class DenyingActiveDeviceLeaseSigner/u.test(activation) ? "Denying" : "unresolved",
       drainSignedReadyWrites: drainSourceWritesSignedReadiness(drain) ? 1 : 0,
       publicBusinessRoutes: sourceDefinesExactAccountActivationBusinessRoute(publicRoutes) ? 1 : -1,
@@ -147,11 +152,19 @@ export function bootstrapPersistenceReportPassesPolicy(value) {
     && exactObservation(value.tests?.portable, "test/bootstrap-persistence-boundary.test.ts", BOOTSTRAP_PORTABLE_TEST_NAMES)
     && exactObservation(value.tests?.postgres, "test/postgres/bootstrap-persistence.test.ts", BOOTSTRAP_POSTGRES_TEST_NAMES)
     && exact(value.production, { fixtureOnly: true, productionComposition: false, productionLeaseIssued: false,
-      normalHandoffEnabled: false, verifier: "Denying", leaseSigner: "Denying", drainSignedReadyWrites: 0,
+      normalHandoffEnabled: false, verifier: "FixedPurposeRegistry", leaseSigner: "Denying", drainSignedReadyWrites: 0,
       publicBusinessRoutes: 1, adminBusinessRoutes: 0, periodicJobs: 0, tauriCommands: [],
       fixtureImportsFromSource: 0 })
     && exact(value.gates, { "R0-05": "In Progress", "R0-06": "In Progress", "R0-09": "In Progress", "R0-16": "In Progress" })
     && exactInputs(value.inputs) && value.inputSetDigest === digestInputs(value.inputs);
+}
+
+export function verifierIsFixedPurposeRegistry(source) {
+  return typeof source === "string"
+    && /class TrustedBootstrapVerificationKeySource implements BootstrapVerificationKeySource/u.test(source)
+    && /asymmetricKeyType !== "ed25519"/u.test(source)
+    && /input\.purpose === BOOTSTRAP_CAPABILITY_KEY_PURPOSE \? this\.keys\.get\(input\.kid\) \?\? null : null/u.test(source)
+    && !/class \w+ implements BootstrapVerificationKeySource[\s\S]*class \w+ implements BootstrapVerificationKeySource/u.test(source);
 }
 
 export function digestInputs(inputs) {

@@ -66,6 +66,8 @@ pub(super) fn choose(
         io::Read,
         process::{Command, Stdio},
     };
+    // The dialog prints one POSIX path; anything longer is not a path it chose.
+    const LIMIT: u64 = 16_384;
     let prompt = if let Some(name) = save_name {
         format!("POSIX path of (choose file name with prompt \"{title}\" default name \"{name}\")")
     } else {
@@ -78,7 +80,6 @@ pub(super) fn choose(
         .stdout(Stdio::piped())
         .spawn()
         .map_err(|_| PortableArtifactRejected)?;
-    const LIMIT: u64 = 16_384;
     let mut bytes = Vec::new();
     let read = child
         .stdout

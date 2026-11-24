@@ -9,6 +9,7 @@ import {
   DEVICE_MIGRATIONS,
   DEVICE_PERSISTENCE_TABLES,
   DEVICES_PERSISTENCE_INPUT_PATHS,
+  APP_UNREADABLE_DRAIN_TABLES,
   HARDENED_DRAIN_TABLES,
   IMMUTABLE_TRIGGER_EXPECTATIONS,
   POSTGRES_DRAIN_TEST_FILES,
@@ -71,7 +72,7 @@ const report = {
     hardenedTablePrivileges: HARDENED_DRAIN_TABLES.map((table) => ({
       table,
       owner: "gooddealer_cloud_owner",
-      canSelect: true,
+      canSelect: !APP_UNREADABLE_DRAIN_TABLES.has(table),
       canInsert: false,
       canUpdate: false,
       canDelete: false,
