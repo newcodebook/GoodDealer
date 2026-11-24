@@ -1,3 +1,5 @@
+import { auditAtomStandardListingEvidenceMigration } from "../modules/audit/migrations/202611240001-audit-atom-standard-listing-evidence";
+import { executionAtomStandardListingEvidenceMigration } from "../modules/execution-ledger/migrations/202611240002-execution-atom-standard-listing-evidence";
 import { executionSellerHubCreateListingEvidenceMigration } from "../modules/execution-ledger/migrations/202611200006-execution-sellerhub-create-listing-evidence";
 import { auditSellerHubCreateListingEvidenceMigration } from "../modules/audit/migrations/202611200005-audit-sellerhub-create-listing-evidence";
 import { auditAtomStandardDelistEvidenceMigration } from "../modules/audit/migrations/202611200003-audit-atom-standard-delist-evidence";
@@ -164,6 +166,8 @@ export const cloudMigrations: readonly CloudMigration[] = [
   executionAtomStandardDelistEvidenceMigration,
   auditSellerHubCreateListingEvidenceMigration,
   executionSellerHubCreateListingEvidenceMigration,
+  auditAtomStandardListingEvidenceMigration,
+  executionAtomStandardListingEvidenceMigration,
 ];
 
 // Validate ordering and checksums when the catalog is imported, before any database access.

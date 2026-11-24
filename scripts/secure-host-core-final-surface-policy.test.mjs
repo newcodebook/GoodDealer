@@ -676,7 +676,7 @@ export function secureHostCoreFinalSurfaceErrors({ coreRoot = repositoryCoreRoot
   const exactPublicItemSurfaces = [
     ["desktop_device_identity/execution_evidence.rs", [
       "sign_afternic_delist_approval_transcript", "sign_afternic_listing_plan_approval_transcript",
-      "sign_afternic_listing_write_approval_transcript", "sign_afternic_ownership_review_approval_transcript", "sign_sellerhub_bin_price_approval_transcript", "sign_sellerhub_create_listing_approval_transcript", "sign_atom_standard_delist_approval_transcript", "sign_device_audit_event_transcript",
+      "sign_afternic_listing_write_approval_transcript", "sign_afternic_ownership_review_approval_transcript", "sign_sellerhub_bin_price_approval_transcript", "sign_sellerhub_create_listing_approval_transcript", "sign_atom_standard_delist_approval_transcript", "sign_atom_standard_listing_approval_transcript", "sign_device_audit_event_transcript",
       "sign_execution_fact_transcript",
     ], "device execution evidence"],
     ["native_continuous_clock.rs", expectedNativeContinuousClockPublicItems, "native continuous clock"],

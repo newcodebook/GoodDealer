@@ -1,6 +1,7 @@
 import { createHash, verify } from "node:crypto";
 import {
   atomStandardDelistApprovalAuditPayloadSchema, atomStandardDelistAuditPayloadSchema, atomStandardDelistClaimPayloadSchema,
+  atomStandardListingApprovalAuditPayloadSchema, atomStandardListingAuditPayloadSchema, atomStandardListingClaimPayloadSchema,
   sellerHubCreateListingApprovalAuditPayloadSchema, sellerHubCreateListingAuditPayloadSchema, sellerHubCreateListingClaimPayloadSchema,
   sellerHubBinPriceApprovalAuditPayloadSchema, sellerHubBinPriceAuditPayloadSchema, sellerHubBinPriceClaimPayloadSchema,
   afternicListingPlanApprovalAuditPayloadSchema, afternicListingPlanClaimAuditPayloadSchema,
@@ -163,7 +164,9 @@ export class PostgresDeviceAuditEvidenceService {
     const sellerHub = sellerHubBinPriceAuditPayloadSchema.safeParse(event.payloadRedacted);
     const creation = sellerHubCreateListingAuditPayloadSchema.safeParse(event.payloadRedacted);
     const seller = creation.success ? creation : sellerHub;
-    const atom = atomStandardDelistAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const atomDelist = atomStandardDelistAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const atomListing = atomStandardListingAuditPayloadSchema.safeParse(event.payloadRedacted);
+    const atom = atomListing.success ? atomListing : atomDelist;
     const requiredCapability = atom.success
       ? atom.data.stage === "reconciled" ? "atom:marketplace:observe" : "atom:marketplace:write"
       : seller.success
@@ -225,8 +228,8 @@ export class PostgresDeviceAuditEvidenceService {
     const marketplace = atom.success ? atom : seller;
     if (marketplace.success) {
       const p = marketplace.data;
-      const claim = atom.success ? atomStandardDelistClaimPayloadSchema : creation.success ? sellerHubCreateListingClaimPayloadSchema : sellerHubBinPriceClaimPayloadSchema;
-      const approval = atom.success ? atomStandardDelistApprovalAuditPayloadSchema : creation.success ? sellerHubCreateListingApprovalAuditPayloadSchema : sellerHubBinPriceApprovalAuditPayloadSchema;
+      const claim = atomListing.success ? atomStandardListingClaimPayloadSchema : atom.success ? atomStandardDelistClaimPayloadSchema : creation.success ? sellerHubCreateListingClaimPayloadSchema : sellerHubBinPriceClaimPayloadSchema;
+      const approval = atomListing.success ? atomStandardListingApprovalAuditPayloadSchema : atom.success ? atomStandardDelistApprovalAuditPayloadSchema : creation.success ? sellerHubCreateListingApprovalAuditPayloadSchema : sellerHubBinPriceApprovalAuditPayloadSchema;
       if (p.stage === "approved") return verdict(null);
       if (p.stage === "reconciled") {
         if (p.originalActiveLeaseEpoch > event.activeLeaseEpoch) return verdict("authorization");

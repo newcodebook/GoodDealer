@@ -292,6 +292,8 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [ ] 核对官方文档和准入门槛，更新平台事实快照（待实现；按当前策略的能力依赖推进）
 - [ ] Listing、逐笔确认的出价、AtomRegistrar 的 Service 与负向测试（query-string token 不进入日志、错误或 URL 记录）（待实现；按当前策略的能力依赖推进）
 - [ ] 逐项能力资格证据，或者带原因标记为不可执行（待实现；按当前策略的能力依赖推进）
+- [ ] Atom Standard 整批上架（[Task Frame](ATOM_LISTING_CREATE_TASK_FRAME.md)；2026-11-24 已核对 `add-domain`/`domain-details`/`verify-dns` 官方合同。已完成第一部分：协议执行证据 `add_standard`、测试向量与 Cloud 审计/执行台账迁移 `202611240001`/`202611240002` 的准入。Host 设备签名已接入同一用途。剩余：本地计划/认领/结果、Native `add-domain` wire、Tauri 命令与批量页、文档与审查；补一条直接调用 Cloud 准入函数的 Postgres 负向测试，证明 `add_standard` 拒绝借用的 `matched`/`published` 结果（当前只由协议解析拦截）。协调：Codex 的 SellerHub DNS 验证分支 `202611200007`/`0008` 与本迁移整体替换同一 Cloud 准入函数，后合并的一方须把对方的用途并入自己的函数体）
+- [ ] Atom Standard 所有权验证（`verify-dns` 触发与 TXT 发布；依赖上架切片与 Cloudflare DNS 写入资格）
 
 ### 11. 1.0 资格与发行
 

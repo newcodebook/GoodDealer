@@ -1,4 +1,10 @@
 import {
+  atomStandardListingApprovalAuditPayloadSchema,
+  atomStandardListingClaimAuditPayloadSchema,
+  atomStandardListingPreflightRefusedAuditPayloadSchema,
+  atomStandardListingReconciledAuditPayloadSchema,
+} from "./atom-standard-listing-evidence";
+import {
   sellerHubCreateListingApprovalAuditPayloadSchema,
   sellerHubCreateListingClaimAuditPayloadSchema,
   sellerHubCreateListingPreflightRefusedAuditPayloadSchema,
@@ -139,5 +145,7 @@ export const workspaceDeviceAuditIngestSchema = z.object({
   afternicOwnershipReviewPreflightSatisfiedAuditPayloadSchema, sellerHubBinPriceApprovalAuditPayloadSchema, sellerHubBinPriceClaimAuditPayloadSchema, sellerHubBinPricePreflightRefusedAuditPayloadSchema, sellerHubBinPriceReconciledAuditPayloadSchema, atomStandardDelistApprovalAuditPayloadSchema, atomStandardDelistClaimAuditPayloadSchema, atomStandardDelistPreflightRefusedAuditPayloadSchema, atomStandardDelistReconciledAuditPayloadSchema,
   sellerHubCreateListingApprovalAuditPayloadSchema, sellerHubCreateListingClaimAuditPayloadSchema,
   sellerHubCreateListingPreflightRefusedAuditPayloadSchema, sellerHubCreateListingReconciledAuditPayloadSchema,
+  atomStandardListingApprovalAuditPayloadSchema, atomStandardListingClaimAuditPayloadSchema,
+  atomStandardListingPreflightRefusedAuditPayloadSchema, atomStandardListingReconciledAuditPayloadSchema,
  ]),
 }).strict().superRefine(enforceAuthorizationSource);

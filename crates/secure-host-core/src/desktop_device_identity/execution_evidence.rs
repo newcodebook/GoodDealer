@@ -30,6 +30,12 @@ const ATOM_STANDARD_DELIST_APPROVAL_ENVELOPE: &str =
     "GOODDEALER-ATOM-STANDARD-DELIST-ITEM-APPROVAL-ENVELOPE-V1";
 const ATOM_STANDARD_DELIST_DISPATCH_KEY: &str =
     "GOODDEALER-ATOM-STANDARD-DELIST-LOCAL-DISPATCH-KEY-V1";
+const ATOM_STANDARD_LISTING_APPROVAL: &str = "GOODDEALER-ATOM-STANDARD-LISTING-ITEM-APPROVAL-V1";
+const ATOM_STANDARD_LISTING_APPROVAL_TYPE: &str = "gd.atom-standard-listing-item-approval.v1";
+const ATOM_STANDARD_LISTING_APPROVAL_ENVELOPE: &str =
+    "GOODDEALER-ATOM-STANDARD-LISTING-ITEM-APPROVAL-ENVELOPE-V1";
+const ATOM_STANDARD_LISTING_DISPATCH_KEY: &str =
+    "GOODDEALER-ATOM-STANDARD-LISTING-LOCAL-DISPATCH-KEY-V1";
 const PLAN_APPROVAL: &str = "GOODDEALER-AFTERNIC-LISTING-PLAN-ITEM-APPROVAL-V2";
 const OWNERSHIP_APPROVAL: &str = "GOODDEALER-AFTERNIC-OWNERSHIP-REVIEW-ITEM-APPROVAL-V1";
 const PLAN_APPROVAL_ENVELOPE: &str = "GOODDEALER-AFTERNIC-LISTING-PLAN-ITEM-APPROVAL-ENVELOPE-V2";
@@ -101,6 +107,22 @@ impl DesktopDeviceIdentity {
         let object = decode(transcript, SELLERHUB_CREATE_APPROVAL)
             .ok_or(DesktopDeviceIdentityError::SigningRejected)?;
         if !sellerhub_create_listing_approval(&object) || !self.owns(&object) {
+            return Err(DesktopDeviceIdentityError::SigningRejected);
+        }
+        self.sign_validated(transcript)
+    }
+
+    /// Signs a device-bound approval for one Atom Standard listing creation.
+    ///
+    /// # Errors
+    /// Rejects a different purpose, invalid claims, or a different device or key.
+    pub fn sign_atom_standard_listing_approval_transcript(
+        &self,
+        transcript: &[u8],
+    ) -> Result<[u8; 64], DesktopDeviceIdentityError> {
+        let object = decode(transcript, ATOM_STANDARD_LISTING_APPROVAL)
+            .ok_or(DesktopDeviceIdentityError::SigningRejected)?;
+        if !atom_standard_listing_approval(&object) || !self.owns(&object) {
             return Err(DesktopDeviceIdentityError::SigningRejected);
         }
         self.sign_validated(transcript)
@@ -393,6 +415,8 @@ fn approval_domain(object: &Object) -> &'static str {
         SELLERHUB_CREATE_APPROVAL
     } else if literal(object, "typ", ATOM_STANDARD_DELIST_APPROVAL_TYPE) {
         ATOM_STANDARD_DELIST_APPROVAL
+    } else if literal(object, "typ", ATOM_STANDARD_LISTING_APPROVAL_TYPE) {
+        ATOM_STANDARD_LISTING_APPROVAL
     } else if literal(object, "typ", "gd.afternic-listing-plan-item-approval.v2") {
         PLAN_APPROVAL
     } else if literal(
@@ -414,6 +438,8 @@ fn envelope_domain(object: &Object) -> &'static str {
         SELLERHUB_CREATE_APPROVAL_ENVELOPE
     } else if literal(object, "typ", ATOM_STANDARD_DELIST_APPROVAL_TYPE) {
         ATOM_STANDARD_DELIST_APPROVAL_ENVELOPE
+    } else if literal(object, "typ", ATOM_STANDARD_LISTING_APPROVAL_TYPE) {
+        ATOM_STANDARD_LISTING_APPROVAL_ENVELOPE
     } else if literal(object, "typ", "gd.afternic-listing-plan-item-approval.v2") {
         PLAN_APPROVAL_ENVELOPE
     } else if literal(
@@ -460,6 +486,13 @@ fn atom_standard_delist_approval(object: &Object) -> bool {
     approval_claims(object)
         && literal(object, "typ", ATOM_STANDARD_DELIST_APPROVAL_TYPE)
         && literal(object, "action", "remove_standard")
+        && literal(object, "capability", "atom:marketplace:write")
+}
+
+fn atom_standard_listing_approval(object: &Object) -> bool {
+    approval_claims(object)
+        && literal(object, "typ", ATOM_STANDARD_LISTING_APPROVAL_TYPE)
+        && literal(object, "action", "add_standard")
         && literal(object, "capability", "atom:marketplace:write")
 }
 
@@ -648,6 +681,7 @@ enum ReconciliationPurpose {
     SellerHubPrice,
     SellerHubCreation,
     AtomRemoval,
+    AtomListing,
 }
 
 fn reconciliation_outcome_is_valid(object: &Object, purpose: ReconciliationPurpose) -> bool {
@@ -664,6 +698,18 @@ fn reconciliation_outcome_is_valid(object: &Object, purpose: ReconciliationPurpo
             outcome.zip(reason),
             Some(("different", "postcondition_pending") | ("read_failed", "read_failed"))
         ),
+        ReconciliationPurpose::AtomListing => {
+            (outcome == Some("listed") && null_reason)
+                || matches!(
+                    outcome.zip(reason),
+                    Some(
+                        ("verification_pending", "ownership_verifying")
+                            | ("terms_unconfirmed", "postcondition_pending")
+                            | ("state_blocked", "not_on_sale")
+                            | ("read_failed", "read_failed")
+                    )
+                )
+        }
         ReconciliationPurpose::SellerHubCreation => {
             (outcome == Some("published") && null_reason)
                 || matches!(
@@ -766,6 +812,32 @@ fn atom_standard_delist_audit(object: &Object, event: &Object) -> bool {
         "atom_standard_delist_attempt",
         ReconciliationPurpose::AtomRemoval,
     )
+}
+
+fn atom_standard_listing_audit(object: &Object, event: &Object) -> bool {
+    if !atom_standard_listing_payload(object) {
+        return false;
+    }
+    if literal(object, "stage", "approved") {
+        return single_attempt_approval_audit(object, event, "atom_standard_listing_approval");
+    }
+    single_attempt_audit(
+        object,
+        event,
+        "atom_standard_listing_attempt",
+        ReconciliationPurpose::AtomListing,
+    )
+}
+
+fn atom_standard_listing_payload(object: &Object) -> bool {
+    number(object, "schemaVersion") == Some(1)
+        && literal(object, "provider", "atom")
+        && literal(object, "action", "add_standard")
+}
+
+fn atom_standard_listing_fact(payload: &Object, event: &Object) -> bool {
+    atom_standard_listing_payload(payload)
+        && single_attempt_fact(payload, event, "atom_standard_listing_dispatch_claimed")
 }
 
 fn atom_standard_delist_payload(object: &Object) -> bool {
@@ -1021,6 +1093,7 @@ fn audit(object: &Object) -> bool {
                     || sellerhub_bin_price_audit(p, object)
                     || sellerhub_create_listing_audit(p, object)
                     || atom_standard_delist_audit(p, object)
+                    || atom_standard_listing_audit(p, object)
             })
     {
         return false;
@@ -1121,6 +1194,7 @@ fn fact(object: &Object, key: &[u8; 32]) -> bool {
         && !sellerhub_bin_price_fact(payload, object)
         && !sellerhub_create_listing_fact(payload, object)
         && !atom_standard_delist_fact(payload, object)
+        && !atom_standard_listing_fact(payload, object)
     {
         return false;
     }
@@ -1168,15 +1242,7 @@ fn fact(object: &Object, key: &[u8; 32]) -> bool {
     }
     let dispatch_key = json!({"schemaVersion":1,"operationId":object["operationId"],
         "operationItemId":object["operationItemId"],"attemptNo":1,"localOperationKey":approved["planId"]});
-    let dispatch_domain = if sellerhub_bin_price_payload(payload) {
-        SELLERHUB_BIN_DISPATCH_KEY
-    } else if sellerhub_create_listing_payload(payload) {
-        SELLERHUB_CREATE_DISPATCH_KEY
-    } else if atom_standard_delist_payload(payload) {
-        ATOM_STANDARD_DELIST_DISPATCH_KEY
-    } else {
-        "GOODDEALER-AFTERNIC-LOCAL-DISPATCH-KEY-V1"
-    };
+    let dispatch_domain = dispatch_key_domain(payload);
     if text(object, "idempotencyKeyHash")
         != Some(hash(dispatch_domain, dispatch_key.as_object().unwrap()).as_str())
         || text(&approved, "approvedAt") > text(object, "requestStartBoundary")
@@ -1190,6 +1256,21 @@ fn fact(object: &Object, key: &[u8; 32]) -> bool {
     let digest = hash(envelope_domain(&approved), &approved);
     text(evidence, "approvedOperationDigest") == Some(digest.as_str())
         && text(payload, "approvalEnvelopeDigest") == Some(digest.as_str())
+}
+
+/// The local dispatch-key domain of a claimed purpose; each purpose hashes its key separately.
+fn dispatch_key_domain(payload: &Object) -> &'static str {
+    if sellerhub_bin_price_payload(payload) {
+        SELLERHUB_BIN_DISPATCH_KEY
+    } else if sellerhub_create_listing_payload(payload) {
+        SELLERHUB_CREATE_DISPATCH_KEY
+    } else if atom_standard_delist_payload(payload) {
+        ATOM_STANDARD_DELIST_DISPATCH_KEY
+    } else if atom_standard_listing_payload(payload) {
+        ATOM_STANDARD_LISTING_DISPATCH_KEY
+    } else {
+        "GOODDEALER-AFTERNIC-LOCAL-DISPATCH-KEY-V1"
+    }
 }
 
 fn verified_approval(evidence: &Object, key: &[u8; 32]) -> Option<(Object, [u8; 64])> {
@@ -1209,6 +1290,7 @@ fn verified_approval(evidence: &Object, key: &[u8; 32]) -> Option<(Object, [u8; 
         || sellerhub_bin_price_approval(&approved)
         || sellerhub_create_listing_approval(&approved)
         || atom_standard_delist_approval(&approved)
+        || atom_standard_listing_approval(&approved)
         || plan_item_approval(&approved, false)
         || plan_item_approval(&approved, true))
         || UnparsedPublicKey::new(&ED25519, key)
@@ -1333,6 +1415,108 @@ mod tests {
                 .sign_device_audit_event_transcript(&transcript(AUDIT, &audit))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn atom_standard_listing_signs_its_claim_but_rejects_other_purposes_and_borrowed_outcomes() {
+        let device = identity();
+        let item: Value = serde_json::from_str(include_str!(
+            "../../../../packages/protocol/test-vectors/atom-standard-listing/approval.json"
+        ))
+        .unwrap();
+        let mut claims = item["approval"].as_object().unwrap().clone();
+        let signature = claims.remove("deviceSignature").unwrap();
+        let item_bytes = transcript(ATOM_STANDARD_LISTING_APPROVAL, &claims);
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(
+                device
+                    .sign_atom_standard_listing_approval_transcript(&item_bytes)
+                    .unwrap()
+            ),
+            signature
+        );
+        assert!(
+            device
+                .sign_atom_standard_delist_approval_transcript(&item_bytes)
+                .is_err()
+        );
+        assert!(
+            device
+                .sign_sellerhub_create_listing_approval_transcript(&item_bytes)
+                .is_err()
+        );
+        for (field, value) in [
+            ("action", json!("remove_standard")),
+            ("action", json!("add_premium")),
+            ("typ", json!(ATOM_STANDARD_DELIST_APPROVAL_TYPE)),
+            ("capability", json!("spaceship:marketplace:write")),
+            ("sourceDeviceId", json!("another-device")),
+            ("priceMicroUsd", json!(1_000_000)),
+        ] {
+            let mut altered = claims.clone();
+            altered.insert(field.to_owned(), value);
+            assert!(
+                device
+                    .sign_atom_standard_listing_approval_transcript(&transcript(
+                        ATOM_STANDARD_LISTING_APPROVAL,
+                        &altered
+                    ))
+                    .is_err(),
+                "{field}"
+            );
+        }
+        let wire: Value = serde_json::from_str(include_str!(
+            "../../../../packages/protocol/test-vectors/atom-standard-listing/dispatch.json"
+        ))
+        .unwrap();
+        let mut fact = wire["fact"].as_object().unwrap().clone();
+        let signature = fact.remove("deviceSignature").unwrap();
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(
+                device
+                    .sign_execution_fact_transcript(&transcript(FACT, &fact))
+                    .unwrap()
+            ),
+            signature
+        );
+        for key in [
+            "approveAudit",
+            "claimAudit",
+            "preflightAudit",
+            "reconciledAudit",
+        ] {
+            let mut audit = wire[key].as_object().unwrap().clone();
+            let signature = audit.remove("deviceSignature").unwrap();
+            assert_eq!(
+                URL_SAFE_NO_PAD.encode(
+                    device
+                        .sign_device_audit_event_transcript(&transcript(AUDIT, &audit))
+                        .unwrap()
+                ),
+                signature,
+                "{key}"
+            );
+        }
+        // A listing reconciliation cannot borrow the delist or SellerHub success outcomes.
+        for (outcome, reason) in [
+            ("matched", Value::Null),
+            ("published", Value::Null),
+            ("different", json!("postcondition_pending")),
+            ("ownership_pending", json!("ownership_verifying")),
+        ] {
+            let mut audit = wire["reconciledAudit"].as_object().unwrap().clone();
+            audit.remove("deviceSignature");
+            let payload = audit.get_mut("payloadRedacted").unwrap();
+            payload["outcome"] = json!(outcome);
+            payload["reason"] = reason;
+            rehash(&mut audit);
+            assert!(
+                device
+                    .sign_device_audit_event_transcript(&transcript(AUDIT, &audit))
+                    .is_err(),
+                "{outcome}"
+            );
+        }
     }
 
     #[test]
