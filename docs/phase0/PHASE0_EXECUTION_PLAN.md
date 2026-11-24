@@ -279,8 +279,8 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 
 ### 8. Dynadot、Namecheap
 
-- [ ] Dynadot：核对事实、列出能力清单、实现 Service 与测试（HMAC 密钥只在 Host custody）、取得资格证据（待实现；按当前策略的能力依赖推进）
-- [ ] Namecheap：核对事实、列出能力清单、实现 Service 与测试（IP 白名单不满足时失败关闭并说明如何修复）、取得资格证据（待实现；按当前策略的能力依赖推进）
+- [ ] Dynadot：核对事实、列出能力清单、实现 Service 与测试（HMAC 密钥只在 Host custody）、取得资格证据（2026-11-24 已读取官方 V1 文档并记入 [API 核查](../PROVIDER_API_REVIEW.md)。暂停：`DOMAIN_LIST` 的 schema 与官方示例在字段命名、`locked` 类型上互相矛盾，时间单位与分页终止条件未写明，无法写出失败关闭的严格解析。影响：Dynadot 资产归集无法实现。可选方案：（a）用户在 Dynadot API 设置页生成沙箱密钥并填入 `local.env`，以沙箱真实响应确定 wire 形态（推荐，免费、不动真实资金）；（b）改用 V2 Beta，但官方声明其可能无通知变更；（c）按示例猜测字段，违反只依官方事实的约束，不采用。）
+- [ ] Namecheap：核对事实、列出能力清单、实现 Service 与测试（IP 白名单不满足时失败关闭并说明如何修复）、取得资格证据（暂停：2026-11-24 官方 API 文档 `namecheap.com/support/api/` 对自动化读取返回 403 与 Cloudflare 人机验证页，平台事实无法核实；不绕过人机验证。影响：Namecheap 资产归集无法开始。可选方案：（a）用户在应用内浏览器窗格打开该文档页并完成验证，之后由同一窗格读取（推荐）；（b）用户提供官方文档的离线副本及其来源；（c）凭记忆或社区代码实现，违反约束，不采用。）
 
 ### 9. GoDaddy、Afternic
 
