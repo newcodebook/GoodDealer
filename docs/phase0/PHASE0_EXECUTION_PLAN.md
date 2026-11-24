@@ -250,7 +250,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 
 - [x] 平台连接与角色模型（registrar、dns、marketplace、acquisition）（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)。F1：平台连接 = 平台 + 角色集合（`local_provider_connections.provider_kind` 与 `capabilities_json`），Host 设置读取接受四种角色、对其他角色或重复角色失败关闭、每个角色在资格认证前不可用；client-core 角色取自协议 `domainProviderRoleSchema`，设置界面始终列出四种角色。按 manifest 与凭据实际权限派生角色须平台事实，随第 6–10 阶段各平台交付） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] binding 增加 `listing` 资源类型（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
-- [x] 每平台私有 Service 骨架和能力 manifest（2026-11-24 用户决定预建骨架，ADR-0027“平台 Service 骨架”。`secure-host-core` 的 `provider_services` 为十二个首发平台各建一个私有 Service 模块，镜像协议能力目录与 manifest，唯一准入入口先按连接声明的角色拒绝、再按 manifest 拒绝，`ProviderAdmission` 无值因而不可能放行；协议测试 `domain-provider-host-mirror.test.ts` 固定目录、平台顺序与每个 Service 的已实现清单。既有平台 transport 仍由各自资格或受控验收开关管控，尚未经此准入；骨架不计为平台交付。未合并旧的 F2–F7 分支，其 8 平台版本已被取代） 待推送
+- [x] 每平台私有 Service 骨架和能力 manifest（2026-11-24 用户决定预建骨架，ADR-0027“平台 Service 骨架”。`secure-host-core` 的 `provider_services` 为十二个首发平台各建一个私有 Service 模块，镜像协议能力目录与 manifest，唯一准入入口先按连接声明的角色拒绝、再按 manifest 拒绝，`ProviderAdmission` 无值因而不可能放行；协议测试 `domain-provider-host-mirror.test.ts` 固定目录、平台顺序与每个 Service 的已实现清单。既有平台 transport 仍由各自资格或受控验收开关管控，尚未经此准入；骨架不计为平台交付。未合并旧的 F2–F7 分支，其 8 平台版本已被取代） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 资格登记按 manifest 能力标识校验，并让首个取得资格的能力同时经 Service 准入与资格登记放行（F3 余项；随第一个取得资格的能力实施）
 - [ ] 跨平台所有权验证的本地操作计划（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
 - [ ] 对账任务模型（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
