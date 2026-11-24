@@ -178,12 +178,13 @@ pub use active_workspace::business::{
     DesktopAtomStandardDelistStatusRequest, DesktopCloudflareRegistrarAccountState,
     DesktopCloudflareRegistrarAccountSummary, DesktopCloudflareRegistrarScanReceipt,
     DesktopCloudflareRegistrationFact, DesktopCloudflareRegistrationStanding,
-    DesktopGoDaddyConnectionState, DesktopGoDaddyConnectionSummary, DesktopRegistrarScanReceipt,
-    DesktopRegistrationFact, DesktopRegistrationStanding, DesktopSedoConnectionState,
-    DesktopSedoCurrency, DesktopSedoMarketplaceConnectionSummary,
-    DesktopSedoMarketplaceListingFact, DesktopSedoMarketplaceScanReceipt,
-    DesktopSellerHubBinApproval, DesktopSellerHubBinApproveRequest, DesktopSellerHubBinPlan,
-    DesktopSellerHubBinPlanItem, DesktopSellerHubBinPlanSummary, DesktopSellerHubBinPreviewRequest,
+    DesktopGoDaddyConnectionState, DesktopGoDaddyConnectionSummary, DesktopPorkbunConnectionState,
+    DesktopPorkbunConnectionSummary, DesktopRegistrarScanReceipt, DesktopRegistrationFact,
+    DesktopRegistrationStanding, DesktopSedoConnectionState, DesktopSedoCurrency,
+    DesktopSedoMarketplaceConnectionSummary, DesktopSedoMarketplaceListingFact,
+    DesktopSedoMarketplaceScanReceipt, DesktopSellerHubBinApproval,
+    DesktopSellerHubBinApproveRequest, DesktopSellerHubBinPlan, DesktopSellerHubBinPlanItem,
+    DesktopSellerHubBinPlanSummary, DesktopSellerHubBinPreviewRequest,
     DesktopSellerHubBinStatusRequest, DesktopSellerHubBinTarget, DesktopSellerHubConnectionSummary,
     DesktopSellerHubCreateApproval, DesktopSellerHubCreateApproveRequest,
     DesktopSellerHubCreateDetail, DesktopSellerHubCreatePlanSummary, DesktopSellerHubCreatePreview,
@@ -227,6 +228,9 @@ pub use desktop_local_host::cloudflare_registrar_account::{
 };
 pub use desktop_local_host::godaddy_registrar::{
     DesktopGoDaddyConnection, DesktopGoDaddyRegistrarStatus,
+};
+pub use desktop_local_host::porkbun_registrar::{
+    DesktopPorkbunConnection, DesktopPorkbunRegistrarStatus,
 };
 pub use desktop_local_host::sedo_marketplace::{
     DesktopSedoConnection, DesktopSedoMarketplaceStatus,

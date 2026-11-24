@@ -265,8 +265,8 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 ### 6. Porkbun
 
 - [x] 核对官方文档并更新平台事实快照（2026-11-24 读取官方 OpenAPI v3.112，记入 [API 核查](../PROVIDER_API_REVIEW.md) Porkbun Registrar 行；[Task Frame](PORKBUN_REGISTRAR_INVENTORY_TASK_FRAME.md)） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 能力清单映射到四种角色（待实现；按当前策略的能力依赖推进）
-- [ ] 私有 Service、合同与负向测试（账户归集进行中：Native `porkbun` 只读 `/domain/listAll` 客户端、成对凭据 custody 与三系统掩码输入、严格分页解析及负向测试已完成；余项为 Host 存储、Tauri 命令、ProviderLane、授权能力与资产页，按 Task Frame 第 2–6 步推进）
+- [ ] 能力清单映射到四种角色（`registrar.domain.observe` 已进入 manifest 的 `qualification_pending`；其余角色待平台事实）
+- [ ] 私有 Service、合同与负向测试（账户归集已在源码组合：Native 只读 `/domain/listAll`、成对凭据 custody 与三系统掩码输入、Host 库存迁移 `202611240001`、`porkbun:registrar:observe` 授权能力、Tauri 命令与 ProviderLane、设置页面板。余项：资格登记与真实账户验收，以及 DNS/续费等其他能力）
 - [ ] 逐项能力资格证据（使用沙箱或 `dryRun`）（待实现；按当前策略的能力依赖推进）
 - [ ] 证明框架核心模型未改动（待实现；按当前策略的能力依赖推进）
 

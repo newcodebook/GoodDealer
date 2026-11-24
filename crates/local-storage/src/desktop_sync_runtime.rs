@@ -1869,6 +1869,7 @@ pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
         "cloudflare:dns:observe",
         "cloudflare:registrar:observe",
         "godaddy:registrar:observe",
+        crate::active_workspace::capability_qualification::PORKBUN_REGISTRAR_OBSERVE,
         crate::active_workspace::capability_qualification::SEDO_MARKETPLACE_OBSERVE,
         crate::active_workspace::capability_qualification::SPACESHIP_MARKETPLACE_OBSERVE,
         crate::active_workspace::capability_qualification::SPACESHIP_MARKETPLACE_WRITE,

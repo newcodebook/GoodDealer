@@ -3,8 +3,8 @@
 //! Each platform's Service owns that platform's endpoints, wire parsing, authentication and
 //! network authority, reachable only through [`admit_provider_capability`]; nothing here is a
 //! generic Provider proxy. Where a platform already has a Native transport (for example
-//! `crate::atom`, `crate::sedo`), its Service module names it; the five platforms without one
-//! (Dynadot, 易名, Namecheap, Porkbun, 22.cn) have only their manifest.
+//! `crate::atom`, `crate::sedo`), its Service module names it; the four platforms without one
+//! (Dynadot, 易名, Namecheap, 22.cn) have only their manifest.
 //!
 //! The skeleton admits nothing. [`ProviderAdmission`] has no value, so `admit_provider_capability`
 //! cannot return `Ok` and no caller can hold an admission until a reviewed change adds an
@@ -12,11 +12,12 @@
 //! (`local-storage`'s `capability_qualification`) as an input here, so a Service and the register
 //! must both agree before a capability runs (ADR-0024).
 //!
-//! Temporary exception: the platform transports that predate this skeleton (Cloudflare Zone/DNS and
-//! Registrar observation, Spaceship, 阿里云, `GoDaddy`, Atom, Sedo and Afternic) are composed directly
-//! by Desktop under their own qualification or controlled-acceptance gates, not through this
-//! admission. Each moves behind `admit_provider_capability` in the change that makes an admission
-//! constructible; until then this skeleton describes them but does not gate them.
+//! Temporary exception (ADR-0027 "平台 Service 骨架"): the implemented platform transports
+//! (Cloudflare Zone/DNS and Registrar observation, Spaceship, 阿里云, `GoDaddy`, Porkbun, Atom, Sedo
+//! and Afternic) are composed directly by Desktop under their own qualification or
+//! controlled-acceptance gates, not through this admission. Each moves behind
+//! `admit_provider_capability` in the change that makes an admission constructible; until then
+//! this skeleton describes them but does not gate them.
 //!
 //! The catalog and the platforms mirror `@gooddealer/protocol/domain-providers`; the protocol
 //! test `domain-provider-host-mirror.test.ts` pins ids, roles, effects, platforms and every
@@ -546,7 +547,8 @@ mod tests {
                     ),
                     ProviderPlatform::Spaceship
                     | ProviderPlatform::Aliyun
-                    | ProviderPlatform::Godaddy => capability == C::RegistrarDomainObserve,
+                    | ProviderPlatform::Godaddy
+                    | ProviderPlatform::Porkbun => capability == C::RegistrarDomainObserve,
                     ProviderPlatform::Atom | ProviderPlatform::Sedo => {
                         capability == C::MarketplaceListingObserve
                     }

@@ -97,6 +97,7 @@ impl ProviderOperationRecord {
                     || kind.starts_with("sellerhub_")
                     || kind.starts_with("aliyun_")
                     || kind.starts_with("godaddy_")
+                    || kind.starts_with("porkbun_")
                     || kind.starts_with("atom_")
                     || kind.starts_with("sedo_") =>
             {
@@ -108,6 +109,7 @@ impl ProviderOperationRecord {
                     || kind.starts_with("sellerhub_")
                     || kind.starts_with("aliyun_")
                     || kind.starts_with("godaddy_")
+                    || kind.starts_with("porkbun_")
                     || kind.starts_with("atom_")
                     || kind.starts_with("sedo_") =>
             {
@@ -122,6 +124,7 @@ impl ProviderOperationRecord {
                         | "atom_connect"
                         | "sedo_connect"
                         | "godaddy_connect"
+                        | "porkbun_connect"
                 ) =>
             {
                 "capture_incomplete"
@@ -377,6 +380,11 @@ impl NativeCloudCoordinator {
                                     Arc::clone(&host), Arc::clone(&cancel_fence), power.clone(), true,
                                 ),
                             ).recover().await.is_ok();
+                            let porkbun = Arc::new(
+                                crate::provider_credential_orchestrator::porkbun::Run::new(
+                                    Arc::clone(&host), Arc::clone(&cancel_fence), power.clone(), true,
+                                ),
+                            ).recover().await.is_ok();
                             let sedo = Arc::new(
                                 crate::provider_credential_orchestrator::sedo::Run::new(
                                     Arc::clone(&host), Arc::clone(&cancel_fence), power.clone(), true,
@@ -395,6 +403,7 @@ impl NativeCloudCoordinator {
                                 sellerhub: sellerhub.into(),
                                 aliyun: aliyun.into(),
                                 godaddy: godaddy.into(),
+                                porkbun: porkbun.into(),
                                 atom: atom.into(),
                                 sedo: sedo.into(),
                             }
@@ -768,6 +777,30 @@ impl NativeCloudCoordinator {
             })
     }
 
+    pub(crate) fn submit_porkbun_inventory_refresh(
+        &self,
+        host: &DesktopLocalHost,
+        connection_id: &str,
+    ) -> ProviderSubmission {
+        if self.cancel_fence.is_cancelled() {
+            return ProviderSubmission::Unavailable;
+        }
+        let epoch = self.power.snapshot().epoch;
+        self.provider
+            .submit_porkbun_refresh_after(connection_id.to_owned(), || {
+                let Ok(_power) = self.power.hold_write_epoch(epoch) else {
+                    return false;
+                };
+                self.cancel_fence
+                    .commit(|| {
+                        host.begin_native_cloud_run().and_then(|admission| {
+                            host.queue_porkbun_inventory_refresh(&admission, connection_id)
+                        })
+                    })
+                    .is_some_and(|result| result.is_ok())
+            })
+    }
+
     pub(crate) fn provider_status(&self) -> ProviderStatus {
         self.provider.status()
     }
@@ -788,6 +821,10 @@ impl NativeCloudCoordinator {
 
     pub(crate) fn godaddy_provider_status(&self) -> ProviderStatus {
         self.provider.godaddy_status()
+    }
+
+    pub(crate) fn porkbun_provider_status(&self) -> ProviderStatus {
+        self.provider.porkbun_status()
     }
 
     pub(crate) fn atom_provider_status(&self) -> ProviderStatus {
@@ -902,8 +939,8 @@ async fn run_provider_operation(
     power: gooddealer_secure_host_core::NativePowerGate,
 ) {
     use crate::provider_credential_orchestrator::{
-        RevocationOutcome, afternic, aliyun, atom, cloudflare_registrar_account, godaddy, sedo,
-        spaceship,
+        RevocationOutcome, afternic, aliyun, atom, cloudflare_registrar_account, godaddy, porkbun,
+        sedo, spaceship,
     };
     // The outcome is recorded for the connection status as a closed value only. Every operation
     // may have committed before it ended, whatever it returned: activation imports the Zone and
@@ -1042,6 +1079,33 @@ async fn run_provider_operation(
             let run = Arc::new(godaddy::Run::new(host, cancel_fence, power, false));
             Some(ProviderOperationRecord::of(
                 "godaddy_revoke",
+                run.revoke(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::PorkbunConnect => {
+            let run = Arc::new(porkbun::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "porkbun_connect",
+                run.connect().await.as_ref().map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::PorkbunRefresh { connection_id } => {
+            let run = Arc::new(porkbun::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "porkbun_refresh",
+                run.refresh(connection_id)
+                    .await
+                    .as_ref()
+                    .map(|()| "confirmed"),
+            ))
+        }
+        ProviderOperation::PorkbunRevoke { connection_id } => {
+            let run = Arc::new(porkbun::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "porkbun_revoke",
                 run.revoke(connection_id)
                     .await
                     .as_ref()

@@ -1026,6 +1026,7 @@ export { createAfternicPort } from "./afternic";
 export { createSpaceshipRegistrarPort } from "./spaceship-registrar";
 export { createAliyunRegistrarPort } from "./aliyun-registrar";
 export { createGoDaddyRegistrarPort } from "./godaddy-registrar";
+export { createPorkbunRegistrarPort } from "./porkbun-registrar";
 export { createAtomMarketplacePort, createAtomStandardDelistPort } from "./atom-marketplace";
 export { createSedoMarketplacePort } from "./sedo-marketplace";
 export { createAfternicDelistPort } from "./afternic-delist";

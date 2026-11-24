@@ -71,6 +71,13 @@ pub(crate) enum ProviderOperation {
     GoDaddyRevoke {
         connection_id: String,
     },
+    PorkbunConnect,
+    PorkbunRefresh {
+        connection_id: String,
+    },
+    PorkbunRevoke {
+        connection_id: String,
+    },
     AtomConnect,
     AtomRefresh {
         connection_id: String,
@@ -156,6 +163,7 @@ impl ProviderOperation {
             Self::SpaceshipConnect | Self::SellerHubConnect => "spaceship:new-connection",
             Self::AliyunConnect => "aliyun:new-connection",
             Self::GoDaddyConnect => "godaddy:new-connection",
+            Self::PorkbunConnect => "porkbun:new-connection",
             Self::AtomConnect => "atom:new-connection",
             Self::SedoConnect => "sedo:new-connection",
             Self::CloudflareRegistrarAccountConnect => "cloudflare-registrar:new-connection",
@@ -167,12 +175,14 @@ impl ProviderOperation {
             | Self::SellerHubRefresh { connection_id }
             | Self::AliyunRefresh { connection_id }
             | Self::GoDaddyRefresh { connection_id }
+            | Self::PorkbunRefresh { connection_id }
             | Self::AtomRefresh { connection_id }
             | Self::SedoRefresh { connection_id }
             | Self::SpaceshipRevoke { connection_id }
             | Self::SellerHubRevoke { connection_id }
             | Self::AliyunRevoke { connection_id }
             | Self::GoDaddyRevoke { connection_id }
+            | Self::PorkbunRevoke { connection_id }
             | Self::AtomRevoke { connection_id }
             | Self::SedoRevoke { connection_id }
             | Self::CloudflareRegistrarRefresh { connection_id }
@@ -232,6 +242,7 @@ pub(crate) struct ProviderRecoveryOutcome {
     pub(crate) sellerhub: ProviderRecovery,
     pub(crate) aliyun: ProviderRecovery,
     pub(crate) godaddy: ProviderRecovery,
+    pub(crate) porkbun: ProviderRecovery,
     pub(crate) atom: ProviderRecovery,
     pub(crate) sedo: ProviderRecovery,
 }
@@ -258,6 +269,9 @@ impl ProviderRecoveryOutcome {
             ProviderOperation::GoDaddyConnect
             | ProviderOperation::GoDaddyRefresh { .. }
             | ProviderOperation::GoDaddyRevoke { .. } => self.godaddy,
+            ProviderOperation::PorkbunConnect
+            | ProviderOperation::PorkbunRefresh { .. }
+            | ProviderOperation::PorkbunRevoke { .. } => self.porkbun,
             ProviderOperation::AtomStandardDelistStep
             | ProviderOperation::AtomConnect
             | ProviderOperation::AtomRefresh { .. }
@@ -282,6 +296,7 @@ impl From<bool> for ProviderRecoveryOutcome {
             sellerhub: recovery,
             aliyun: recovery,
             godaddy: recovery,
+            porkbun: recovery,
             atom: recovery,
             sedo: recovery,
         }
@@ -333,6 +348,7 @@ impl ProviderAdmissionState {
                         | ProviderOperation::SellerHubRevoke { .. }
                         | ProviderOperation::AliyunRevoke { .. }
                         | ProviderOperation::GoDaddyRevoke { .. }
+                        | ProviderOperation::PorkbunRevoke { .. }
                         | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
                         | ProviderOperation::SedoRevoke { .. }
                         | ProviderOperation::AtomRevoke { .. }
@@ -369,6 +385,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::SellerHubConnect
             | ProviderOperation::AliyunConnect
             | ProviderOperation::GoDaddyConnect
+            | ProviderOperation::PorkbunConnect
             | ProviderOperation::CloudflareRegistrarAccountConnect
             | ProviderOperation::SedoConnect
             | ProviderOperation::AtomConnect => {
@@ -387,6 +404,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::SellerHubRefresh { .. }
             | ProviderOperation::AliyunRefresh { .. }
             | ProviderOperation::GoDaddyRefresh { .. }
+            | ProviderOperation::PorkbunRefresh { .. }
             | ProviderOperation::SedoRefresh { .. }
             | ProviderOperation::AtomRefresh { .. }
             | ProviderOperation::AfternicRefresh { .. } => {
@@ -418,6 +436,7 @@ impl ProviderAdmissionState {
             | ProviderOperation::SellerHubRevoke { .. }
             | ProviderOperation::AliyunRevoke { .. }
             | ProviderOperation::GoDaddyRevoke { .. }
+            | ProviderOperation::PorkbunRevoke { .. }
             | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
             | ProviderOperation::SedoRevoke { .. }
             | ProviderOperation::AtomRevoke { .. }
@@ -481,6 +500,9 @@ impl ProviderLaneHandle {
     }
     pub(crate) fn godaddy_status(&self) -> ProviderStatus {
         self.status_for(|state| state.recovery.godaddy)
+    }
+    pub(crate) fn porkbun_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.porkbun)
     }
     pub(crate) fn atom_status(&self) -> ProviderStatus {
         self.status_for(|state| state.recovery.atom)
@@ -604,6 +626,18 @@ impl ProviderLaneHandle {
     ) -> ProviderSubmission {
         self.submit_at_after(
             &ProviderOperation::GoDaddyRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_porkbun_refresh_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::PorkbunRefresh { connection_id },
             Instant::now(),
             persist,
         )
@@ -785,6 +819,7 @@ impl ProviderLane {
                                 | ProviderOperation::SellerHubRevoke { .. }
                                 | ProviderOperation::AliyunRevoke { .. }
                                 | ProviderOperation::GoDaddyRevoke { .. }
+                                | ProviderOperation::PorkbunRevoke { .. }
                                 | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
                                 | ProviderOperation::SedoRevoke { .. }
                                 | ProviderOperation::AtomRevoke { .. }
@@ -1048,6 +1083,36 @@ mod tests {
         );
     }
 
+    #[test]
+    fn porkbun_refresh_reserves_the_lane_and_persists_before_acknowledgement() {
+        let (handle, mut lane) = ProviderLane::new();
+        lane.finish_recovery(Some(0), true);
+        assert_eq!(
+            handle.submit_porkbun_refresh_after("rejected".into(), || false),
+            ProviderSubmission::Unavailable,
+        );
+        assert!(lane.commands.try_recv().is_err());
+        assert_eq!(
+            handle.submit_porkbun_refresh_after("current".into(), || {
+                assert!(lane.commands.try_recv().is_err());
+                true
+            }),
+            ProviderSubmission::Accepted,
+        );
+        assert_eq!(
+            handle.submit_porkbun_refresh_after("current".into(), || {
+                panic!("must not persist an overlapping request")
+            }),
+            ProviderSubmission::Busy,
+        );
+        assert_eq!(
+            lane.commands.try_recv().unwrap(),
+            ProviderOperation::PorkbunRefresh {
+                connection_id: "current".into()
+            }
+        );
+    }
+
     #[tokio::test]
     async fn background_steps_share_the_slot_yield_to_commands_and_continue_without_idle_delay() {
         let monitor = gooddealer_secure_host_core::NativePowerMonitor::start();
@@ -1126,6 +1191,7 @@ mod tests {
                 sellerhub: true.into(),
                 aliyun: true.into(),
                 godaddy: true.into(),
+                porkbun: true.into(),
                 cloudflare_registrar_account: true.into(),
                 atom: true.into(),
                 sedo: true.into(),
@@ -1151,6 +1217,7 @@ mod tests {
                 sellerhub: true.into(),
                 aliyun: true.into(),
                 godaddy: true.into(),
+                porkbun: true.into(),
                 cloudflare_registrar_account: true.into(),
                 atom: true.into(),
                 sedo: true.into(),
@@ -1193,6 +1260,7 @@ mod tests {
                 sellerhub: true.into(),
                 aliyun: false.into(),
                 godaddy: false.into(),
+                porkbun: false.into(),
                 cloudflare_registrar_account: true.into(),
                 atom: false.into(),
                 sedo: false.into(),

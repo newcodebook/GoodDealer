@@ -20,21 +20,9 @@ pub(super) enum CaptureError {
     AuthorityStale,
 }
 
-pub(super) fn capture(
-    purpose: Purpose,
-    guard: &mut dyn FnMut() -> bool,
-) -> Result<Zeroizing<Vec<u8>>, CaptureError> {
-    use std::{
-        io::Read,
-        process::{Command, Stdio},
-        time::{Duration, Instant},
-    };
-    let output_bound = match purpose {
-        Purpose::GoDaddy => u64::try_from(crate::godaddy::MAX_GODADDY_PAT_BYTES + 2)
-            .expect("fixed credential bound"),
-        _ => 1027,
-    };
-    let script = match purpose {
+/// The fixed `AppleScript` dialog for each purpose; labels never carry user data.
+const fn script(purpose: Purpose) -> &'static str {
+    match purpose {
         Purpose::Afternic => {
             r#"set apiKey to text returned of (display dialog "Afternic API key" default answer "" with hidden answer)
 set apiSecret to text returned of (display dialog "Afternic API secret" default answer "" with hidden answer)
@@ -78,7 +66,24 @@ return apiKey & linefeed & apiSecret"#
         Purpose::GoDaddy => {
             r#"return text returned of (display dialog "GoDaddy Personal Access Token" default answer "" with hidden answer)"#
         }
+    }
+}
+
+pub(super) fn capture(
+    purpose: Purpose,
+    guard: &mut dyn FnMut() -> bool,
+) -> Result<Zeroizing<Vec<u8>>, CaptureError> {
+    use std::{
+        io::Read,
+        process::{Command, Stdio},
+        time::{Duration, Instant},
     };
+    let output_bound = match purpose {
+        Purpose::GoDaddy => u64::try_from(crate::godaddy::MAX_GODADDY_PAT_BYTES + 2)
+            .expect("fixed credential bound"),
+        _ => 1027,
+    };
+    let script = script(purpose);
     let mut child = Command::new("/usr/bin/osascript")
         .args(["-e", script])
         .env_clear()

@@ -588,6 +588,59 @@
       "transcriptSha256": "39aa68a5cdfe4516c6a57ac66acac50bcdd2f364953e9a589c8daa4198696fd9"
     },
     {
+      "name": "porkbun-registrar-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "porkbun:registrar:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "050f978dd3ea245d9deea6345e7c3a1880662f4f2a7bdf4c55893d66ba9e0c6a"
+    },
+    {
       "name": "spaceship-registrar-only",
       "accepted": true,
       "grant": {
@@ -747,6 +800,7 @@
             "cloudflare:dns:observe",
             "cloudflare:registrar:observe",
             "godaddy:registrar:observe",
+            "porkbun:registrar:observe",
             "sedo:marketplace:observe",
             "spaceship:marketplace:observe",
             "spaceship:marketplace:write",
@@ -755,7 +809,7 @@
         },
         "signature": "fixture-grant-signature"
       },
-      "transcriptSha256": "e2c4dcb82b1852abbb9a74f6f4f0d3f127180799cd6021df339523d2b4fabbe0"
+      "transcriptSha256": "1b07d001c2091e7c4b6e9f6c8ddc6d0bd80db4d46fc44050e82fe44dbc5d0d0c"
     },
     {
       "name": "unrecognized-spaceship-write",

@@ -1,6 +1,6 @@
 # Porkbun 注册商账户归集
 
-状态：Task Frame，实施中。拥有者：root 主目录（PR #53 分支）。台账阶段 6「Porkbun」。
+状态：Task Frame，源码第 1–6 步已组合；资格与真实账户验收未取得。拥有者：root 主目录（PR #53 分支）。台账阶段 6「Porkbun」。
 
 权威依据：[ADR-0027](../adr/0027-multi-platform-domain-providers-and-marketplaces.md)、[ADR-0024](../adr/0024-capability-qualification.md)、[ADR-0016](../adr/0016-local-business-database-and-cloud-sync-boundary.md)、[API 核查 · Porkbun Registrar](../PROVIDER_API_REVIEW.md#官方合同与当前缺口)。复用对象是已组合的 GoDaddy 账户归集（678c9fd）：同一套 Host 准备/提交/撤销、ProviderLane 串行执行、`registrar_inventory` 业务投影和账户库存面板。
 

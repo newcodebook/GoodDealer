@@ -74,7 +74,8 @@ impl RegistrarInventoryRead {
                  OR EXISTS(SELECT 1 FROM cloudflare_registrar_account_scans WHERE workspace_id=?1)
                  OR EXISTS(SELECT 1 FROM spaceship_registrar_scans WHERE workspace_id=?1)
                  OR EXISTS(SELECT 1 FROM aliyun_registrar_scans WHERE workspace_id=?1)
-                 OR EXISTS(SELECT 1 FROM godaddy_registrar_scans WHERE workspace_id=?1)",
+                 OR EXISTS(SELECT 1 FROM godaddy_registrar_scans WHERE workspace_id=?1)
+                 OR EXISTS(SELECT 1 FROM porkbun_registrar_scans WHERE workspace_id=?1)",
             [workspace], |row| row.get(0),
         ).map_err(|_| PortfolioReadError::StorageRejected)?;
         Ok(if has_history {
@@ -431,7 +432,7 @@ fn legacy_registrar_name(alias: &str) -> String {
                 SELECT 1 FROM provider_observation_runs account
                 WHERE account.workspace_id=r.workspace_id AND account.observation_run_id=r.observation_run_id
                   AND account.connector_version IN (
-                    'cloudflare-registrar-v4','spaceship-registrar-v1','aliyun-registrar-v1','godaddy-registrar-v3'
+                    'cloudflare-registrar-v4','spaceship-registrar-v1','aliyun-registrar-v1','godaddy-registrar-v3','porkbun-registrar-v3'
                 )
             )
           ORDER BY r.observed_at DESC, r.observation_id DESC LIMIT 1)",

@@ -173,6 +173,11 @@ Cloudflare 观察的 401/403 统一表示凭据被拒绝，不据此区分失效
   实现并逐项取得资格（ADR-0024）后才变为可用。UI 对骨架能力显示不可用及原因。
 - 不因此引入通用 Provider 代理、通用 HTTP IPC、工作流或规则引擎；共用机制仍只限上文所列。
 - 骨架、空 manifest 与模块测试不计为平台交付或资格，进度记录仍按真实客户旅程和真实账号验收区分。
+- 临时例外（2026-11-24）：骨架准入入口在可构造准入值之前不能放行任何能力，因此已实现的平台 Native transport
+  （Cloudflare、Spaceship、阿里云、GoDaddy、Porkbun、Atom、Sedo、Afternic）仍由 Desktop 直接组合，执行门是 Host
+  资格登记（ADR-0024）与授权能力，而不是骨架入口；这些能力在 manifest 中保持 `qualification_pending`。在骨架准入
+  可构造之前新增的 transport 沿用同一方式，并须同步 manifest 与 `IMPLEMENTED`。移除条件：使准入值可构造的那次变更
+  必须把上述全部直接组合迁到 `admit_provider_capability` 之后。
 
 ## 验收与证据
 

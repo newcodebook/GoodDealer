@@ -332,6 +332,7 @@ export { afternicControlledAcceptanceSchema, type AfternicControlledAcceptance }
 export { parseSpaceshipRegistrarStatus, spaceshipRegistrarIntentSchema, type SpaceshipRegistrarIntent, type SpaceshipRegistrarPort, type SpaceshipRegistrarStatus } from "./spaceship-registrar";
 export { parseAliyunRegistrarStatus, aliyunRegistrarIntentSchema, type AliyunRegistrarIntent, type AliyunRegistrarPort, type AliyunRegistrarStatus } from "./aliyun-registrar";
 export { parseGoDaddyRegistrarStatus, godaddyRegistrarIntentSchema, type GoDaddyRegistrarIntent, type GoDaddyRegistrarPort, type GoDaddyRegistrarStatus } from "./godaddy-registrar";
+export { parsePorkbunRegistrarStatus, porkbunRegistrarIntentSchema, type PorkbunRegistrarIntent, type PorkbunRegistrarPort, type PorkbunRegistrarStatus } from "./porkbun-registrar";
 export { parseAtomMarketplaceStatus, atomMarketplaceIntentSchema, type AtomMarketplaceIntent, type AtomMarketplacePort, type AtomMarketplaceStatus } from "./atom-marketplace";
 
 export { parseCloudflareRegistrarAccountStatus, cloudflareRegistrarAccountIntentSchema, type CloudflareRegistrarAccountIntent, type CloudflareRegistrarAccountPort, type CloudflareRegistrarAccountStatus } from "./cloudflare-registrar-account";

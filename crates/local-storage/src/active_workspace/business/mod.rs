@@ -112,6 +112,7 @@ mod cloudflare_registrar;
 mod cloudflare_registrar_account;
 mod cloudflare_retirement;
 mod godaddy_registrar;
+mod porkbun_registrar;
 mod registrar_inventory;
 mod sedo_marketplace;
 mod spaceship_registrar;
@@ -138,6 +139,8 @@ pub use cloudflare_registrar_account::{
 pub(crate) use cloudflare_registrar_account::{RegistrarAccountCommit, RegistrarAccountSeed};
 pub use godaddy_registrar::{DesktopGoDaddyConnectionState, DesktopGoDaddyConnectionSummary};
 pub(crate) use godaddy_registrar::{GoDaddyConnectionSeed, GoDaddyInventoryCommit};
+pub use porkbun_registrar::{DesktopPorkbunConnectionState, DesktopPorkbunConnectionSummary};
+pub(crate) use porkbun_registrar::{PorkbunConnectionSeed, PorkbunInventoryCommit};
 pub use registrar_inventory::{
     DesktopRegistrarScanReceipt, DesktopRegistrationFact, DesktopRegistrationStanding,
 };

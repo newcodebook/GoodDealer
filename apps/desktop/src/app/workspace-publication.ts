@@ -8,6 +8,7 @@ import {
   type SellerHubCreatePort,
   type AliyunRegistrarPort,
   type GoDaddyRegistrarPort,
+  type PorkbunRegistrarPort,
   type CloudflareRegistrarAccountPort,
   type AtomMarketplacePort,
   type AtomStandardDelistPort,
@@ -84,6 +85,7 @@ export interface AuthoritativeWorkspacePorts {
   readonly atomStandardDelist?: AtomStandardDelistPort;
   readonly aliyun?: AliyunRegistrarPort;
   readonly godaddy?: GoDaddyRegistrarPort;
+  readonly porkbun?: PorkbunRegistrarPort;
   readonly cloudflareRegistrarAccount?: CloudflareRegistrarAccountPort;
   readonly atom?: AtomMarketplacePort;
   readonly sedo?: SedoMarketplacePort;

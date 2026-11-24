@@ -75,6 +75,7 @@ describe("domain Provider coverage and financial confirmation", () => {
         "atom:marketplace.listing.observe",
         "cloudflare:registrar.domain.observe", "cloudflare:zone.observe", "cloudflare:dns.records.observe",
         "godaddy:registrar.domain.observe",
+        "porkbun:registrar.domain.observe",
         "sedo:marketplace.listing.observe",
         "spaceship:registrar.domain.observe",
       ]);

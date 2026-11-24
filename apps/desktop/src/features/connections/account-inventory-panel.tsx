@@ -1,4 +1,4 @@
-import type { AliyunRegistrarPort, AliyunRegistrarStatus, GoDaddyRegistrarPort, GoDaddyRegistrarStatus, AtomMarketplacePort, AtomMarketplaceStatus, SedoMarketplacePort, SedoMarketplaceStatus, CloudflareRegistrarAccountPort, CloudflareRegistrarAccountStatus, SellerHubStatus, SellerHubPort, SpaceshipRegistrarIntent, SpaceshipRegistrarPort, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
+import type { AliyunRegistrarPort, AliyunRegistrarStatus, GoDaddyRegistrarPort, GoDaddyRegistrarStatus, PorkbunRegistrarPort, PorkbunRegistrarStatus, AtomMarketplacePort, AtomMarketplaceStatus, SedoMarketplacePort, SedoMarketplaceStatus, CloudflareRegistrarAccountPort, CloudflareRegistrarAccountStatus, SellerHubStatus, SellerHubPort, SpaceshipRegistrarIntent, SpaceshipRegistrarPort, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
 import { formatDate, formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
 import { Badge, Button, Panel } from "@gooddealer/ui";
 import { useEffect, useRef, useState } from "react";
@@ -26,6 +26,10 @@ export function GoDaddyRegistrarPanel(props: InventoryPanelProps<GoDaddyRegistra
   return <AccountInventoryPanel provider="godaddy" {...props} />;
 }
 
+export function PorkbunRegistrarPanel(props: InventoryPanelProps<PorkbunRegistrarPort>) {
+  return <AccountInventoryPanel provider="porkbun" {...props} />;
+}
+
 export function AtomMarketplacePanel(props: InventoryPanelProps<AtomMarketplacePort>) {
   return <AccountInventoryPanel provider="atom" {...props} />;
 }
@@ -39,17 +43,17 @@ export function CloudflareRegistrarAccountPanel(props: InventoryPanelProps<Cloud
 }
 
 function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
-  InventoryPanelProps<SpaceshipRegistrarPort | SellerHubPort | AliyunRegistrarPort | GoDaddyRegistrarPort | AtomMarketplacePort | SedoMarketplacePort | CloudflareRegistrarAccountPort> & {
-    readonly provider: "spaceship" | "sellerhub" | "aliyun" | "godaddy" | "atom" | "sedo" | "cloudflare_registrar_account";
+  InventoryPanelProps<SpaceshipRegistrarPort | SellerHubPort | AliyunRegistrarPort | GoDaddyRegistrarPort | PorkbunRegistrarPort | AtomMarketplacePort | SedoMarketplacePort | CloudflareRegistrarAccountPort> & {
+    readonly provider: "spaceship" | "sellerhub" | "aliyun" | "godaddy" | "porkbun" | "atom" | "sedo" | "cloudflare_registrar_account";
   }) {
   const copy = getPresentationCopy(locale, "settings");
-  const providerName = { spaceship: "Spaceship", sellerhub: "SellerHub", aliyun: copy.aliyunRegistrarName, godaddy: "GoDaddy", atom: "Atom", sedo: "Sedo", cloudflare_registrar_account: "Cloudflare Registrar" }[provider];
-  const copyPrefix = { spaceship: "spaceshipRegistrar", sellerhub: "sellerHub", aliyun: "aliyunRegistrar", godaddy: "godaddyRegistrar", atom: "atomMarketplace", sedo: "sedoMarketplace", cloudflare_registrar_account: "cloudflareRegistrarAccount" } as const;
+  const providerName = { spaceship: "Spaceship", sellerhub: "SellerHub", aliyun: copy.aliyunRegistrarName, godaddy: "GoDaddy", porkbun: "Porkbun", atom: "Atom", sedo: "Sedo", cloudflare_registrar_account: "Cloudflare Registrar" }[provider];
+  const copyPrefix = { spaceship: "spaceshipRegistrar", sellerhub: "sellerHub", aliyun: "aliyunRegistrar", godaddy: "godaddyRegistrar", porkbun: "porkbunRegistrar", atom: "atomMarketplace", sedo: "sedoMarketplace", cloudflare_registrar_account: "cloudflareRegistrarAccount" } as const;
   const prefix = copyPrefix[provider];
   const refresh = provider === "sellerhub" ? copy.sellerHubRefresh
     : provider === "atom" ? copy.atomMarketplaceRefresh
       : provider === "sedo" ? copy.sedoMarketplaceRefresh : copy.spaceshipRegistrarRefresh;
-  const [view, setView] = useState<SpaceshipRegistrarStatus | SellerHubStatus | AliyunRegistrarStatus | GoDaddyRegistrarStatus | AtomMarketplaceStatus | SedoMarketplaceStatus | CloudflareRegistrarAccountStatus | null>(null);
+  const [view, setView] = useState<SpaceshipRegistrarStatus | SellerHubStatus | AliyunRegistrarStatus | GoDaddyRegistrarStatus | PorkbunRegistrarStatus | AtomMarketplaceStatus | SedoMarketplaceStatus | CloudflareRegistrarAccountStatus | null>(null);
   const [retry, setRetry] = useState(0);
   const [readFailed, setReadFailed] = useState(false);
   const [submission, setSubmission] = useState<"pending" | "failed" | null>(null);

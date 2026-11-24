@@ -40,6 +40,7 @@ pub(super) enum RegistrarInventorySource {
     Spaceship,
     Aliyun,
     GoDaddy,
+    Porkbun,
 }
 
 impl RegistrarInventorySource {
@@ -49,6 +50,7 @@ impl RegistrarInventorySource {
             Self::Spaceship => "Spaceship",
             Self::Aliyun => "Aliyun",
             Self::GoDaddy => "GoDaddy",
+            Self::Porkbun => "Porkbun",
         }
     }
 
@@ -58,6 +60,7 @@ impl RegistrarInventorySource {
             Self::Spaceship => "spaceship-registrar-v1",
             Self::Aliyun => "aliyun-registrar-v1",
             Self::GoDaddy => "godaddy-registrar-v3",
+            Self::Porkbun => "porkbun-registrar-v3",
         }
     }
 }

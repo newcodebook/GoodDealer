@@ -43,6 +43,7 @@ const cases = [
   capabilityCase("sedo-marketplace-only", ["sedo:marketplace:observe"]),
   capabilityCase("unrecognized-sedo-write", ["sedo:marketplace:observe", "sedo:marketplace:write"]),
   capabilityCase("godaddy-registrar-only", ["godaddy:registrar:observe"]),
+  capabilityCase("porkbun-registrar-only", ["porkbun:registrar:observe"]),
   capabilityCase("spaceship-registrar-only", ["spaceship:registrar:observe"]),
   capabilityCase("spaceship-marketplace-only", ["spaceship:marketplace:observe"]),
   capabilityCase("all-capabilities", DESKTOP_COMMERCIAL_CAPABILITIES),

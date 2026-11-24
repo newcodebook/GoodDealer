@@ -9,6 +9,7 @@ pub(crate) mod atom_standard_delist;
 pub(crate) mod cloudflare_registrar_account;
 pub(crate) mod forced_takeover;
 pub(crate) mod godaddy_registrar;
+pub(crate) mod porkbun_registrar;
 pub(crate) mod sedo_marketplace;
 pub(crate) mod sellerhub_bin_price;
 pub(crate) mod sellerhub_create;

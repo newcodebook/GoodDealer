@@ -11,7 +11,7 @@ import { AfternicDelistPanel, AfternicListingWritePanel, AtomStandardDelistPanel
 import { ManualTaskInbox } from "../features/operations/manual-tasks";
 import { OperationHistory } from "../features/operations/operation-history";
 import { RenewalDesk, type RenewalListView } from "../features/registration";
-import { AfternicPanel, CloudflareRegistrarAccountPanel, CloudflareRegistrarPanel, CloudflareRetirementPanel, SpaceshipRegistrarPanel, SellerHubPanel, AliyunRegistrarPanel, GoDaddyRegistrarPanel, AtomMarketplacePanel, SedoMarketplacePanel, cloudflareNoticeCopyKey, readCloudflareNotice } from "../features/connections";
+import { AfternicPanel, CloudflareRegistrarAccountPanel, CloudflareRegistrarPanel, CloudflareRetirementPanel, SpaceshipRegistrarPanel, SellerHubPanel, AliyunRegistrarPanel, GoDaddyRegistrarPanel, PorkbunRegistrarPanel, AtomMarketplacePanel, SedoMarketplacePanel, cloudflareNoticeCopyKey, readCloudflareNotice } from "../features/connections";
 import { DeviceDirectoryPanel, SettingsPanel } from "../features/settings";
 import { ConflictCenter } from "../features/sync/conflict-center";
 import { createAppRoute, type AppRoute, type AppRouteId } from "./app-route";
@@ -289,6 +289,7 @@ function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepai
           }
           if (connection.providerKind === "aliyun") return copy.aliyunRegistrarHelp;
           if (connection.providerKind === "godaddy") return copy.godaddyRegistrarHelp;
+          if (connection.providerKind === "porkbun") return copy.porkbunRegistrarHelp;
           if (connection.providerKind === "atom") return copy.atomMarketplaceHelp;
           if (connection.providerKind === "sedo") return copy.sedoMarketplaceHelp;
           return copy.capabilityPendingSummary;
@@ -322,6 +323,7 @@ function SettingsRoute({ locale, ports, revisionBase, writable, standby, onRepai
         {ports.sellerhub === undefined ? null : <SellerHubPanel locale={locale} port={ports.sellerhub} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}
         {ports.aliyun === undefined ? null : <AliyunRegistrarPanel locale={locale} port={ports.aliyun} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}
         {ports.godaddy === undefined ? null : <GoDaddyRegistrarPanel locale={locale} port={ports.godaddy} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}
+        {ports.porkbun === undefined ? null : <PorkbunRegistrarPanel locale={locale} port={ports.porkbun} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}
         {ports.atom === undefined ? null : <AtomMarketplacePanel locale={locale} port={ports.atom} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}
         {ports.sedo === undefined ? null : <SedoMarketplacePanel locale={locale} port={ports.sedo} writable={writable} onChanged={() => setAttempt((current) => current + 1)} />}
         {writable ? <CloudflareRetirementPanel locale={locale} port={ports.cloudflare} onChanged={() => setAttempt((current) => current + 1)} /> : null}

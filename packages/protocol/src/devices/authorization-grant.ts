@@ -25,6 +25,7 @@ export const DESKTOP_COMMERCIAL_CAPABILITIES = [
   "cloudflare:dns:observe",
   "cloudflare:registrar:observe",
   "godaddy:registrar:observe",
+  "porkbun:registrar:observe",
   "sedo:marketplace:observe",
   "spaceship:marketplace:observe",
   "spaceship:marketplace:write",

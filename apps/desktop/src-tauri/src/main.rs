@@ -180,10 +180,11 @@ fn setup_native_app(
     Ok(())
 }
 
-fn main() {
-    let power_monitor = gooddealer_secure_host_core::NativePowerMonitor::start();
-    let power_gate = power_monitor.gate();
-    let app = tauri::Builder::default()
+/// Plugins and setup that must precede command registration.
+fn native_builder(
+    power_gate: gooddealer_secure_host_core::NativePowerGate,
+) -> tauri::Builder<tauri::Wry> {
+    tauri::Builder::default()
         // Must be first: later plugin/setup work must never run in a competing refresh process.
         // Browser sign-in returns over loopback (ADR-0011), so a second launch carries nothing.
         .plugin(tauri_plugin_single_instance::init(
@@ -191,6 +192,11 @@ fn main() {
         ))
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| setup_native_app(app, &power_gate))
+}
+
+fn main() {
+    let power_monitor = gooddealer_secure_host_core::NativePowerMonitor::start();
+    let app = native_builder(power_monitor.gate())
         .invoke_handler(tauri::generate_handler![
             command_handlers::local_business_status,
             command_handlers::local_device_lease_read,
@@ -263,7 +269,9 @@ fn main() {
             command_handlers::aliyun_registrar::aliyun_registrar_status,
             command_handlers::aliyun_registrar::aliyun_registrar_submit,
             command_handlers::godaddy_registrar::godaddy_registrar_status,
+            command_handlers::porkbun_registrar::porkbun_registrar_status,
             command_handlers::godaddy_registrar::godaddy_registrar_submit,
+            command_handlers::porkbun_registrar::porkbun_registrar_submit,
             command_handlers::cloudflare_registrar_account::cloudflare_registrar_account_status,
             command_handlers::cloudflare_registrar_account::cloudflare_registrar_account_submit,
             command_handlers::atom_marketplace::atom_marketplace_status,
