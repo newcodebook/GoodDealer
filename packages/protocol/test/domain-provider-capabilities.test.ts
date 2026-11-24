@@ -79,6 +79,18 @@ describe("domain Provider coverage and financial confirmation", () => {
         "sedo:marketplace.listing.observe",
         "spaceship:registrar.domain.observe",
       ]);
+    // A platform whose phase checked its official facts leaves no capability pending on facts.
+    const porkbun = domainProviderCapabilityManifest.filter(({ platform }) => platform === "porkbun");
+    expect(porkbun.filter(({ reason }) => reason === "platform_facts_pending")).toEqual([]);
+    expect(porkbun.filter(({ reason }) => reason === "official_api_absent").map(({ capabilityId }) => capabilityId)).toEqual([
+      "registrar.restore", "registrar.transfer.out", "registrar.auth-code.request", "registrar.lock.manage",
+      "registrar.privacy.manage", "marketplace.listing.observe", "marketplace.listing.manage", "marketplace.price.manage",
+      "marketplace.sales.observe", "marketplace.sale.auth-code.deliver", "marketplace.ownership.verify",
+      "marketplace.monitor", "acquisition.bid", "acquisition.backorder", "acquisition.monitor",
+    ]);
+    expect(domainProviderManifestEntry("porkbun", "dns.records.observe")?.reason).toBe("implementation_pending");
+    // Platforms whose phase has not checked facts stay pending rather than inheriting another's.
+    expect(domainProviderManifestEntry("namecheap", "dns.records.observe")?.reason).toBe("platform_facts_pending");
     expect(Object.isFrozen(domainProviderCapabilityManifest)).toBe(true);
     expect(domainProviderCapabilityManifest.every((entry) => Object.isFrozen(entry))).toBe(true);
     // The schema has no executable state and no field a Renderer could read as a permission.

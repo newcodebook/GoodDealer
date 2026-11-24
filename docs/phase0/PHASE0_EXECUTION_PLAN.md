@@ -187,7 +187,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [ ] 打包的 Tauri 构件在真实 Host 与种子数据上逐页可达，并与 `brand/ui_kits/desktop` 逐屏对照，并记录各 WebView 的 NumberFormat v3 探测结果与超大金额的显示（当前只有源码与打包依赖图层面的证据）（暂停：待决事项——工作区页面只有在真实账号经浏览器 PKCE 登录、取得商业授权与 Active Lease 后才可达，登录须由用户本人输入凭据；三种 WebView 分别只在 macOS（WKWebView）、Windows（WebView2）与 Linux（WebKitGTK）上存在，当前执行环境只有 Linux 且不能操作原生窗口。影响：阶段 2 验收“每个设计页面在真实构件中可达”与阶段 4 的真实构件证据都依赖此项。可选方案：①用户在三种系统的打包构件上登录，按页面清单逐屏截图并运行内置 NumberFormat 探测，由执行方对照 kit 记录偏差并修复；②在 Linux 上经用户批准安装 `tauri-driver` 与 WebKitWebDriver 做 WebKitGTK 的自动逐屏对照（登录仍由用户完成），macOS 与 Windows 仍按①；③先只取 Linux 证据，macOS/Windows 推迟到阶段 11 的最终候选。推荐②+①：Linux 部分可重复，其余两种系统一次人工对照。2026-11-24 用户决定：功能验证阶段不做实机验收，基础功能完成后统一做 Windows/macOS 与第二台设备的跨平台验收，本项随之推迟到该统一验收）
 - [x] 历史与人工任务等显示文本的长度口径在 Rust 与 Zod 之间对齐（核实：Zod 4 的 `max` 按码点计数，与 Rust 字符数一致，无需改动；需要 UTF-16 上限的 Zod 校验须显式比较 `length`） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] `client-core` 的 `dnsProviderSummarySchema` 平台集合与 ADR-0027 的 8 个平台对齐或退役（已对齐：`providerKind` 改用唯一的 `launchPlatformKindSchema`，移除 `registrar_dns`/`custom`；注册商自带 DNS 即该注册商平台；补每个首发平台接受与旧值拒绝测试） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] Host 按平台报告支持的角色后，把 DNS 读取契约（`dnsProviderSummarySchema` 与 `dns-health.ts` 的 Zone 绑定）的 `providerKind` 收窄为支持 DNS 的平台（当前 Afternic、Atom 等纯市场平台也被接受为 Zone 托管方）（依赖平台事实：2026-11-24 核对，能力 manifest 中除 Cloudflare 外所有平台的 `zone.observe`/`dns.*` 均为 `platform_facts_pending`，即尚未核实平台是否提供 DNS，不能据此排除任何平台；随各平台阶段写入“平台不提供”的 manifest 原因后收窄，在此之前 Host 写入路径只建立 Cloudflare Zone 绑定）
+- [ ] Host 按平台报告支持的角色后，把 DNS 读取契约（`dnsProviderSummarySchema` 与 `dns-health.ts` 的 Zone 绑定）的 `providerKind` 收窄为支持 DNS 的平台（当前 Afternic、Atom 等纯市场平台也被接受为 Zone 托管方）（依赖平台事实：2026-11-24 核对，能力 manifest 中除 Cloudflare 与 Porkbun 外所有平台的 `zone.observe`/`dns.*` 均为 `platform_facts_pending`，即尚未核实平台是否提供 DNS，不能据此排除任何平台；2026-11-24 起 Porkbun 的 `zone.observe`/`dns.*` 已核实为 `implementation_pending`（官方提供 DNS），GoDaddy 的 DNS 记录端点已记入 API 核查，但 manifest 中仍为 `platform_facts_pending`，待 GoDaddy 全部能力核对后一并更新；随各平台阶段写入“平台不提供”的 manifest 原因后收窄，在此之前 Host 写入路径只建立 Cloudflare Zone 绑定）
 - [x] Provider 绑定写入时强制绑定平台与连接平台一致（当前只在 DNS 健康读取时拒绝，单行坏数据会让整页不可读）（已完成：存储完整性迁移在写入时拒绝平台不一致的绑定，并禁止已绑定连接改变平台；业务写入路径本就只接受 Cloudflare 连接） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] DNS 健康 Rust 测试覆盖“非 Cloudflare 绑定 + 既有 Cloudflare 观察”同时存在的情况 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] Standby DNS 读取组合前改写 `readOnlyNotice`（当前暗示修复与重新验证在 Active 中可用）（改为说明 Standby 不做修改，且 DNS 修复与所有权重新验证尚未在任何设备上取得资格；en-US/zh-CN 与测试同步） https://github.com/newcodebook/GoodDealer/pull/53
@@ -265,7 +265,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 ### 6. Porkbun
 
 - [x] 核对官方文档并更新平台事实快照（2026-11-24 读取官方 OpenAPI v3.112，记入 [API 核查](../PROVIDER_API_REVIEW.md) Porkbun Registrar 行；[Task Frame](PORKBUN_REGISTRAR_INVENTORY_TASK_FRAME.md)） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] 能力清单映射到四种角色（`registrar.domain.observe` 已进入 manifest 的 `qualification_pending`；其余角色待平台事实）
+- [x] 能力清单映射到四种角色（2026-11-24 按官方 v3.112 逐项核对：`registrar.domain.observe` 为 `qualification_pending`；注册、续费、转入、自动续费、联系人、nameserver、glue、DNS 记录与 DNSSEC、可用性查询、Closeout 购买与到账对账等为 `implementation_pending`；赎回、转出/授权码、锁、隐私开关、自有 Listing/销售/所有权验证、竞拍、预订及其监控为 `official_api_absent`，按 ADR-0027 列入私有适配器清单；manifest 新增这两种原因）https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 私有 Service、合同与负向测试（账户归集已在源码组合：Native 只读 `/domain/listAll`、成对凭据 custody 与三系统掩码输入、Host 库存迁移 `202611240001`、`porkbun:registrar:observe` 授权能力、Tauri 命令与 ProviderLane、设置页面板。余项：资格登记与真实账户验收，以及 DNS/续费等其他能力）
 - [ ] 逐项能力资格证据（使用沙箱或 `dryRun`）（待实现；按当前策略的能力依赖推进）
 - [ ] 证明框架核心模型未改动（待实现；按当前策略的能力依赖推进）
@@ -286,7 +286,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 
 - [ ] GoDaddy：官方 v3 账户归集已实现，真实生产账户与双系统实机待验收，其他能力按当前策略实施
 - [ ] Afternic：核对事实、列出能力清单，实现 Portfolio API 的 Listing 与改价，取得资格证据（待实现；按当前策略的能力依赖推进）
-- [ ] GoDaddy DNS 记录读取（`dns.records.observe`）：[Task Frame](GODADDY_DNS_RECORDS_OBSERVE_TASK_FRAME.md)；Native 只读客户端与严格分页解析已完成，协议、本地证据、Tauri 与界面组合待实施
+- [ ] GoDaddy DNS 记录读取（`dns.records.observe`）：[Task Frame](GODADDY_DNS_RECORDS_OBSERVE_TASK_FRAME.md)；Native 只读客户端与严格分页解析已完成（9f9e124）。暂停：GoDaddy PAT 按 scope 授权，官方只列出 `domains.domain:read` 与写 scope `domains.dns:update`，未写明 `GET /zones/{zone}/dns-records` 需要哪个 scope，也没有只读 DNS scope（2026-11-24 [官方认证说明](https://developer.godaddy.com/docs/api-users/auth#pat-scopes)）。影响：无法判断只读 DNS 能否在最小权限下实现，组合需要把现有 GoDaddy 连接的角色从 registrar 扩为 dns+registrar，依据不足。可选方案：（a）用户用只勾选 `domains.domain:read` 的 PAT 先做一次账户归集（同时核实该 scope 覆盖 `GET /domain-names`），再对一个受控域名调用一次 DNS 读取（Linux 受控验收，`local.env` 的 `GODADDY_*`），成功即按同一连接扩展 DNS 角色并组合（推荐）；（b）若只有 `domains.dns:update` 可读，按“平台不提供最小权限授权”把 GoDaddy `dns.records.observe` 降级；（c）不验证直接要求用户授予写 scope，违反最小权限，不采用。
 
 ### 10. Atom（含 AtomRegistrar）
 

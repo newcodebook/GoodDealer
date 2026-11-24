@@ -21,9 +21,18 @@ export const DOMAIN_PROVIDER_CAPABILITY_MANIFEST_VERSION = 1 as const;
 /**
  * - `platform_facts_pending`: the platform's facts for this capability are not yet checked in its
  *   ADR-0027 phase, so it is not known whether the platform offers it.
+ * - `implementation_pending`: the platform's official API offers it (checked in its phase); not yet
+ *   implemented locally.
+ * - `official_api_absent`: the platform's official API has no endpoint for it on the checked date.
+ *   ADR-0027 puts such a capability on that platform's private-adapter list instead of ruling it out.
  * - `qualification_pending`: implemented locally; awaiting its ADR-0027 qualification.
  */
-export const domainProviderUnavailableReasonSchema = z.enum(["platform_facts_pending", "qualification_pending"]);
+export const domainProviderUnavailableReasonSchema = z.enum([
+  "platform_facts_pending",
+  "implementation_pending",
+  "official_api_absent",
+  "qualification_pending",
+]);
 
 export const domainProviderManifestEntrySchema = z.object({
   platform: launchPlatformKindSchema,
@@ -53,6 +62,61 @@ const implemented: Readonly<Partial<Record<LaunchPlatformKind, readonly DomainPr
   sedo: ["marketplace.listing.observe"],
 };
 
+type CheckedFacts = Readonly<Partial<Record<DomainProviderCapabilityId, "implementation_pending" | "official_api_absent">>>;
+
+/**
+ * Per-platform official facts for capabilities that are not implemented. A platform appears here
+ * only after its phase checked every role capability against that day's official documentation;
+ * docs/PROVIDER_API_REVIEW.md holds the dated source and the endpoints.
+ */
+const checkedFacts: Readonly<Partial<Record<LaunchPlatformKind, CheckedFacts>>> = {
+  // Porkbun API v3.112, https://porkbun.com/api/json/v3/spec, checked 2026-11-24. Selling, bidding,
+  // backorders, aftermarket purchase, outbound transfer codes, lock, restore and a privacy toggle
+  // have no endpoint; Porkbun Marketplace and aftermarket search are public browse, not the
+  // account's own listings. Auction outbid/end and backorder results cannot be watched, so
+  // acquisition monitoring is absent. `acquisition.purchase` covers fixed-price closeouts only;
+  // aftermarket purchase (website `buyUrl`) and premium renewal stay on the private-adapter list.
+  porkbun: {
+    "registrar.register": "implementation_pending",
+    "registrar.renew": "implementation_pending",
+    "registrar.restore": "official_api_absent",
+    "registrar.transfer.in": "implementation_pending",
+    "registrar.transfer.out": "official_api_absent",
+    "registrar.auth-code.request": "official_api_absent",
+    "registrar.lock.manage": "official_api_absent",
+    "registrar.auto-renew.manage": "implementation_pending",
+    "registrar.contact.manage": "implementation_pending",
+    "registrar.privacy.manage": "official_api_absent",
+    "nameservers.manage": "implementation_pending",
+    "registrar.glue.manage": "implementation_pending",
+    "registrar.monitor": "implementation_pending",
+    "zone.observe": "implementation_pending",
+    "dns.records.observe": "implementation_pending",
+    "dns.records.manage": "implementation_pending",
+    "dnssec.manage": "implementation_pending",
+    "dns.monitor": "implementation_pending",
+    "marketplace.listing.observe": "official_api_absent",
+    "marketplace.listing.manage": "official_api_absent",
+    "marketplace.price.manage": "official_api_absent",
+    "marketplace.sales.observe": "official_api_absent",
+    "marketplace.sale.auth-code.deliver": "official_api_absent",
+    "marketplace.ownership.verify": "official_api_absent",
+    "marketplace.monitor": "official_api_absent",
+    "acquisition.search": "implementation_pending",
+    "acquisition.offer.observe": "implementation_pending",
+    "acquisition.bid": "official_api_absent",
+    "acquisition.backorder": "official_api_absent",
+    "acquisition.purchase": "implementation_pending",
+    "acquisition.arrival.reconcile": "implementation_pending",
+    "acquisition.monitor": "official_api_absent",
+  },
+};
+
+function unavailableReason(platform: LaunchPlatformKind, capabilityId: DomainProviderCapabilityId): DomainProviderUnavailableReason {
+  if (implemented[platform]?.includes(capabilityId) === true) return "qualification_pending";
+  return checkedFacts[platform]?.[capabilityId] ?? "platform_facts_pending";
+}
+
 export const domainProviderCapabilityManifest: readonly DomainProviderManifestEntry[] = Object.freeze(
   launchPlatformKindSchema.options.flatMap((platform) => domainProviderCapabilityCatalog
     .filter((capability) => capability.role !== null)
@@ -60,7 +124,7 @@ export const domainProviderCapabilityManifest: readonly DomainProviderManifestEn
       platform,
       capabilityId: capability.id,
       execution: "not_executable" as const,
-      reason: implemented[platform]?.includes(capability.id) === true ? "qualification_pending" as const : "platform_facts_pending" as const,
+      reason: unavailableReason(platform, capability.id),
     }))),
 );
 

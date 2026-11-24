@@ -144,6 +144,10 @@ Provider 页面回跳只构成不可信的 reconciliation hint，不能作为成
   不引入第三方 IP 查询服务。
 - **最小权限**：支持 scope 的平台（Spaceship、Cloudflare）只请求 manifest 中已实现能力所需的 scope；
   连接校验发现 scope 不足时按能力降级，而不是整条连接失败。
+  GoDaddy PAT 同样按 scope 授权（2026-11-24 核对 [官方认证说明](https://developer.godaddy.com/docs/api-users/auth#pat-scopes)：
+  `domains.domain:read` 为域名读取，`domains.dns:update` 为 DNS 记录增删改，写 scope 同时满足同一资源的读取，选择
+  “Domains & DNS”整包即勾选全部 Domains scope，可缩减为子集；官方未给出端点与 scope 的对应，也没有只读 DNS scope）。账户归集预期的
+  最小 scope 是 `domains.domain:read`（官方描述未明列域名列表，待受控账户核实）；DNS 记录读取所需的 scope 未核实前，不扩展 GoDaddy 连接的角色。
 - **Linux**：Provider 秘密按 [ADR-0025](0025-linux-secret-service-custody.md) 的具名条目准入。固定 Native GTK 窗口只捕获已列明用途的字段，条目存入 Secret Service。新增 Provider 与备份条目须分别明确威胁接受。Linux 开发验收与 Windows/macOS 完整目标及实机资格分别记录。
 
 Cloudflare 观察的 401/403 统一表示凭据被拒绝，不据此区分失效与权限不足；429、408、425 与服务端错误

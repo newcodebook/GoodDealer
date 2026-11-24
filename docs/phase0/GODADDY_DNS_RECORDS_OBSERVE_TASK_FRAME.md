@@ -1,6 +1,6 @@
 # GoDaddy DNS 记录读取
 
-状态：Task Frame。第 1 步（Native 只读客户端）已完成；第 2–6 步待组合。资格认证与真实账户验收均未取得。拥有者：root 主目录（PR #53 分支）。台账阶段 9「GoDaddy」。
+状态：Task Frame。第 1 步（Native 只读客户端）已完成；第 2–6 步暂停：DNS 读取所需的 PAT scope 官方未写明，归集 scope 是否覆盖域名列表也待核实（见下方“最小权限”与执行台账阶段 9）。资格认证与真实账户验收均未取得。拥有者：root 主目录（PR #53 分支）。台账阶段 9「GoDaddy」。
 
 权威依据：
 
@@ -38,6 +38,10 @@
   - 可选：`recordId`、`priority`（0–65535，MX/SRV）、`service`/`protocol`/`port`/`weight`（SRV）、`flag`（0–255）/`tag`（CAA）。
   - `type` 枚举为 A、AAAA、CNAME、MX、TXT、NS、SRV、SOA、CAA。
 - **状态码**：200、400、401、403、404、429。404 只写作"请求的资源不存在"，没有说明是否意味着 DNS 托管在别处。
+
+## 最小权限（2026-11-24 [官方认证说明](https://developer.godaddy.com/docs/api-users/auth#pat-scopes)）
+
+PAT 按 scope 授权：`domains.domain:read` 为域名读取，`domains.dns:update` 为 DNS 记录增删改；写 scope 同时满足同一资源的读取，“资源”未定义；官方未给出端点与 scope 的对应，也没有只读 DNS scope。现有连接预期的最小 scope 是 `domains.domain:read`，它是否覆盖 `GET /domain-names` 同样待核实。组合前须在受控账户上确认该 scope 能否读取 DNS 记录：能则同一连接扩展为 dns+registrar 角色；只能用写 scope 读取则按“平台不提供最小权限授权”降级。
 
 ## 强制规则
 
