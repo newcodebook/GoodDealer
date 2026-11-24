@@ -198,6 +198,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [ ] 注册商委派观察接入后，与 Zone 分配的 nameserver 比对得出委派状态与 NS 异常计数（随注册商能力）（随资产来源平台的注册商观察接入；不限定 Cloudflare）
 - [x] 设置“关于”报告让其他读取失败关闭或变慢的存储坏行计数：非法到期日期（资产库与续费）、非法注册商名称的可用观察（续费变慢，显示时失败）、DNS 绑定或观察无效的资产、无效挂牌观察（销售）、时间非规范的 Outbox 行（历史）；每项计数复用对应读取的校验谓词，设置读取本身不因坏行失败；修复尚不可用并如实说明 https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 设置读取每次全量运行完整性计数（含销售挂牌合并查询，10 万资产约 0.5–2 s）：改为复用销售按数据代缓存或仅在打开“关于”时计数，并纳入 10 万基准计时（同一数据代已有合并成功的销售台面时不再扫描挂牌，提交落在读取期间则不用缓存重读；10 万基准：2 市场冷读 0.72 s、缓存后 0.22 s，8 市场冷读 2.1 s、缓存后 0.23 s；8 市场写入后首次读取与销售首次合并同属下一项的预算问题） https://github.com/newcodebook/GoodDealer/pull/53
+- [ ] DNS Zone 绑定接替与按委派归属（[ADR-0033](../adr/0033-multi-provider-dns-evidence.md)）（暂停：待用户决定是否接受 ADR-0033，它修订 ADR-0027 的 DNS 单资源唯一性。影响：资产已有某平台 Zone 绑定后，DNS 迁到另一平台时只能显示冲突、无法改绑；其余 DNS 组合按现行规则推进，不受影响。可选方案：（A）接受决策 1 与 2，按委派观察、绑定接替、界面确认的顺序实施（推荐）；（B）不支持接替；（C）只按委派判定归属、不支持接替。）
 
 ### 3. Cloudflare 路径稳定
 
@@ -269,7 +270,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [ ] 私有 Service、合同与负向测试（账户归集已在源码组合：Native 只读 `/domain/listAll`、成对凭据 custody 与三系统掩码输入、Host 库存迁移 `202611240001`、`porkbun:registrar:observe` 授权能力、Tauri 命令与 ProviderLane、设置页面板。余项：资格登记与真实账户验收，以及 DNS/续费等其他能力）
 - [ ] 逐项能力资格证据（使用沙箱或 `dryRun`）（待实现；按当前策略的能力依赖推进）
 - [ ] 证明框架核心模型未改动（待实现；按当前策略的能力依赖推进）
-- [ ] Porkbun DNS 记录读取（`dns.records.observe`）：[Task Frame](PORKBUN_DNS_RECORDS_OBSERVE_TASK_FRAME.md)；Native 只读 `GET /dns/retrieve/{domain}` 与严格解析已完成，协议、连接角色扩展、本地证据、Tauri 与界面组合待实施
+- [ ] Porkbun DNS 记录读取（`dns.records.observe`）：[Task Frame](PORKBUN_DNS_RECORDS_OBSERVE_TASK_FRAME.md)；Native 只读 `GET /dns/retrieve/{domain}` 与严格解析已完成（5880f0f）。组合按 ADR-0027 现行规则推进：追加迁移把 Porkbun 连接角色扩为 dns+registrar；只为尚无 Zone 绑定的资产建立 `unverified` 绑定；DNS 健康按绑定连接选取观察；证据只留本地。已有其他平台 Zone 绑定时失败关闭并说明原因，改绑另待 [ADR-0033（Proposed）](../adr/0033-multi-provider-dns-evidence.md)
 
 ### 7. Spaceship（含 SellerHub）
 

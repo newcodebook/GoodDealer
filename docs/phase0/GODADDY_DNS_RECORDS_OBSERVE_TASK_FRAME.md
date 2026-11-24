@@ -1,6 +1,6 @@
 # GoDaddy DNS 记录读取
 
-状态：Task Frame。第 1 步（Native 只读客户端）已完成；第 2–6 步暂停：DNS 读取所需的 PAT scope 官方未写明，归集 scope 是否覆盖域名列表也待核实（见下方“最小权限”与执行台账阶段 9）。资格认证与真实账户验收均未取得。拥有者：root 主目录（PR #53 分支）。台账阶段 9「GoDaddy」。
+状态：Task Frame。第 1 步（Native 只读客户端）已完成；第 2–6 步暂停：DNS 读取所需的 PAT scope 官方未写明，归集 scope 是否覆盖域名列表也待核实；组合方式与 Porkbun 相同，改绑另待 [ADR-0033](../adr/0033-multi-provider-dns-evidence.md)（Proposed）（见下方“最小权限”与执行台账阶段 9）。资格认证与真实账户验收均未取得。拥有者：root 主目录（PR #53 分支）。台账阶段 9「GoDaddy」。
 
 权威依据：
 

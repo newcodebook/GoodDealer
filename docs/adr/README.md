@@ -23,6 +23,7 @@
 | [ADR-0028](0028-refused-cloudflare-custody-purge.md) | Cloudflare 凭据清理与连接退役 |
 | [ADR-0029](0029-domain-tombstone-purge-and-re-adding.md) | 域名添加、删除与 generation |
 | [ADR-0032](0032-desktop-device-switch-and-drain-handoff.md) | 设备切换、drain 与无 Lease 的 Standby 会话 |
+| [ADR-0033](0033-multi-provider-dns-evidence.md) | DNS Zone 绑定的接替与按委派归属（Proposed） |
 
 修改决策时同步更新受影响合同、当前文档和引用。开发缺口不能缩减已接受的产品目标；技术实现进度不写回为
 产品排除项。跨主题引用指向拥有该规则的 ADR，不复制整套政策。

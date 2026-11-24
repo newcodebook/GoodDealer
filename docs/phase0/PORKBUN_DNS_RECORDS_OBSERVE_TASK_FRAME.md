@@ -1,6 +1,6 @@
 # Porkbun DNS 记录读取
 
-状态：Task Frame。第 1 步（Native 只读客户端）已完成，第 2–6 步待组合。资格与真实账户验收均未取得。拥有者：root 主目录（PR #53 分支）。台账阶段 6「Porkbun」。
+状态：Task Frame。第 1 步（Native 只读客户端）已完成；第 2–6 步按 ADR-0027 现行规则组合（见第 3 步）；Zone 绑定改绑另待 [ADR-0033](../adr/0033-multi-provider-dns-evidence.md)（Proposed）。资格与真实账户验收均未取得。拥有者：root 主目录（PR #53 分支）。台账阶段 6「Porkbun」。
 
 **权威依据**
 - [ADR-0027](../adr/0027-multi-platform-domain-providers-and-marketplaces.md)：DNS 角色、最小权限、单资源唯一性。
@@ -92,7 +92,8 @@
    - `provider_services/porkbun.rs` 的 `IMPLEMENTED` 同步上述能力。
 3. `local-storage`：
    - 追加迁移，把 Porkbun 连接的角色扩为 dns+registrar。依据是官方 `read` 权限同时覆盖两项读取。
-   - 写入 Porkbun DNS 观察和 Zone 绑定；单资源唯一，已有其他平台 Zone 绑定的资产失败关闭。
+   - 写入 Porkbun DNS 观察；只为尚无 Zone 绑定的资产建立 `unverified` 的 Porkbun Zone 绑定（单资源唯一），已有其他平台 Zone 绑定的资产失败关闭并说明原因。
+   - DNS 健康按绑定连接选取观察，Cloudflare 投影头保持不变；Porkbun 证据只留本地。
 4. Tauri：命令、ProviderLane，以及从生成源更新的权限与命令策略。
 5. Renderer：入口、来源标注与"可能非实际解析"提示。资格认证之前，入口显示为不可用并说明原因。
 6. 文档同步。
