@@ -25,6 +25,7 @@ const identityRoute: AdminRoute<BoundaryEmptyRequest, AdminBoundaryIdentityRespo
   request: boundaryEmptyRequestSchema,
   response: adminBoundaryIdentityResponseSchema,
   requiredScope: ADMIN_BOUNDARY_READ_SCOPE,
+  deviceRole: null,
   authorize: (principal) => principal.scopes.has(ADMIN_BOUNDARY_READ_SCOPE),
   invoke: async () => ({ surface: "admin" }),
 };
@@ -36,6 +37,7 @@ const validateRoute: AdminRoute<BoundaryEmptyRequest, BoundaryAcceptedResponse> 
   request: boundaryEmptyRequestSchema,
   response: boundaryAcceptedResponseSchema,
   requiredScope: ADMIN_BOUNDARY_READ_SCOPE,
+  deviceRole: null,
   authorize: (principal) => principal.scopes.has(ADMIN_BOUNDARY_READ_SCOPE),
   invoke: async () => ({ accepted: true }),
 };

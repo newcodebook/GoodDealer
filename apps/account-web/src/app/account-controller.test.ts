@@ -151,6 +151,44 @@ describe("AccountController session discovery", () => {
     expect(harness.controller.getState()).toMatchObject({ phase: "account", desktopHandoff: false });
   });
 
+  it("requires a new sign-in before resuming a reauthentication continuation with an old session", async () => {
+    const continuation = "/v1/desktop-oauth/authorize?require_reauth=true&state=s";
+    const harness = createHarness({ search: `?continue=${encodeURIComponent(continuation)}&reauth=required` });
+    harness.session(accountA);
+    await harness.controller.start();
+    await harness.controller.refresh();
+    expect(harness.navigations).toEqual([]);
+    expect(harness.controller.getState()).toMatchObject({
+      phase: "access", accessStep: "sign_in", desktopHandoff: true,
+      accessNotice: { key: "desktopReauthenticationRequired", tone: "info" },
+    });
+    expect(harness.values.has(ACTIVE_ACCOUNT_NAMESPACE_KEY)).toBe(false);
+    harness.routes.set("/v1/identity/login", () => ({ status: 401 }));
+    await harness.controller.signIn("user@example.com", "not accepted");
+    expect(harness.navigations).toEqual([]);
+    harness.routes.set("/v1/identity/login", () => ({ status: 200, body: { status: "authenticated" } }));
+    await harness.controller.signIn("user@example.com", "accepted password");
+    expect(harness.navigations).toEqual([{ kind: "replace", url: continuation }]);
+    expect(harness.requests.every(({ path }) => path.startsWith("/v1/identity/"))).toBe(true);
+    expect([...harness.values.keys()]).toEqual([]);
+  });
+
+  it("does not resume from a sign-in response superseded by another session read", async () => {
+    const continuation = "/v1/desktop-oauth/authorize?require_reauth=true&state=s";
+    const harness = createHarness({ search: `?continue=${encodeURIComponent(continuation)}&reauth=required` });
+    harness.session(accountA);
+    await harness.controller.start();
+    let completeLogin: (reply: { status: number; body: unknown }) => void = () => undefined;
+    harness.routes.set("/v1/identity/login", () => new Promise((resolve) => { completeLogin = resolve; }));
+    const login = harness.controller.signIn("user@example.com", "accepted password");
+    await settle();
+    await harness.controller.refresh();
+    completeLogin({ status: 200, body: { status: "authenticated" } });
+    await login;
+    expect(harness.navigations).toEqual([]);
+    expect(harness.controller.getState().accessStep).toBe("sign_in");
+  });
+
   it("drops an older session read that resolves after a newer reload", async () => {
     const harness = createHarness();
     let releaseFirst: (reply: { status: number; body?: unknown }) => void = () => undefined;

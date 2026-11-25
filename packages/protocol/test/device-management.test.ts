@@ -8,8 +8,10 @@ import {
   deviceAuthorityProjectionSchema,
   deviceBindingListSchema,
   deviceBindingSummarySchema,
+  deviceListRequestSchema,
   deviceOperationSchema,
   deviceRemovalRequestSchema,
+  deviceSelfReportSchema,
   deviceSwitchRequestSchema,
   deviceSwitchRequestViewSchema,
 } from "../src/devices/index";
@@ -25,6 +27,9 @@ const validCases = [
   ["binding-standby.json", deviceBindingSummarySchema],
   ["binding-removed.json", deviceBindingSummarySchema],
   ["binding-list-two-bound.json", deviceBindingListSchema],
+  ["binding-unreported.json", deviceBindingSummarySchema],
+  ["self-report.json", deviceSelfReportSchema],
+  ["list-request.json", deviceListRequestSchema],
   ["lease-status-held-fresh.json", activeDeviceLeaseStatusSchema],
   ["lease-status-held-renewal-window.json", activeDeviceLeaseStatusSchema],
   ["lease-status-held-offline-grace.json", activeDeviceLeaseStatusSchema],
@@ -39,6 +44,7 @@ const validCases = [
   ["switch-view-waiting-expiry.json", deviceSwitchRequestViewSchema],
   ["switch-view-bootstrapping.json", deviceSwitchRequestViewSchema],
   ["switch-view-completed.json", deviceSwitchRequestViewSchema],
+  ["switch-view-normal-receipt.json", deviceSwitchRequestViewSchema],
 ] as const;
 
 const invalidCases = [
@@ -48,6 +54,12 @@ const invalidCases = [
   ["binding-removed-current-device.json", deviceBindingSummarySchema],
   ["binding-last-seen-before-bound.json", deviceBindingSummarySchema],
   ["binding-revoked-key-with-role.json", deviceBindingSummarySchema],
+  ["binding-rotated-key-with-role.json", deviceBindingSummarySchema],
+  ["binding-last-seen-not-whole-hour.json", deviceBindingSummarySchema],
+  ["self-report-names-a-device.json", deviceSelfReportSchema],
+  ["self-report-control-character.json", deviceSelfReportSchema],
+  ["self-report-unknown-platform.json", deviceSelfReportSchema],
+  ["list-request-names-an-account.json", deviceListRequestSchema],
   ["binding-list-duplicate-device-id.json", deviceBindingListSchema],
   ["binding-list-three-bound.json", deviceBindingListSchema],
   ["binding-list-two-active.json", deviceBindingListSchema],
@@ -71,11 +83,13 @@ const invalidCases = [
   ["authority-standby-with-platform-write.json", deviceAuthorityProjectionSchema],
   ["authority-none-with-scopes.json", deviceAuthorityProjectionSchema],
   ["switch-forced-without-earliest-takeover.json", deviceSwitchRequestViewSchema],
+  ["switch-forced-with-normal-receipt.json", deviceSwitchRequestViewSchema],
+  ["switch-legacy-view.json", deviceSwitchRequestViewSchema],
   ["switch-bootstrapping-without-expiry.json", deviceSwitchRequestViewSchema],
   ["switch-completed-with-bootstrap-expiry.json", deviceSwitchRequestViewSchema],
   ["switch-earliest-takeover-before-request.json", deviceSwitchRequestViewSchema],
   ["switch-normal-with-reauth-proof.json", deviceSwitchRequestSchema],
-  ["switch-forced-without-reauth-proof.json", deviceSwitchRequestSchema],
+  ["switch-forced-without-source-epoch.json", deviceSwitchRequestSchema],
 ] as const;
 
 describe("device management contracts", () => {

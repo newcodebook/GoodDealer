@@ -1,0 +1,1826 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "scripts/generate-desktop-authorization-vectors.ts",
+  "roleExchangeSchemaVersion": 5,
+  "cases": [
+    {
+      "name": "local-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": []
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "4bfe8d9303016ebb91b0fefa65cdb6dca0f34a10e67cf988665f4ccadfd35e9d"
+    },
+    {
+      "name": "cloudflare-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "cloudflare:dns:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "60da812fe9b1c2673477554841c29e56a50b7dbe00afb6d9e16019627bad3bb1"
+    },
+    {
+      "name": "afternic-observe",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "afternic:marketplace:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "2cb87d3c248a758fdf568da6375522a2ddc60b506b058acecc32dcebd49bc259"
+    },
+    {
+      "name": "afternic-observe-and-write",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "afternic:marketplace:observe",
+            "afternic:marketplace:write"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "4041955b9bcdb6cc85129ded92320e68e4cca4b78372f136466d895d5a870a74"
+    },
+    {
+      "name": "both-observe",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "afternic:marketplace:observe",
+            "cloudflare:dns:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "e85ae5bb21ed89407d0bf24b6f6484ba521c28602643f5bc7c276b46d4866c3b"
+    },
+    {
+      "name": "cloudflare-registrar-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "cloudflare:registrar:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "cf80c0c4b4a8dc5fa7170474c03efdb1b39c72a2fc06c311c7eb39fcf4579811"
+    },
+    {
+      "name": "aliyun-registrar-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "aliyun:registrar:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "f70a02939f8d8dbf86cc2d3dbf607249145a19850871431845c1add30aa2a7b7"
+    },
+    {
+      "name": "atom-marketplace-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "atom:marketplace:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "caf61961b88cc3710109fd63c39772305d99bc903b08b3684c2890b8deacfdee"
+    },
+    {
+      "name": "sedo-marketplace-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "sedo:marketplace:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "2394ee80f63419cbe6f27beaac1b9ae68a9c8e2606c8d1031326ce2e98c14805"
+    },
+    {
+      "name": "unrecognized-sedo-write",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "sedo:marketplace:observe",
+            "sedo:marketplace:write"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "godaddy-registrar-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "godaddy:registrar:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "39aa68a5cdfe4516c6a57ac66acac50bcdd2f364953e9a589c8daa4198696fd9"
+    },
+    {
+      "name": "porkbun-registrar-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "porkbun:registrar:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "050f978dd3ea245d9deea6345e7c3a1880662f4f2a7bdf4c55893d66ba9e0c6a"
+    },
+    {
+      "name": "porkbun-dns-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "porkbun:dns:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "feca9feb2d87ac756360a5e133772a7f112b413a4f95df3d0d8fa0a4a9ffb96d"
+    },
+    {
+      "name": "spaceship-registrar-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "spaceship:registrar:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "afea8eaf594e35c217033f52504460123e6177b9ec69f68f6b761c01529268a3"
+    },
+    {
+      "name": "spaceship-marketplace-only",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "spaceship:marketplace:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "c96bd0d5a43852c0231a28d5e002c455ac7a61a070fe51b5b1d80b3fc75b3eaa"
+    },
+    {
+      "name": "all-capabilities",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "afternic:marketplace:observe",
+            "afternic:marketplace:write",
+            "aliyun:registrar:observe",
+            "atom:marketplace:observe",
+            "atom:marketplace:write",
+            "cloudflare:dns:observe",
+            "cloudflare:registrar:observe",
+            "godaddy:registrar:observe",
+            "porkbun:dns:observe",
+            "porkbun:registrar:observe",
+            "sedo:marketplace:observe",
+            "spaceship:marketplace:observe",
+            "spaceship:marketplace:write",
+            "spaceship:registrar:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "76d4a013e12c09430c9ba4a7f59d0050104613eae741f47076655fe4e8fa5814"
+    },
+    {
+      "name": "unrecognized-spaceship-write",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "spaceship:registrar:write"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "sellerhub-observe-and-write",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "spaceship:marketplace:observe",
+            "spaceship:marketplace:write"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "7d5ce9dcdf8cc98d8fc4a16417cd49fb172918e52d8da497faba5c2d2dcee723"
+    },
+    {
+      "name": "sellerhub-write-without-observe",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "spaceship:marketplace:write"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "sellerhub-write-with-registrar-only",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "spaceship:marketplace:write",
+            "spaceship:registrar:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "atom-observe-and-write",
+      "accepted": true,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "atom:marketplace:observe",
+            "atom:marketplace:write"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": "4a8e8043a226b530df29728e7f4800e95b72e14ce891806b12110d8a3a80537c"
+    },
+    {
+      "name": "atom-write-without-observe",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "atom:marketplace:write"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "atom-write-with-other-market-observe",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "atom:marketplace:write",
+            "spaceship:marketplace:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "write-without-observe",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "afternic:marketplace:write"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "cloudflare-does-not-imply-afternic-observe",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "afternic:marketplace:write",
+            "cloudflare:dns:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "duplicate",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "cloudflare:dns:observe",
+            "cloudflare:dns:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "unordered",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "cloudflare:dns:observe",
+            "afternic:marketplace:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "unknown-capability",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "afternic:marketplace:verify"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "wildcard",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "afternic:*"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "not-an-array",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": "cloudflare:dns:observe"
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "legacy-active-v3",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 3,
+        "typ": "gd.desktop-authorization-grant.v3",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "cloudflare:dns:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "legacy-commercial-v1",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 1,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "cloudflare:dns:observe"
+          ]
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "legacy-capability-field",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z",
+          "capabilities": [
+            "cloudflare:dns:observe"
+          ],
+          "capability": "cloudflare:dns:observe"
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    },
+    {
+      "name": "missing-capabilities",
+      "accepted": false,
+      "grant": {
+        "schemaVersion": 4,
+        "typ": "gd.desktop-authorization-grant.v4",
+        "iss": "https://accounts.gooddealer.com",
+        "aud": "gooddealer-desktop/local-business",
+        "kid": "grant-key-1",
+        "issuedAt": "2026-08-01T10:00:00Z",
+        "expiresAt": "2026-08-02T10:00:00Z",
+        "workspace": {
+          "workspaceId": "workspace-local",
+          "kind": "personal_default"
+        },
+        "activeDeviceLease": {
+          "schemaVersion": 1,
+          "typ": "gd.active-device-lease.v1",
+          "iss": "https://accounts.gooddealer.com",
+          "aud": "gooddealer-desktop/active-device-lease",
+          "kid": "lease-key-2026-01",
+          "accountId": "account-01",
+          "deviceId": "device-01",
+          "accountSecurityEpoch": 1,
+          "jti": "lease-jti-01",
+          "issuedAt": "2026-08-01T10:00:00Z",
+          "expiresAt": "2026-08-02T10:00:00Z",
+          "payload": {
+            "leaseEpoch": 7,
+            "renewAfter": "2026-08-01T10:15:00Z",
+            "onlineExpiresAt": "2026-08-01T10:30:00Z",
+            "offlineExecuteUntil": "2026-08-02T10:00:00Z"
+          },
+          "signature": "RmFrZVNpZ25hdHVyZQ"
+        },
+        "scopes": [
+          "workspace:mutate",
+          "workspace:read"
+        ],
+        "commercialAuthority": {
+          "schemaVersion": 2,
+          "entitlementRevision": 9,
+          "entitlementProjectionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "active",
+          "commercialExpiresAt": "2026-08-02T10:00:00Z"
+        },
+        "signature": "fixture-grant-signature"
+      },
+      "transcriptSha256": null
+    }
+  ]
+}

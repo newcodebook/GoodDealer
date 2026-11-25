@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-atom-marketplace-submit"
+description = "Enables the atom_marketplace_submit command without any pre-configured scope."
+commands.allow = ["atom_marketplace_submit"]
+
+[[permission]]
+identifier = "deny-atom-marketplace-submit"
+description = "Denies the atom_marketplace_submit command without any pre-configured scope."
+commands.deny = ["atom_marketplace_submit"]

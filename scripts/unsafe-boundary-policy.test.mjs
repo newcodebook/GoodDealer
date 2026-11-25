@@ -8,8 +8,27 @@ import {
   unsafeCodeBoundaryErrors,
 } from "./unsafe-boundary-policy.mjs";
 
-test("keeps the unsafe-code override allowlist empty", () => {
-  assert.deepEqual(unsafeCodeAllowlist, []);
+test("pins unsafe overrides to the four private OS power and clock files", () => {
+  assert.deepEqual(unsafeCodeAllowlist, [
+    "crates/secure-host-core/src/native_power/windows.rs",
+    "crates/secure-host-core/src/native_power/macos.rs",
+    "crates/secure-host-core/src/native_continuous_clock/windows.rs",
+    "crates/secure-host-core/src/native_continuous_clock/macos.rs",
+  ]);
+  for (const path of unsafeCodeAllowlist) {
+    assert.deepEqual(unsafeCodeBoundaryErrors([{ path, source: "#![allow(unsafe_code)]" }]), []);
+  }
+  for (const path of [
+    "crates/secure-host-core/src/lib.rs",
+    "crates/secure-host-core/src/native_power.rs",
+    "crates/secure-host-core/src/native_power/other.rs",
+    "crates/secure-host-core/src/native_continuous_clock.rs",
+    "crates/secure-host-core/src/native_continuous_clock/other.rs",
+    "crates/secure-host-core/src/afternic_credentials.rs",
+    "crates/local-storage/src/desktop_custody/windows.rs",
+  ]) {
+    assert.equal(unsafeCodeBoundaryErrors([{ path, source: "#![allow(unsafe_code)]" }]).length, 1);
+  }
   assert.equal(
     unsafeCodeBoundaryErrors([
       { path: "crates/example/src/lib.rs", source: "#![allow(unsafe_code)]" },
@@ -70,7 +89,17 @@ test("does not confuse unrelated Rust and Clippy allows with unsafe_code", () =>
   );
 });
 
-test("the repository has no unsafe-code override outside the ADR-0012 file", () => {
+test("the repository has no unsafe-code override outside the exact ADR-0006 files", () => {
   const root = resolve(import.meta.dirname, "..");
   assert.deepEqual(repositoryUnsafeCodeBoundaryErrors(root), []);
+});
+
+
+test("rejects warn overrides that weaken Core's deny even inside cfg_attr", () => {
+  const errors = unsafeCodeBoundaryErrors([{
+    path: "crates/secure-host-core/src/afternic_credentials.rs",
+    source: '#![warn(unsafe_code)]\n#[cfg_attr(target_os = "windows", warn(dead_code, unsafe_code))]',
+  }]);
+  assert.equal(errors.length, 2);
+  assert.ok(errors.every((error) => error.includes("warn(unsafe_code) is forbidden")));
 });

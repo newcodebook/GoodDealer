@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-local-sales-read"
+description = "Enables the local_sales_read command without any pre-configured scope."
+commands.allow = ["local_sales_read"]
+
+[[permission]]
+identifier = "deny-local-sales-read"
+description = "Denies the local_sales_read command without any pre-configured scope."
+commands.deny = ["local_sales_read"]

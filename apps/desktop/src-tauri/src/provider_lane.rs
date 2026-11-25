@@ -1,4 +1,4 @@
-//! Native-only user-triggered Cloudflare Provider lane core.
+//! One Native Provider execution slot with independent credential recovery gates.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -8,7 +8,7 @@ use std::{
 };
 
 use tokio::{
-    sync::{mpsc, watch},
+    sync::{Notify, mpsc, watch},
     time::Instant,
 };
 
@@ -17,8 +17,83 @@ const OBSERVATION_WINDOW: Duration = Duration::from_mins(1);
 const OBSERVATION_MINIMUM_SPACING: Duration = Duration::from_secs(15);
 const OBSERVATION_LIMIT: usize = 4;
 
+// Each durable market capability gets a turn in the same slot.
+const DURABLE_MARKET_STEPS: [ProviderOperation; 5] = [
+    ProviderOperation::AfternicDelistStep,
+    ProviderOperation::AfternicListingWriteStep,
+    ProviderOperation::AtomStandardDelistStep,
+    ProviderOperation::SellerHubBinStep,
+    ProviderOperation::SellerHubCreateStep,
+];
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ProviderOperation {
+    /// Internal wake only: picks one durable due Afternic item, never receives Renderer plans.
+    AfternicDelistStep,
+    AfternicListingWriteStep,
+    AtomStandardDelistStep,
+    SellerHubBinStep,
+    SellerHubCreateStep,
+    AfternicConnect {
+        display_label: String,
+    },
+    AfternicRefresh {
+        connection_id: String,
+    },
+    AfternicRevoke {
+        connection_id: String,
+    },
+    SpaceshipConnect,
+    SpaceshipRefresh {
+        connection_id: String,
+    },
+    SpaceshipRevoke {
+        connection_id: String,
+    },
+    SellerHubRefresh {
+        connection_id: String,
+    },
+    SellerHubRevoke {
+        connection_id: String,
+    },
+    AliyunConnect,
+    AliyunRefresh {
+        connection_id: String,
+    },
+    AliyunRevoke {
+        connection_id: String,
+    },
+    GoDaddyConnect,
+    GoDaddyRefresh {
+        connection_id: String,
+    },
+    GoDaddyRevoke {
+        connection_id: String,
+    },
+    PorkbunConnect,
+    PorkbunRefresh {
+        connection_id: String,
+    },
+    PorkbunRevoke {
+        connection_id: String,
+    },
+    /// One read-only Zone record read through an inventory connection's key pair.
+    PorkbunDnsObserve {
+        connection_id: String,
+        entity_id: String,
+    },
+    /// One read-only registry nameserver read through an inventory connection's key pair.
+    PorkbunDelegationObserve {
+        connection_id: String,
+        entity_id: String,
+    },
+    AtomConnect,
+    AtomRefresh {
+        connection_id: String,
+    },
+    AtomRevoke {
+        connection_id: String,
+    },
     Activate {
         connection_id: String,
     },
@@ -26,12 +101,107 @@ pub(crate) enum ProviderOperation {
         connection_id: String,
         entity_id: String,
     },
+    CloudflareRegistrarRefresh {
+        connection_id: String,
+    },
+    SedoConnect,
+    SedoRefresh {
+        connection_id: String,
+    },
+    SedoRevoke {
+        connection_id: String,
+    },
+    CloudflareRegistrarAccountConnect,
+    CloudflareRegistrarAccountRefresh {
+        connection_id: String,
+    },
+    CloudflareRegistrarAccountRevoke {
+        connection_id: String,
+    },
+    /// Revokes the connection's credential. It shares the single in-flight slot so it never races
+    /// a provision of the same custody, but it is never rate limited: withdrawing access must
+    /// always be possible.
+    Revoke {
+        connection_id: String,
+    },
+    /// May queue behind recovery, including a failed scan, but never overlaps custody work.
+    Purge {
+        connection_id: String,
+        action: RetirementAction,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RetirementAction {
+    ConfirmRetirement,
+    RetryPending,
 }
 
 impl ProviderOperation {
+    fn is_afternic(&self) -> bool {
+        matches!(
+            self,
+            Self::AfternicDelistStep
+                | Self::AfternicListingWriteStep
+                | Self::AfternicConnect { .. }
+                | Self::AfternicRefresh { .. }
+                | Self::AfternicRevoke { .. }
+        )
+    }
+
+    fn is_durable_market_step(&self) -> bool {
+        matches!(
+            self,
+            Self::AfternicDelistStep
+                | Self::AfternicListingWriteStep
+                | Self::AtomStandardDelistStep
+                | Self::SellerHubBinStep
+                | Self::SellerHubCreateStep
+        )
+    }
+
     fn connection_id(&self) -> &str {
         match self {
-            Self::Activate { connection_id } | Self::Observe { connection_id, .. } => connection_id,
+            Self::AfternicDelistStep => "afternic:delist",
+            Self::AfternicListingWriteStep => "afternic:listing-write",
+            Self::SellerHubCreateStep => "spaceship:sellerhub-create-listing",
+            Self::SellerHubBinStep => "spaceship:sellerhub-bin-price",
+            Self::AtomStandardDelistStep => "atom:standard-delist",
+            Self::AfternicConnect { .. } => "afternic:new-connection",
+            Self::SpaceshipConnect => "spaceship:new-connection",
+            Self::AliyunConnect => "aliyun:new-connection",
+            Self::GoDaddyConnect => "godaddy:new-connection",
+            Self::PorkbunConnect => "porkbun:new-connection",
+            Self::AtomConnect => "atom:new-connection",
+            Self::SedoConnect => "sedo:new-connection",
+            Self::CloudflareRegistrarAccountConnect => "cloudflare-registrar:new-connection",
+            Self::AfternicRefresh { connection_id } | Self::AfternicRevoke { connection_id } => {
+                connection_id
+            }
+            Self::Activate { connection_id }
+            | Self::SpaceshipRefresh { connection_id }
+            | Self::SellerHubRefresh { connection_id }
+            | Self::AliyunRefresh { connection_id }
+            | Self::GoDaddyRefresh { connection_id }
+            | Self::PorkbunRefresh { connection_id }
+            | Self::AtomRefresh { connection_id }
+            | Self::SedoRefresh { connection_id }
+            | Self::SpaceshipRevoke { connection_id }
+            | Self::SellerHubRevoke { connection_id }
+            | Self::AliyunRevoke { connection_id }
+            | Self::GoDaddyRevoke { connection_id }
+            | Self::PorkbunRevoke { connection_id }
+            | Self::AtomRevoke { connection_id }
+            | Self::SedoRevoke { connection_id }
+            | Self::CloudflareRegistrarRefresh { connection_id }
+            | Self::CloudflareRegistrarAccountRefresh { connection_id }
+            | Self::CloudflareRegistrarAccountRevoke { connection_id }
+            | Self::Revoke { connection_id }
+            | Self::Purge { connection_id, .. }
+            | Self::PorkbunDnsObserve { connection_id, .. }
+            | Self::PorkbunDelegationObserve { connection_id, .. }
+            | Self::Observe { connection_id, .. } => connection_id,
         }
     }
 }
@@ -58,8 +228,95 @@ struct ConnectionRateState {
     observations: VecDeque<Instant>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderRecovery {
+    Pending,
+    Complete,
+}
+
+impl From<bool> for ProviderRecovery {
+    fn from(complete: bool) -> Self {
+        if complete {
+            Self::Complete
+        } else {
+            Self::Pending
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ProviderRecoveryOutcome {
+    pub(crate) cloudflare: ProviderRecovery,
+    pub(crate) cloudflare_registrar_account: ProviderRecovery,
+    pub(crate) afternic: ProviderRecovery,
+    pub(crate) spaceship: ProviderRecovery,
+    pub(crate) sellerhub: ProviderRecovery,
+    pub(crate) aliyun: ProviderRecovery,
+    pub(crate) godaddy: ProviderRecovery,
+    pub(crate) porkbun: ProviderRecovery,
+    pub(crate) atom: ProviderRecovery,
+    pub(crate) sedo: ProviderRecovery,
+}
+
+impl ProviderRecoveryOutcome {
+    fn for_operation(self, operation: &ProviderOperation) -> ProviderRecovery {
+        match operation {
+            ProviderOperation::CloudflareRegistrarAccountConnect
+            | ProviderOperation::CloudflareRegistrarAccountRefresh { .. }
+            | ProviderOperation::CloudflareRegistrarAccountRevoke { .. } => {
+                self.cloudflare_registrar_account
+            }
+            ProviderOperation::SpaceshipConnect
+            | ProviderOperation::SpaceshipRefresh { .. }
+            | ProviderOperation::SpaceshipRevoke { .. } => self.spaceship,
+            ProviderOperation::SellerHubBinStep
+            | ProviderOperation::SellerHubCreateStep
+            | ProviderOperation::SellerHubRefresh { .. }
+            | ProviderOperation::SellerHubRevoke { .. } => self.sellerhub,
+            ProviderOperation::AliyunConnect
+            | ProviderOperation::AliyunRefresh { .. }
+            | ProviderOperation::AliyunRevoke { .. } => self.aliyun,
+            ProviderOperation::GoDaddyConnect
+            | ProviderOperation::GoDaddyRefresh { .. }
+            | ProviderOperation::GoDaddyRevoke { .. } => self.godaddy,
+            ProviderOperation::PorkbunConnect
+            | ProviderOperation::PorkbunRefresh { .. }
+            | ProviderOperation::PorkbunRevoke { .. }
+            | ProviderOperation::PorkbunDnsObserve { .. }
+            | ProviderOperation::PorkbunDelegationObserve { .. } => self.porkbun,
+            ProviderOperation::AtomStandardDelistStep
+            | ProviderOperation::AtomConnect
+            | ProviderOperation::AtomRefresh { .. }
+            | ProviderOperation::AtomRevoke { .. } => self.atom,
+            ProviderOperation::SedoConnect
+            | ProviderOperation::SedoRefresh { .. }
+            | ProviderOperation::SedoRevoke { .. } => self.sedo,
+            operation if operation.is_afternic() => self.afternic,
+            _ => self.cloudflare,
+        }
+    }
+}
+
+impl From<bool> for ProviderRecoveryOutcome {
+    fn from(complete: bool) -> Self {
+        let recovery = ProviderRecovery::from(complete);
+        Self {
+            cloudflare: recovery,
+            cloudflare_registrar_account: recovery,
+            afternic: recovery,
+            spaceship: recovery,
+            sellerhub: recovery,
+            aliyun: recovery,
+            godaddy: recovery,
+            porkbun: recovery,
+            atom: recovery,
+            sedo: recovery,
+        }
+    }
+}
+
 struct ProviderAdmissionState {
-    recovering: bool,
+    recovery: ProviderRecoveryOutcome,
     recovery_generation: Option<u64>,
     in_flight: Option<ProviderOperation>,
     rates: HashMap<String, ConnectionRateState>,
@@ -68,7 +325,7 @@ struct ProviderAdmissionState {
 impl Default for ProviderAdmissionState {
     fn default() -> Self {
         Self {
-            recovering: true,
+            recovery: false.into(),
             recovery_generation: Some(0),
             in_flight: None,
             rates: HashMap::new(),
@@ -85,25 +342,66 @@ enum ProviderAdmission {
 }
 
 impl ProviderAdmissionState {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "each reviewed operation is explicitly admitted and classified in the serial lane"
+    )]
     fn admit(&mut self, operation: &ProviderOperation, now: Instant) -> ProviderAdmission {
-        if self.recovering {
+        // Serial execution still drains any queued/running recovery first. Only permanent
+        // retirement may pass a failed recovery gate; the Host rejects possible live writers.
+        let recovering = self.recovery.for_operation(operation);
+        if self.recovery_generation.is_none()
+            || (recovering == ProviderRecovery::Pending
+                && !matches!(
+                    operation,
+                    ProviderOperation::Purge { .. }
+                        | ProviderOperation::AfternicRevoke { .. }
+                        | ProviderOperation::SpaceshipRevoke { .. }
+                        | ProviderOperation::SellerHubRevoke { .. }
+                        | ProviderOperation::AliyunRevoke { .. }
+                        | ProviderOperation::GoDaddyRevoke { .. }
+                        | ProviderOperation::PorkbunRevoke { .. }
+                        | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
+                        | ProviderOperation::SedoRevoke { .. }
+                        | ProviderOperation::AtomRevoke { .. }
+                ))
+        {
             return ProviderAdmission::Busy;
         }
         if let Some(in_flight) = self.in_flight.as_ref() {
-            return if matches!(operation, ProviderOperation::Observe { .. })
-                && in_flight == operation
+            return if matches!(
+                operation,
+                ProviderOperation::Observe { .. }
+                    | ProviderOperation::PorkbunDnsObserve { .. }
+                    | ProviderOperation::PorkbunDelegationObserve { .. }
+                    | ProviderOperation::CloudflareRegistrarRefresh { .. }
+                    | ProviderOperation::CloudflareRegistrarAccountRefresh { .. }
+                    | ProviderOperation::AfternicRefresh { .. }
+            ) && in_flight == operation
             {
                 ProviderAdmission::Coalesced
             } else {
                 ProviderAdmission::Busy
             };
         }
+        if operation.is_durable_market_step() {
+            self.in_flight = Some(operation.clone());
+            return ProviderAdmission::Enqueue;
+        }
         let rate = self
             .rates
             .entry(operation.connection_id().to_owned())
             .or_default();
         match operation {
-            ProviderOperation::Activate { .. } => {
+            ProviderOperation::Activate { .. }
+            | ProviderOperation::AfternicConnect { .. }
+            | ProviderOperation::SpaceshipConnect
+            | ProviderOperation::AliyunConnect
+            | ProviderOperation::GoDaddyConnect
+            | ProviderOperation::PorkbunConnect
+            | ProviderOperation::CloudflareRegistrarAccountConnect
+            | ProviderOperation::SedoConnect
+            | ProviderOperation::AtomConnect => {
                 if rate
                     .last_activation
                     .is_some_and(|last| now.duration_since(last) < ACTIVATION_WINDOW)
@@ -112,7 +410,19 @@ impl ProviderAdmissionState {
                 }
                 rate.last_activation = Some(now);
             }
-            ProviderOperation::Observe { .. } => {
+            ProviderOperation::Observe { .. }
+            | ProviderOperation::PorkbunDnsObserve { .. }
+            | ProviderOperation::PorkbunDelegationObserve { .. }
+            | ProviderOperation::CloudflareRegistrarRefresh { .. }
+            | ProviderOperation::CloudflareRegistrarAccountRefresh { .. }
+            | ProviderOperation::SpaceshipRefresh { .. }
+            | ProviderOperation::SellerHubRefresh { .. }
+            | ProviderOperation::AliyunRefresh { .. }
+            | ProviderOperation::GoDaddyRefresh { .. }
+            | ProviderOperation::PorkbunRefresh { .. }
+            | ProviderOperation::SedoRefresh { .. }
+            | ProviderOperation::AtomRefresh { .. }
+            | ProviderOperation::AfternicRefresh { .. } => {
                 while rate
                     .observations
                     .front()
@@ -130,6 +440,22 @@ impl ProviderAdmissionState {
                 }
                 rate.observations.push_back(now);
             }
+            ProviderOperation::AfternicDelistStep
+            | ProviderOperation::AfternicListingWriteStep
+            | ProviderOperation::AtomStandardDelistStep
+            | ProviderOperation::SellerHubBinStep
+            | ProviderOperation::SellerHubCreateStep
+            | ProviderOperation::Revoke { .. }
+            | ProviderOperation::Purge { .. }
+            | ProviderOperation::SpaceshipRevoke { .. }
+            | ProviderOperation::SellerHubRevoke { .. }
+            | ProviderOperation::AliyunRevoke { .. }
+            | ProviderOperation::GoDaddyRevoke { .. }
+            | ProviderOperation::PorkbunRevoke { .. }
+            | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
+            | ProviderOperation::SedoRevoke { .. }
+            | ProviderOperation::AtomRevoke { .. }
+            | ProviderOperation::AfternicRevoke { .. } => {}
         }
         self.in_flight = Some(operation.clone());
         ProviderAdmission::Enqueue
@@ -142,7 +468,7 @@ impl ProviderAdmissionState {
     }
 
     fn begin_recovery(&mut self) {
-        self.recovering = true;
+        self.recovery = false.into();
         self.recovery_generation = self
             .recovery_generation
             .and_then(|generation| generation.checked_add(1));
@@ -152,9 +478,9 @@ impl ProviderAdmissionState {
         self.recovery_generation
     }
 
-    fn finish_recovery(&mut self, generation: Option<u64>, complete: bool) {
-        if complete && generation.is_some() && self.recovery_generation == generation {
-            self.recovering = false;
+    fn finish_recovery(&mut self, generation: Option<u64>, complete: ProviderRecoveryOutcome) {
+        if generation.is_some() && self.recovery_generation == generation {
+            self.recovery = complete;
         }
     }
 }
@@ -165,19 +491,53 @@ pub(crate) struct ProviderLaneHandle {
     recovery: mpsc::Sender<()>,
     cancel: watch::Sender<bool>,
     admission: Arc<Mutex<ProviderAdmissionState>>,
+    durable_wake: Arc<Notify>,
 }
 
 impl ProviderLaneHandle {
     pub(crate) fn status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.cloudflare)
+    }
+    pub(crate) fn cloudflare_registrar_account_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.cloudflare_registrar_account)
+    }
+    pub(crate) fn afternic_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.afternic)
+    }
+    pub(crate) fn spaceship_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.spaceship)
+    }
+    pub(crate) fn sellerhub_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.sellerhub)
+    }
+    pub(crate) fn aliyun_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.aliyun)
+    }
+    pub(crate) fn godaddy_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.godaddy)
+    }
+    pub(crate) fn porkbun_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.porkbun)
+    }
+    pub(crate) fn atom_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.atom)
+    }
+    pub(crate) fn sedo_status(&self) -> ProviderStatus {
+        self.status_for(|state| state.recovery.sedo)
+    }
+    fn status_for(
+        &self,
+        is_recovering: impl FnOnce(&ProviderAdmissionState) -> ProviderRecovery,
+    ) -> ProviderStatus {
         let Ok(admission) = self.admission.lock() else {
             return ProviderStatus::Blocked;
         };
         if admission.recovery_generation.is_none() {
             ProviderStatus::Blocked
-        } else if admission.recovering {
-            ProviderStatus::Recovering
         } else if admission.in_flight.is_some() {
             ProviderStatus::Busy
+        } else if is_recovering(&admission) == ProviderRecovery::Pending {
+            ProviderStatus::Recovering
         } else {
             ProviderStatus::Ready
         }
@@ -187,6 +547,123 @@ impl ProviderLaneHandle {
     }
 
     fn submit_at(&self, operation: &ProviderOperation, now: Instant) -> ProviderSubmission {
+        self.submit_at_after(operation, now, || true)
+    }
+
+    pub(crate) fn submit_registrar_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::CloudflareRegistrarRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_registrar_account_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::CloudflareRegistrarAccountRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_atom_refresh_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::AtomRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_sedo_refresh_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::SedoRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_spaceship_refresh_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::SpaceshipRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_sellerhub_refresh_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::SellerHubRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_aliyun_refresh_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::AliyunRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_godaddy_refresh_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::GoDaddyRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    pub(crate) fn submit_porkbun_refresh_after(
+        &self,
+        connection_id: String,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
+        self.submit_at_after(
+            &ProviderOperation::PorkbunRefresh { connection_id },
+            Instant::now(),
+            persist,
+        )
+    }
+
+    fn submit_at_after(
+        &self,
+        operation: &ProviderOperation,
+        now: Instant,
+        persist: impl FnOnce() -> bool,
+    ) -> ProviderSubmission {
         let Ok(mut admission) = self.admission.lock() else {
             return ProviderSubmission::Unavailable;
         };
@@ -196,11 +673,17 @@ impl ProviderLaneHandle {
             ProviderAdmission::RateLimited => return ProviderSubmission::RateLimited,
             ProviderAdmission::Enqueue => {}
         }
-        if self.commands.try_send(operation.clone()).is_err() {
+        // The reservation keeps another caller from observing Accepted before durable work
+        // exists. An interrupted send can be recovered from that work at startup.
+        if !persist() || self.commands.try_send(operation.clone()).is_err() {
             admission.complete(operation);
             return ProviderSubmission::Unavailable;
         }
         ProviderSubmission::Accepted
+    }
+
+    pub(crate) fn wake_durable_operations(&self) {
+        self.durable_wake.notify_one();
     }
 
     pub(crate) fn cancel(&self) {
@@ -221,6 +704,7 @@ pub(crate) struct ProviderLane {
     recovery: mpsc::Receiver<()>,
     cancel: watch::Receiver<bool>,
     admission: Arc<Mutex<ProviderAdmissionState>>,
+    durable_wake: Arc<Notify>,
 }
 
 impl ProviderLane {
@@ -229,33 +713,55 @@ impl ProviderLane {
         let (recovery_tx, recovery_rx) = mpsc::channel(1);
         let (cancel_tx, cancel_rx) = watch::channel(false);
         let admission = Arc::new(Mutex::new(ProviderAdmissionState::default()));
+        let durable_wake = Arc::new(Notify::new());
         (
             ProviderLaneHandle {
                 commands: command_tx,
                 recovery: recovery_tx,
                 cancel: cancel_tx,
                 admission: Arc::clone(&admission),
+                durable_wake: Arc::clone(&durable_wake),
             },
             Self {
                 commands: command_rx,
                 recovery: recovery_rx,
                 cancel: cancel_rx,
                 admission,
+                durable_wake,
             },
         )
     }
 
-    pub(crate) async fn run<R, Recover, E, Execute>(mut self, mut recover: R, mut execute: E)
+    #[cfg(test)]
+    pub(crate) async fn run<R, Recover, E, Execute>(self, recover: R, execute: E)
     where
         R: FnMut() -> Recover,
-        Recover: Future<Output = bool>,
+        Recover: Future<Output = ProviderRecoveryOutcome>,
         E: FnMut(ProviderOperation) -> Execute,
         Execute: Future<Output = ()>,
     {
+        self.run_with_power(recover, execute, None).await;
+    }
+
+    pub(crate) async fn run_with_power<R, Recover, E, Execute>(
+        mut self,
+        mut recover: R,
+        mut execute: E,
+        power: Option<gooddealer_secure_host_core::NativePowerGate>,
+    ) where
+        R: FnMut() -> Recover,
+        Recover: Future<Output = ProviderRecoveryOutcome>,
+        E: FnMut(ProviderOperation) -> Execute,
+        Execute: Future<Output = ()>,
+    {
+        let mut idle_due = Instant::now() + Duration::from_secs(30);
+        let mut power_epoch = power.as_ref().map_or(0, |gate| gate.snapshot().epoch);
         loop {
             enum Work {
                 Recover,
                 Operation(ProviderOperation),
+                DurableOperations,
+                Power(gooddealer_secure_host_core::NativePowerSnapshot),
             }
             let work = tokio::select! {
                 biased;
@@ -265,6 +771,7 @@ impl ProviderLane {
                     }
                     continue;
                 }
+                snapshot = power_change(power.as_ref(), power_epoch) => Work::Power(snapshot),
                 recovery = self.recovery.recv() => {
                     if recovery.is_none() {
                         return;
@@ -277,8 +784,37 @@ impl ProviderLane {
                     };
                     Work::Operation(operation)
                 }
+                () = self.durable_wake.notified(), if power.is_some() => Work::DurableOperations,
+                () = tokio::time::sleep_until(idle_due), if power.is_some() => Work::DurableOperations,
             };
             match work {
+                Work::Power(snapshot) => {
+                    power_epoch = snapshot.epoch;
+                    if snapshot.ready && !snapshot.paused {
+                        if let Ok(mut admission) = self.admission.lock() {
+                            admission.begin_recovery();
+                        }
+                        let generation = self.recovery_generation();
+                        let complete = recover().await;
+                        self.finish_recovery(generation, complete);
+                    }
+                }
+                Work::DurableOperations => {
+                    idle_due = Instant::now() + Duration::from_secs(30);
+                    for operation in DURABLE_MARKET_STEPS {
+                        if *self.cancel.borrow() {
+                            return;
+                        }
+                        let admitted = self.admission.lock().is_ok_and(|mut admission| {
+                            admission.admit(&operation, Instant::now())
+                                == ProviderAdmission::Enqueue
+                        });
+                        if admitted {
+                            execute(operation.clone()).await;
+                            self.complete(&operation);
+                        }
+                    }
+                }
                 Work::Recover => {
                     let generation = self.recovery_generation();
                     let complete = recover().await;
@@ -289,6 +825,25 @@ impl ProviderLane {
                     // admitted operation before join so no effect can escape the lane lifetime.
                     execute(operation.clone()).await;
                     self.complete(&operation);
+                    self.durable_wake.notify_one();
+                    if !*self.cancel.borrow()
+                        && matches!(
+                            operation,
+                            ProviderOperation::AfternicRevoke { .. }
+                                | ProviderOperation::SpaceshipRevoke { .. }
+                                | ProviderOperation::SellerHubRevoke { .. }
+                                | ProviderOperation::AliyunRevoke { .. }
+                                | ProviderOperation::GoDaddyRevoke { .. }
+                                | ProviderOperation::PorkbunRevoke { .. }
+                                | ProviderOperation::CloudflareRegistrarAccountRevoke { .. }
+                                | ProviderOperation::SedoRevoke { .. }
+                                | ProviderOperation::AtomRevoke { .. }
+                        )
+                    {
+                        let generation = self.recovery_generation();
+                        let complete = recover().await;
+                        self.finish_recovery(generation, complete);
+                    }
                 }
             }
             if *self.cancel.borrow() {
@@ -304,16 +859,31 @@ impl ProviderLane {
             .and_then(|admission| admission.recovery_generation())
     }
 
-    fn finish_recovery(&self, generation: Option<u64>, complete: bool) {
+    fn finish_recovery(
+        &self,
+        generation: Option<u64>,
+        complete: impl Into<ProviderRecoveryOutcome>,
+    ) {
         if let Ok(mut admission) = self.admission.lock() {
-            admission.finish_recovery(generation, complete);
+            admission.finish_recovery(generation, complete.into());
         }
+        self.durable_wake.notify_one();
     }
 
     fn complete(&self, operation: &ProviderOperation) {
         if let Ok(mut admission) = self.admission.lock() {
             admission.complete(operation);
         }
+    }
+}
+
+async fn power_change(
+    power: Option<&gooddealer_secure_host_core::NativePowerGate>,
+    epoch: u64,
+) -> gooddealer_secure_host_core::NativePowerSnapshot {
+    match power {
+        Some(power) => power.wait_for_epoch_change(epoch).await,
+        None => std::future::pending().await,
     }
 }
 
@@ -336,6 +906,352 @@ mod tests {
     }
 
     #[test]
+    fn cloudflare_registrar_acceptance_follows_persistence_and_coalesces() {
+        let (handle, mut lane) = ProviderLane::new();
+        lane.finish_recovery(Some(0), true);
+        assert_eq!(
+            handle.submit_registrar_after("rejected".into(), || false),
+            ProviderSubmission::Unavailable
+        );
+        assert!(lane.commands.try_recv().is_err());
+        assert_eq!(handle.status(), ProviderStatus::Ready);
+
+        let mut commits = 0;
+        assert_eq!(
+            handle.submit_registrar_after("current".into(), || {
+                commits += 1;
+                true
+            }),
+            ProviderSubmission::Accepted
+        );
+        assert_eq!(commits, 1);
+        assert_eq!(
+            handle.submit_registrar_after("current".into(), || panic!("duplicate must coalesce")),
+            ProviderSubmission::Accepted
+        );
+        assert_eq!(
+            lane.commands.try_recv().unwrap(),
+            ProviderOperation::CloudflareRegistrarRefresh {
+                connection_id: "current".into()
+            }
+        );
+        assert!(lane.commands.try_recv().is_err());
+    }
+
+    #[test]
+    fn atom_refresh_is_acknowledged_only_after_its_own_durable_admission() {
+        let (handle, mut lane) = ProviderLane::new();
+        lane.finish_recovery(Some(0), true);
+        assert_eq!(
+            handle.submit_atom_refresh_after("rejected".into(), || false),
+            ProviderSubmission::Unavailable,
+        );
+        assert!(lane.commands.try_recv().is_err());
+        let mut persisted = false;
+        assert_eq!(
+            handle.submit_atom_refresh_after("current".into(), || {
+                persisted = true;
+                true
+            }),
+            ProviderSubmission::Accepted,
+        );
+        assert!(persisted);
+        // An in-flight callback might have consumed the request while the lane is still busy.
+        // A second click cannot get a receipt using that earlier request's authority.
+        assert_eq!(
+            handle.submit_atom_refresh_after("current".into(), || panic!(
+                "must not persist an overlapping request"
+            )),
+            ProviderSubmission::Busy,
+        );
+        assert_eq!(
+            lane.commands.try_recv().unwrap(),
+            ProviderOperation::AtomRefresh {
+                connection_id: "current".into()
+            },
+        );
+        assert!(lane.commands.try_recv().is_err());
+    }
+
+    #[test]
+    fn spaceship_refresh_reserves_the_lane_and_persists_before_acknowledgement() {
+        let (handle, mut lane) = ProviderLane::new();
+        lane.finish_recovery(Some(0), true);
+        assert_eq!(
+            handle.submit_spaceship_refresh_after("rejected".into(), || false),
+            ProviderSubmission::Unavailable,
+        );
+        assert!(lane.commands.try_recv().is_err());
+        assert_eq!(
+            handle.submit_spaceship_refresh_after("current".into(), || {
+                assert!(lane.commands.try_recv().is_err());
+                true
+            }),
+            ProviderSubmission::Accepted,
+        );
+        assert_eq!(
+            handle.submit_spaceship_refresh_after("current".into(), || {
+                panic!("must not persist an overlapping request")
+            }),
+            ProviderSubmission::Busy,
+        );
+        assert_eq!(
+            lane.commands.try_recv().unwrap(),
+            ProviderOperation::SpaceshipRefresh {
+                connection_id: "current".into()
+            }
+        );
+    }
+
+    #[test]
+    fn sellerhub_uses_durable_refresh_and_keeps_registrar_recovery_independent() {
+        let (handle, mut lane) = ProviderLane::new();
+        let mut outcome: ProviderRecoveryOutcome = true.into();
+        outcome.sellerhub = false.into();
+        lane.finish_recovery(Some(0), outcome);
+        assert_eq!(handle.spaceship_status(), ProviderStatus::Ready);
+        assert_eq!(handle.sellerhub_status(), ProviderStatus::Recovering);
+        assert_eq!(
+            handle.submit_sellerhub_refresh_after("seller-connection".into(), || panic!(
+                "recovery must not enqueue a scan"
+            )),
+            ProviderSubmission::Busy
+        );
+        lane.finish_recovery(Some(0), true);
+        assert_eq!(
+            handle.submit_sellerhub_refresh_after("rejected-connection".into(), || false),
+            ProviderSubmission::Unavailable
+        );
+        assert_eq!(
+            handle.submit_sellerhub_refresh_after("seller-connection".into(), || true),
+            ProviderSubmission::Accepted
+        );
+        assert_eq!(
+            handle.submit(&ProviderOperation::SpaceshipConnect),
+            ProviderSubmission::Busy
+        );
+        assert_eq!(
+            lane.commands.try_recv().unwrap(),
+            ProviderOperation::SellerHubRefresh {
+                connection_id: "seller-connection".into()
+            }
+        );
+    }
+
+    #[test]
+    fn aliyun_refresh_reserves_the_lane_and_persists_before_acknowledgement() {
+        let (handle, mut lane) = ProviderLane::new();
+        lane.finish_recovery(Some(0), true);
+        assert_eq!(
+            handle.submit_aliyun_refresh_after("rejected".into(), || false),
+            ProviderSubmission::Unavailable,
+        );
+        assert!(lane.commands.try_recv().is_err());
+        assert_eq!(
+            handle.submit_aliyun_refresh_after("current".into(), || {
+                assert!(lane.commands.try_recv().is_err());
+                true
+            }),
+            ProviderSubmission::Accepted,
+        );
+        assert_eq!(
+            handle.submit_aliyun_refresh_after("current".into(), || {
+                panic!("must not persist an overlapping request")
+            }),
+            ProviderSubmission::Busy,
+        );
+        assert_eq!(
+            lane.commands.try_recv().unwrap(),
+            ProviderOperation::AliyunRefresh {
+                connection_id: "current".into()
+            }
+        );
+    }
+
+    #[test]
+    fn godaddy_refresh_reserves_the_lane_and_persists_before_acknowledgement() {
+        let (handle, mut lane) = ProviderLane::new();
+        lane.finish_recovery(Some(0), true);
+        assert_eq!(
+            handle.submit_godaddy_refresh_after("rejected".into(), || false),
+            ProviderSubmission::Unavailable,
+        );
+        assert!(lane.commands.try_recv().is_err());
+        assert_eq!(
+            handle.submit_godaddy_refresh_after("current".into(), || {
+                assert!(lane.commands.try_recv().is_err());
+                true
+            }),
+            ProviderSubmission::Accepted,
+        );
+        assert_eq!(
+            handle.submit_godaddy_refresh_after("current".into(), || {
+                panic!("must not persist an overlapping request")
+            }),
+            ProviderSubmission::Busy,
+        );
+        assert_eq!(
+            lane.commands.try_recv().unwrap(),
+            ProviderOperation::GoDaddyRefresh {
+                connection_id: "current".into()
+            }
+        );
+    }
+
+    #[test]
+    fn porkbun_refresh_reserves_the_lane_and_persists_before_acknowledgement() {
+        let (handle, mut lane) = ProviderLane::new();
+        lane.finish_recovery(Some(0), true);
+        assert_eq!(
+            handle.submit_porkbun_refresh_after("rejected".into(), || false),
+            ProviderSubmission::Unavailable,
+        );
+        assert!(lane.commands.try_recv().is_err());
+        assert_eq!(
+            handle.submit_porkbun_refresh_after("current".into(), || {
+                assert!(lane.commands.try_recv().is_err());
+                true
+            }),
+            ProviderSubmission::Accepted,
+        );
+        assert_eq!(
+            handle.submit_porkbun_refresh_after("current".into(), || {
+                panic!("must not persist an overlapping request")
+            }),
+            ProviderSubmission::Busy,
+        );
+        assert_eq!(
+            lane.commands.try_recv().unwrap(),
+            ProviderOperation::PorkbunRefresh {
+                connection_id: "current".into()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn background_steps_share_the_slot_yield_to_commands_and_continue_without_idle_delay() {
+        let monitor = gooddealer_secure_host_core::NativePowerMonitor::start();
+        let (handle, lane) = ProviderLane::new();
+        lane.finish_recovery(Some(0), true);
+        let revoke = ProviderOperation::AfternicRevoke {
+            connection_id: "a".into(),
+        };
+        assert_eq!(handle.submit(&revoke), ProviderSubmission::Accepted);
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let record = Arc::clone(&observed);
+        let done = Arc::new(Notify::new());
+        let completed = Arc::clone(&done);
+        let wake = handle.clone();
+        let worker = tokio::spawn(lane.run_with_power(
+            || async { true.into() },
+            move |operation| {
+                let record = Arc::clone(&record);
+                let done = Arc::clone(&completed);
+                let wake = wake.clone();
+                async move {
+                    tokio::task::yield_now().await;
+                    let mut items = record.lock().unwrap();
+                    items.push(operation);
+                    if items.len() < 11 {
+                        wake.wake_durable_operations();
+                    } else {
+                        wake.cancel();
+                        done.notify_one();
+                    }
+                }
+            },
+            Some(monitor.gate()),
+        ));
+        tokio::time::timeout(Duration::from_secs(2), done.notified())
+            .await
+            .unwrap();
+        handle.cancel();
+        worker.await.unwrap();
+        assert_eq!(
+            *observed.lock().unwrap(),
+            vec![
+                revoke,
+                ProviderOperation::AfternicDelistStep,
+                ProviderOperation::AfternicListingWriteStep,
+                ProviderOperation::AtomStandardDelistStep,
+                ProviderOperation::SellerHubBinStep,
+                ProviderOperation::SellerHubCreateStep,
+                ProviderOperation::AfternicDelistStep,
+                ProviderOperation::AfternicListingWriteStep,
+                ProviderOperation::AtomStandardDelistStep,
+                ProviderOperation::SellerHubBinStep,
+                ProviderOperation::SellerHubCreateStep,
+            ]
+        );
+    }
+
+    #[test]
+    fn platform_recovery_is_independent_but_execution_is_shared() {
+        let (handle, mut lane) = ProviderLane::new();
+        let refresh = ProviderOperation::AfternicRefresh {
+            connection_id: "afternic-a".to_owned(),
+        };
+        let connect = ProviderOperation::AfternicConnect {
+            display_label: "A".to_owned(),
+        };
+        let revoke = ProviderOperation::AfternicRevoke {
+            connection_id: "afternic-a".to_owned(),
+        };
+        lane.finish_recovery(
+            Some(0),
+            ProviderRecoveryOutcome {
+                cloudflare: true.into(),
+                afternic: false.into(),
+                spaceship: true.into(),
+                sellerhub: true.into(),
+                aliyun: true.into(),
+                godaddy: true.into(),
+                porkbun: true.into(),
+                cloudflare_registrar_account: true.into(),
+                atom: true.into(),
+                sedo: true.into(),
+            },
+        );
+        assert_eq!(handle.status(), ProviderStatus::Ready);
+        assert_eq!(handle.afternic_status(), ProviderStatus::Recovering);
+        assert_eq!(handle.submit(&refresh), ProviderSubmission::Busy);
+        assert_eq!(handle.submit(&connect), ProviderSubmission::Busy);
+        assert_eq!(handle.submit(&revoke), ProviderSubmission::Accepted);
+        assert_eq!(
+            handle.submit(&observe("cf-a", "example.com")),
+            ProviderSubmission::Busy
+        );
+        assert_eq!(lane.commands.try_recv().unwrap(), revoke);
+        lane.complete(&revoke);
+        lane.finish_recovery(
+            Some(0),
+            ProviderRecoveryOutcome {
+                cloudflare: false.into(),
+                afternic: true.into(),
+                spaceship: true.into(),
+                sellerhub: true.into(),
+                aliyun: true.into(),
+                godaddy: true.into(),
+                porkbun: true.into(),
+                cloudflare_registrar_account: true.into(),
+                atom: true.into(),
+                sedo: true.into(),
+            },
+        );
+        assert_eq!(
+            handle.submit(&observe("cf-a", "example.com")),
+            ProviderSubmission::Busy
+        );
+        assert_eq!(handle.submit(&refresh), ProviderSubmission::Accepted);
+        assert_eq!(handle.submit(&refresh), ProviderSubmission::Accepted);
+        assert_eq!(handle.submit(&connect), ProviderSubmission::Busy);
+        assert_eq!(lane.commands.try_recv().unwrap(), refresh);
+        lane.complete(&refresh);
+        assert_eq!(handle.submit(&refresh), ProviderSubmission::RateLimited);
+        assert_eq!(handle.submit(&revoke), ProviderSubmission::Accepted);
+    }
+
+    #[test]
     fn provider_stays_busy_until_recovery_completes() {
         let (handle, lane) = ProviderLane::new();
         let operation = observe("connection-a", "example.com");
@@ -345,6 +1261,44 @@ mod tests {
         assert_eq!(handle.submit(&operation), ProviderSubmission::Busy);
         lane.finish_recovery(Some(0), true);
         assert_eq!(handle.submit(&operation), ProviderSubmission::Accepted);
+    }
+
+    #[test]
+    fn aliyun_retirement_can_pass_its_own_recovery_gate_and_serializes_spaceship() {
+        let (handle, mut lane) = ProviderLane::new();
+        lane.finish_recovery(
+            Some(0),
+            ProviderRecoveryOutcome {
+                cloudflare: true.into(),
+                afternic: true.into(),
+                spaceship: true.into(),
+                sellerhub: true.into(),
+                aliyun: false.into(),
+                godaddy: false.into(),
+                porkbun: false.into(),
+                cloudflare_registrar_account: true.into(),
+                atom: false.into(),
+                sedo: false.into(),
+            },
+        );
+        let refresh = ProviderOperation::AliyunRefresh {
+            connection_id: "ali-registrar".to_owned(),
+        };
+        let revoke = ProviderOperation::AliyunRevoke {
+            connection_id: "ali-registrar".to_owned(),
+        };
+        assert_eq!(handle.submit(&refresh), ProviderSubmission::Busy);
+        assert_eq!(handle.submit(&revoke), ProviderSubmission::Accepted);
+        assert_eq!(
+            handle.submit(&ProviderOperation::SpaceshipConnect),
+            ProviderSubmission::Busy
+        );
+        assert_eq!(lane.commands.try_recv().unwrap(), revoke);
+        lane.complete(&revoke);
+        assert_eq!(
+            handle.submit(&ProviderOperation::SpaceshipConnect),
+            ProviderSubmission::Accepted
+        );
     }
 
     #[test]
@@ -378,7 +1332,7 @@ mod tests {
                 let completed = Arc::clone(&recovery_completed);
                 async move {
                     completed.notify_one();
-                    attempt > 0
+                    (attempt > 0).into()
                 }
             },
             |_| async {},
@@ -428,6 +1382,108 @@ mod tests {
     }
 
     #[test]
+    fn revocation_is_serial_with_provision_but_never_rate_limited() {
+        let (handle, mut lane) = ProviderLane::new();
+        let revoke = ProviderOperation::Revoke {
+            connection_id: "connection-a".to_owned(),
+        };
+        // Recovery must finish first: a revocation never overlaps an unresolved credential write.
+        assert_eq!(handle.submit(&revoke), ProviderSubmission::Busy);
+        lane.finish_recovery(Some(0), true);
+        let now = Instant::now();
+        let activation = ProviderOperation::Activate {
+            connection_id: "connection-a".to_owned(),
+        };
+        assert_eq!(
+            handle.submit_at(&activation, now),
+            ProviderSubmission::Accepted
+        );
+        assert_eq!(handle.submit_at(&revoke, now), ProviderSubmission::Busy);
+        let operation = lane.commands.try_recv().unwrap();
+        lane.complete(&operation);
+        for _ in 0..3 {
+            assert_eq!(handle.submit_at(&revoke, now), ProviderSubmission::Accepted);
+            assert_eq!(handle.submit_at(&revoke, now), ProviderSubmission::Busy);
+            let operation = lane.commands.try_recv().unwrap();
+            lane.complete(&operation);
+        }
+    }
+
+    #[test]
+    fn retirement_passes_failed_recovery_but_never_a_live_operation_or_overflow() {
+        let (handle, mut lane) = ProviderLane::new();
+        let purge = ProviderOperation::Purge {
+            connection_id: "connection-a".to_owned(),
+            action: RetirementAction::RetryPending,
+        };
+        lane.finish_recovery(Some(0), false);
+        assert_eq!(handle.submit(&purge), ProviderSubmission::Accepted);
+        assert_eq!(handle.status(), ProviderStatus::Busy);
+        assert_eq!(handle.submit(&purge), ProviderSubmission::Busy);
+        assert_eq!(
+            handle.submit(&observe("other", "example.com")),
+            ProviderSubmission::Busy
+        );
+        assert_eq!(lane.commands.try_recv(), Ok(purge.clone()));
+        lane.complete(&purge);
+        assert_eq!(handle.status(), ProviderStatus::Recovering);
+        assert_eq!(handle.submit(&purge), ProviderSubmission::Accepted);
+        assert_eq!(lane.commands.try_recv(), Ok(purge.clone()));
+        lane.complete(&purge);
+        handle.admission.lock().unwrap().recovery_generation = None;
+        assert_eq!(handle.submit(&purge), ProviderSubmission::Busy);
+        assert_eq!(handle.status(), ProviderStatus::Blocked);
+    }
+
+    #[tokio::test]
+    async fn retirement_waits_for_running_recovery_and_runs_even_when_that_scan_fails() {
+        let (handle, lane) = ProviderLane::new();
+        let scanning = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let purged = Arc::new(Notify::new());
+        let scan_started = Arc::clone(&scanning);
+        let scan_release = Arc::clone(&release);
+        let purge_done = Arc::clone(&purged);
+        handle.recover();
+        let task = tokio::spawn(lane.run(
+            move || {
+                let started = Arc::clone(&scan_started);
+                let release = Arc::clone(&scan_release);
+                async move {
+                    started.notify_one();
+                    release.notified().await;
+                    false.into()
+                }
+            },
+            move |_| {
+                let done = Arc::clone(&purge_done);
+                async move {
+                    done.notify_one();
+                }
+            },
+        ));
+        scanning.notified().await;
+        assert_eq!(
+            handle.submit(&ProviderOperation::Purge {
+                connection_id: "connection-a".to_owned(),
+                action: RetirementAction::ConfirmRetirement,
+            }),
+            ProviderSubmission::Accepted
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), purged.notified())
+                .await
+                .is_err()
+        );
+        release.notify_one();
+        tokio::time::timeout(Duration::from_secs(2), purged.notified())
+            .await
+            .unwrap();
+        handle.cancel();
+        task.await.unwrap();
+    }
+
+    #[test]
     fn provider_rate_windows_are_per_connection_and_have_no_timer_retry() {
         let (handle, mut lane) = ProviderLane::new();
         lane.finish_recovery(Some(0), true);
@@ -472,7 +1528,7 @@ mod tests {
                 let recovered = Arc::clone(&recovery_completed);
                 async move {
                     recovered.notify_one();
-                    true
+                    true.into()
                 }
             },
             move |_| {

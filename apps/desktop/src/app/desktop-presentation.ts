@@ -5,13 +5,15 @@ import { parseDesktopSurface, type WorkspaceDesktopSurface } from "./desktop-sur
 import { eligibleWorkspaceRouteIds, type AuthoritativeWorkspacePublication } from "./workspace-publication";
 
 /** Routes whose renderer is composed in production; a route without one is never offered. */
-export const composedRouteIds: readonly AppRouteId[] = ["portfolio.list", "portfolio.detail", "sync.conflicts"];
+export const composedRouteIds: readonly AppRouteId[] = ["portfolio.list", "portfolio.detail", "renewals.desk", "sales.desk", "dns.health", "operations.batch", "operations.manualTasks", "operations.history", "sync.conflicts", "settings"];
 
 type BrowserSignInPresentation = BrowserSignInState;
 
 export type DesktopPresentation =
   | { readonly view: "opening" }
   | { readonly view: "host_unavailable" }
+  | { readonly view: "standby_awaiting_replica" }
+  | { readonly view: "target_installation_pending" }
   | { readonly view: "sign_in"; readonly signIn: BrowserSignInPresentation }
   | { readonly view: "locked"; readonly reason: "security_locked" | "retryable_locked" }
   | {
@@ -57,6 +59,10 @@ export function adjudicateDesktopPresentation(
     case "security_locked":
     case "retryable_locked":
       return { view: "locked", reason: status.state };
+    case "target_installation_pending":
+    case "standby_awaiting_replica":
+      return status.capabilities.length === 0 && workspace.portfolio === null && workspace.conflicts === null && workspace.sync === null
+        ? { view: status.state } : { view: "host_unavailable" };
     case "commercial_read_only":
     case "standby_read_only":
     case "active": {

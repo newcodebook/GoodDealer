@@ -1,9 +1,15 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { extname, relative, resolve } from "node:path";
 
-export const unsafeCodeAllowlist = Object.freeze([]);
+// ADR-0006: only fixed OS power notifications and continuous-clock sampling may use FFI.
+export const unsafeCodeAllowlist = Object.freeze([
+  "crates/secure-host-core/src/native_power/windows.rs",
+  "crates/secure-host-core/src/native_power/macos.rs",
+  "crates/secure-host-core/src/native_continuous_clock/windows.rs",
+  "crates/secure-host-core/src/native_continuous_clock/macos.rs",
+]);
 
-const unsafeOverridePattern = /\b(allow|expect)\s*\(([^()]*)\)/gu;
+const unsafeOverridePattern = /\b(allow|expect|warn)\s*\(([^()]*)\)/gu;
 const unsafeLintPattern = /(?:^|,)\s*unsafe_code\s*(?=,|$)/u;
 
 function lineNumberAt(source, offset) {
@@ -20,7 +26,7 @@ export function unsafeCodeBoundaryErrors(sources, allowlist = unsafeCodeAllowlis
 
       errors.push(
         `${path}:${lineNumberAt(source, match.index)}: ${match[1]}(unsafe_code) is forbidden; `
-          + "the final allowlist is empty",
+          + "only the four ADR-0006 power/clock files are admitted",
       );
     }
   }

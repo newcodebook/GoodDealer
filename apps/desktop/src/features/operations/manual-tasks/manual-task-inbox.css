@@ -30,7 +30,3 @@
 .tasks-warning { color: var(--gd-warning); font-size: var(--text-xs); }
 .tasks-reason { min-height: 84px; padding: var(--space-2); border: 1px solid var(--gd-line-strong); border-radius: var(--radius-sm); background: var(--gd-ink); color: var(--text-1); font: inherit; font-size: var(--text-sm); resize: vertical; }
 .tasks-reason:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.tasks-browser-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); color: var(--text-2); font-size: var(--text-xs); }
-.tasks-browser-target { display: inline-flex; align-items: center; gap: 6px; }
-.tasks-browser-status { margin-left: auto; }
-.tasks-browser-next { display: flex; justify-content: space-between; padding: var(--space-2) var(--space-3); border: 1px solid var(--gd-line); border-radius: var(--radius-sm); background: var(--gd-ink); color: var(--text-2); font-family: var(--font-mono); font-size: var(--text-2xs); }

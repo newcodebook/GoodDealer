@@ -1,0 +1,68 @@
+name: wp2-workspace-sync-durability
+
+# Capacity, a ten-minute soak and three server kills against PostgreSQL 18.6. The server runs as a
+# plain container rather than a job service so the collector can kill and restart it.
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  postgres-workspace-sync-durability:
+    name: wp2-workspace-sync-durability-postgresql-18.6
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      CI: true
+      PGPASSWORD: postgres
+      GOODDEALER_POSTGRES_OWNER_URL: postgresql://gooddealer_cloud_owner:owner-test-only@localhost:5432/postgres
+      GOODDEALER_POSTGRES_APP_URL: postgresql://gooddealer_cloud_app:app-test-only@localhost:5432/postgres
+      GOODDEALER_POSTGRES_SOAK_SECONDS: "600"
+      GOODDEALER_POSTGRES_CRASH_CYCLES: "3"
+      GOODDEALER_POSTGRES_CRASH_ARGV: '["docker","kill","--signal","KILL","gooddealer-postgres"]'
+      GOODDEALER_POSTGRES_RESTART_ARGV: '["docker","start","gooddealer-postgres"]'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - run: npm install --global pnpm@12.16.1
+      - run: pnpm install --frozen-lockfile
+      - name: Start PostgreSQL 18.6
+        run: |
+          docker run --detach --name gooddealer-postgres --publish 5432:5432 \
+            --env POSTGRES_PASSWORD=postgres postgres:18.6
+          for attempt in $(seq 1 60); do
+            pg_isready --host localhost --username postgres && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: Create non-privileged roles
+        run: |
+          psql --host localhost --username postgres --dbname postgres --set ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE gooddealer_cloud_owner LOGIN PASSWORD 'owner-test-only' NOSUPERUSER NOBYPASSRLS;
+          CREATE ROLE gooddealer_cloud_app LOGIN PASSWORD 'app-test-only' NOSUPERUSER NOBYPASSRLS;
+          ALTER DATABASE postgres OWNER TO gooddealer_cloud_owner;
+          SQL
+      - name: Provision capability roles
+        run: |
+          psql --host localhost --username postgres --dbname postgres --set ON_ERROR_STOP=1 \
+            --file apps/cloud/scripts/provision-identity-capability-roles.sql
+      - name: Collect workspace sync durability evidence
+        run: pnpm evidence:wp2:workspace-sync-durability
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: wp2-workspace-sync-durability-${{ github.run_id }}-${{ github.run_attempt }}-evidence
+          path: .artifacts/wp2/workspace-sync-durability
+          include-hidden-files: true
+          retention-days: 90

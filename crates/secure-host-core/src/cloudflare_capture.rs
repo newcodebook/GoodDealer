@@ -1,12 +1,12 @@
-//! Fixed macOS native credential capture. The production command is intentionally not injectable.
+//! Fixed Native credential capture. Platform adapters never accept secrets through Renderer IPC.
 
 use std::fmt;
 
 use zeroize::Zeroizing;
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 const MAX_OUTPUT_BYTES: usize = 8 * 1024;
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 const MAX_TOKEN_BYTES: usize = 512;
 #[cfg(target_os = "macos")]
 const STATIC_APPLESCRIPT: &str = r#"set zoneId to text returned of (display dialog "Cloudflare Zone ID" default answer "")
@@ -79,7 +79,19 @@ impl CloudflareCandidate {
 pub struct CloudflareCapture;
 
 impl CloudflareCapture {
-    /// Captures a candidate using the fixed system script on macOS; all other platforms fail closed.
+    /// Whether this build has a fixed Native capture adapter. Windows uses masked Win32 controls;
+    /// macOS uses its fixed system dialog and Linux its existing GTK main loop. Runtime custody
+    /// admission and actual platform qualification remain independent.
+    #[must_use]
+    pub const fn supported() -> bool {
+        cfg!(any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows"
+        ))
+    }
+
+    /// Captures a candidate through the fixed Native adapter on Linux, Windows or macOS.
     ///
     /// # Errors
     ///
@@ -90,9 +102,9 @@ impl CloudflareCapture {
     }
 
     /// Captures a candidate while checking the owning Host authority before spawn, while the
-    /// native dialog is live, and after the child has been reaped. A failed guard kills and waits
-    /// for the fixed child before returning, so cancellation cannot leave a credential-capture
-    /// process detached from the Host lifetime.
+    /// native dialog is live, and after capture. Linux invalidates late dispatch and clears
+    /// widgets on the GTK main loop; Windows joins its UI thread and macOS reaps its fixed child.
+    /// No late result can be accepted after the Host authority changes.
     ///
     /// # Errors
     ///
@@ -101,9 +113,35 @@ impl CloudflareCapture {
         guard: &mut dyn FnMut() -> Result<(), CloudflareCaptureError>,
     ) -> Result<CloudflareCandidate, CloudflareCaptureError> {
         guard()?;
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         {
             Err(CloudflareCaptureError::Unavailable)
+        }
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        {
+            #[cfg(target_os = "linux")]
+            use crate::linux_credential_capture::{CaptureError, Purpose, capture};
+            #[cfg(target_os = "windows")]
+            use crate::windows_credential_capture::{CaptureError, Purpose, capture};
+            let mut guard_error = None;
+            let captured = capture(Purpose::Cloudflare, &mut || match guard() {
+                Ok(()) => true,
+                Err(error) => {
+                    guard_error = Some(error);
+                    false
+                }
+            });
+            if let Some(error) = guard_error {
+                return Err(error);
+            }
+            let bytes = captured.map_err(|error| match error {
+                CaptureError::Unavailable => CloudflareCaptureError::Unavailable,
+                CaptureError::Cancelled => CloudflareCaptureError::Cancelled,
+                CaptureError::Timeout => CloudflareCaptureError::Timeout,
+                CaptureError::AuthorityStale => CloudflareCaptureError::AuthorityStale,
+            })?;
+            guard()?;
+            parse_capture_output(&bytes)
         }
         #[cfg(target_os = "macos")]
         {
@@ -165,7 +203,7 @@ impl CloudflareCapture {
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn parse_capture_output(bytes: &[u8]) -> Result<CloudflareCandidate, CloudflareCaptureError> {
     if bytes.len() > MAX_OUTPUT_BYTES {
         return Err(CloudflareCaptureError::OutputTooLarge);
@@ -189,7 +227,7 @@ fn parse_capture_output(bytes: &[u8]) -> Result<CloudflareCandidate, CloudflareC
     })
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn is_zone_id(value: &str) -> bool {
     value.len() == 32
         && value
@@ -200,23 +238,60 @@ fn is_zone_id(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_adapter_preserves_host_guard_rejection_before_native_dispatch() {
+        assert!(CloudflareCapture::supported());
+        let mut calls = 0;
+        let result = CloudflareCapture::capture_guarded(&mut || {
+            calls += 1;
+            if calls == 1 {
+                Ok(())
+            } else {
+                Err(CloudflareCaptureError::Failed)
+            }
+        });
+        assert_eq!(result.unwrap_err(), CloudflareCaptureError::Failed);
+        assert_eq!(calls, 2);
+    }
+
     #[test]
     fn output_parser_is_exact_and_bounded() {
         let valid = b"0123456789abcdef0123456789abcdef\ntoken-123\n";
         let candidate = parse_capture_output(valid).unwrap();
         assert_eq!(candidate.zone_id, "0123456789abcdef0123456789abcdef");
+        assert_eq!(candidate.token(), "token-123");
+        assert_eq!(
+            parse_capture_output(valid.strip_suffix(b"\n").unwrap()).unwrap(),
+            candidate
+        );
         assert_eq!(format!("{candidate:?}"), "CloudflareCandidate([REDACTED])");
         assert!(!format!("{candidate:?}").contains("token-123"));
         for invalid in [
             b"bad\ntoken\n".as_slice(),
             b"0123456789abcdef0123456789abcdef\n\n",
             b"0123456789abcdef0123456789abcdef\ntoken\nextra",
+            b"0123456789ABCDEF0123456789ABCDEF\ntoken",
+            b"0123456789abcdef0123456789abcdef\nbad token",
+            b"0123456789abcdef0123456789abcdef\ntoken\r",
+            b"0123456789abcdef0123456789abcdef\ntoken\0",
+            b"0123456789abcdef0123456789abcdef\n\xff",
         ] {
             assert_eq!(
                 parse_capture_output(invalid).unwrap_err(),
                 CloudflareCaptureError::OutputInvalid
             );
         }
+        let prefix = "0123456789abcdef0123456789abcdef\n";
+        assert!(
+            parse_capture_output(format!("{prefix}{}", "t".repeat(MAX_TOKEN_BYTES)).as_bytes())
+                .is_ok()
+        );
+        assert_eq!(
+            parse_capture_output(format!("{prefix}{}", "t".repeat(MAX_TOKEN_BYTES + 1)).as_bytes())
+                .unwrap_err(),
+            CloudflareCaptureError::OutputInvalid
+        );
         assert_eq!(
             parse_capture_output(&vec![b'x'; MAX_OUTPUT_BYTES + 1]).unwrap_err(),
             CloudflareCaptureError::OutputTooLarge

@@ -30,10 +30,13 @@ ports; HTTP and OpenBao transport remain in Cloud entrypoints.
 ## Principles
 
 - MUST: Derive account, workspace and device authority from authenticated server state and locked persistence, never from caller-selected identifiers.
-- MUST: Keep Grant and Lease transcripts, keys, key versions, policies and receipts purpose-separated.
+- MUST: Keep Active Grant, Standby Grant and Lease transcripts, keys, key versions, policies and receipts purpose-separated.
 - MUST: Verify every externally produced signature against exact canonical claims and a trusted Ed25519 public key before publishing or committing authority.
 - MUST: Reverify every persisted Lease against the purpose-specific trusted key registry and its locked relational columns before reuse or Grant embedding.
-- MUST: Allocate the first authenticated Desktop Lease from the account-wide monotonic epoch domain; repeated same-device login reuses or renews that epoch, while another held device fails closed.
+- MUST: Allocate the first authenticated Desktop Lease from the account-wide monotonic epoch domain; repeated same-device login reuses or renews that epoch, while another eligible device receives a Standby session without a new Lease.
+- MUST: Before login/refresh allocation, atomically terminate expired default-workspace bootstrap authority through `PostgresExpiredDeviceBootstrap`: burn its pending epoch, consume its capability/nonces, clear the next step, release the checkpoint pin through its owner port, and fail the workflow. Keep the epoch high-water mark and historical rows. Missing or inconsistent authority fails closed; the ordinary allocation guard remains mandatory.
+- MUST: Recheck bootstrap capability/workflow/pin deadlines using the database current clock after signer or workspace I/O, before committing activation or a step.
+- MUST: Never allocate a Lease at login or refresh while a switch workflow is unfinished, an epoch allocation is pending, or execution is blocked; the Lease step answers `standby` instead (ADR-0032 Standby S1), and the routine `device_lease_allocation_reserved` reads the workspace-scoped workflows for the caller's account alone.
 - MUST: Bound each Lease by the Licensing-owned active commercial or grace deadline and the independent 24-hour execution maximum; Licensing projection-refresh scheduling metadata cannot shorten paid eligibility.
 - MUST: Issue Desktop OAuth codes only after an account-scoped, short-lived challenge proves possession of the exact active device key; first binding additionally requires a recent password/passkey Account Web authentication, the same Web session across both browser legs, a self-signature by the proposed key, and an available device slot.
 - MUST NOT: Put private keys, OpenBao tokens, AppRole SecretIDs or general key-management authority in this module, logs, errors or persistence.
@@ -49,7 +52,7 @@ ports; HTTP and OpenBao transport remain in Cloud entrypoints.
 - **Signer substitution**: Signer-returned claims, `kid`, signature and verification key cannot alter requested authority or bypass local Ed25519 verification. Verified by: `../../../test/authorization-grant-issuer.test.ts`.
 - **OpenBao response and credential abuse**: Insecure origins, duplicate key names/IDs/material, unexpected token policies, wrong key versions, malformed signatures and oversized/invalid responses fail closed without credential diagnostics; non-success bodies are cancelled, and a 401/403 invalidates only the rejected cached AppRole token before retrying once after reauthentication. Verified by: `../../../test/openbao-transit-signer.test.ts` and `../../../test/openbao-approle-token-source.test.ts`.
 - **Desktop device, Web session, or PKCE substitution**: the login proof transcript binds account, device, key, challenge, PKCE challenge, client, redirect, nonce digest and expiry; the persisted challenge also binds a digest of the initiating Account Web session, and first enrollment expires no later than the five-minute password/passkey reauthentication window. Only exact evidence can be atomically consumed with OAuth code issuance. Verified by: `../../../test/device-login-proof.test.ts`, `../../../test/desktop-oauth-pkce.test.ts`, and `../../../test/postgres/desktop-oauth.test.ts`.
-- **Lease signing and active-device contention**: inactive entitlement, signer refusal, invalid returned signatures, stale security epochs, another held device, and repeated login cannot create a session with missing or conflicting Lease authority. Verified by: `../../../test/postgres/desktop-oauth.test.ts`.
+- **Lease signing and active-device contention**: signer refusal, invalid returned signatures and stale security epochs fail closed. Inactive entitlement or another held device admits only Standby; repeated login cannot allocate conflicting Lease authority. Verified by: `../../../test/postgres/desktop-oauth.test.ts`.
 - **Grant authority time crossing and substitution**: final Grant issuance consumes the authenticated Desktop credential through `IdentityCapabilityTransactionRunner` with the `devices_account` purpose, then resolves and locks the exact personal-default Workspace binding in that same account transaction as account security, session, refresh family, device binding, commercial authority and Lease authority. A missing/revoked credential fails closed before signing. After the external signer returns, a `clock_timestamp()` check revalidates the session deadline, online Lease deadline and every critical state before publication; concurrent revocation/binding/Lease changes therefore serialize on the documented lock order, and legacy unsigned Lease rows fail closed. Verified by: `../../../test/postgres-desktop-authorization-service.test.ts`, `../../../test/default-workspace-resolver.test.ts`, and `../../../test/postgres/desktop-oauth.test.ts`.
 
 ## Contracts
@@ -57,9 +60,140 @@ ports; HTTP and OpenBao transport remain in Cloud entrypoints.
 - **DesktopAuthorizationGrantSigner** (defined in: authorization-grant-issuer.ts): Purpose-specific signer port whose returned envelope is independently verified by the issuer. Consumers: `authorization-grant-issuer.ts`, `../../entrypoints/openbao-transit-signer.ts`.
 - **ActiveDeviceLeaseSigner** (defined in: postgres-bootstrap-activation.ts): Purpose-specific Lease signer port whose returned envelope is verified before persistence. Consumers: `postgres-bootstrap-activation.ts`, `index.ts`, `../../entrypoints/openbao-transit-signer.ts`.
 - **DeviceLoginProofPort** (defined in: ports.ts): Device-owned challenge, first-binding, proof-consumption, and exchange-time eligibility boundary. Consumers: `postgres-device-login-proof.ts`, `../identity/postgres-desktop-oauth.ts`.
+- **DeviceSwitchApplicationPort** (defined in: switch-application.ts): Desktop normal switch request, status, cancel and drain-proof submission (the source device's Ed25519 drain proof, verified against its active key and admitted by the owner routine `device_record_drain_proof`, hands the switch to bootstrap); the caller is the session device holding the workspace's current Lease, never a body field, and forced takeover remains refused until its workflow and target bootstrap are composed (ADR-0032). Consumers: `../../entrypoints/routes/public/boundary.ts`, `../../entrypoints/http.ts`.
 - **DesktopLoginLeasePort** (defined in: postgres-desktop-login-lease.ts): Device-owned first issuance and same-device renewal boundary invoked before Desktop session creation. Consumers: `postgres-desktop-login-lease.ts`, `../identity/postgres-desktop-oauth.ts`.
 - **ActiveDeviceLeaseVerifier** (defined in: active-device-lease-verifier.ts): Purpose-specific trusted-key verification for every persisted or newly signed Lease. Consumers: `postgres-desktop-login-lease.ts`, `postgres-desktop-authorization.ts`, `../../entrypoints/http.ts`, `../../entrypoints/desktop-oauth-http.ts`, `../../entrypoints/development-server.ts`.
 
 ## Open Questions
 
 - [ ] Which production OpenBao cluster identity, namespace, Transit mount, key versions, approved public keys, workload-auth method and seal backend will the accountable operators record during external qualification? (open since: 2026-09)
+
+
+## Desktop device directory
+
+`PostgresDeviceDirectory` owns list and self-report persistence. It derives the account/device from
+an authenticated Desktop session, locks security/account state before session/family/binding/active
+key, and refuses removed bindings or inactive signing keys. Names/platforms reuse the self-report
+migration; reports advance the list revision only when metadata changes. Native supplies platform,
+projects away signing metadata, and composes the settings list and self-name form. Directory roles
+are descriptive and never authorize handoff. PostgreSQL evidence lives in
+`../../../test/postgres/device-directory-persistence.test.ts`.
+
+## Standby authorization exchange
+
+The HTTP exchange accepts only `{schemaVersion:5}` and returns the strict `active`/`standby`
+discriminated response. `DesktopStandbyGrantIssuer` independently verifies exact claims and the
+Standby signature transcript; its OpenBao Transit keyring is required and distinct from both Active
+Grant and Lease rings. Standby lasts at most 900 seconds and carries only `workspace:read`.
+
+`readDesktopSessionAuthority` locks normal account security, the live Desktop session/refresh
+family, the exact personal-default binding, account epoch state, bound device and active key, and
+current Lease allocation. A current holder with an expired or stale Lease is denied instead of
+reinterpreted as Standby. Eligible nonholders need no commercial entitlement. OAuth and refresh
+preserve their normal proof, code-consumption and token-rotation guarantees for Standby sessions.
+
+The Standby floor is the account's highest allocated epoch. The exact live bootstrap target alone
+receives pending epoch minus one after matching its workflow, bound key version/security epoch,
+active binding and unconsumed capability; malformed pending state fails closed. This reserves the
+epoch already allocated for that target while every other device burns it as a floor.
+
+Every Desktop route declares a role requirement and is independently gated. Standby can exchange
+its grant, list devices, read switch status and pull/read checkpoints or a rebootstrap plan. Switch
+request/cancel routes permit role admission, but their application still rejects unsupported
+Standby operations. Sync push/receipts, observation, drain and self-report require Active; directory
+list does not grant rename authority. Provider execution, target bootstrap, forced takeover and
+new-machine restore are not implied by this read-only exchange.
+
+Tests: `../../../test/standby-grant-issuer.test.ts`, `../../../test/desktop-session-authority.test.ts`,
+`../../../test/postgres/desktop-oauth.test.ts` and the route/sync suites cover purpose substitution,
+real second-device login/refresh, entitlement-independent Standby, pending floors and write denial.
+Real OpenBao provisioning and Windows/macOS double-device qualification remain external evidence.
+
+## Normal handoff receipt
+
+The switch view and creation request are version 2; response wrapper and device-list versions remain 1. Every
+view explicitly includes nullable `normalHandoffReceipt`. PostgreSQL derives a receipt in the same
+snapshot from exactly one consumed/accepted handoff proof, its normal device-switch workflow,
+matching source/epoch Lease released for `normal_handoff`, and the existing capability's exact
+target and issuance time. All handoff timestamps must match; malformed or ambiguous history cannot
+assert success. Later bootstrap completion/failure preserves the receipt. Workflow status alone and
+in-memory fixtures never attest durable handoff. Forced workflows receive no normal receipt.
+
+The historical receipt carries the source Lease epoch, proof ID/digest and release time. Native must
+match it to its own persisted attempt and latest local Active epoch before deciding Inbox eligibility;
+it grants no new Lease or mutation permission. The real OAuth `desktop_login` allocation is admitted
+for a new normal switch only through the account's exact personal-default binding; it cannot choose
+an arbitrary workspace. PostgreSQL coverage is beside switch request/drain persistence and OAuth.
+
+Active authorization uses Grant v4 and commercialAuthority v2. Capabilities are the strict, sorted,
+unique intersection of the locked Licensing featureEntitlements with the closed Provider set.
+An empty set preserves local business scopes without Provider permission; Afternic write without
+observe is rejected. The existing logical Grant signing purpose `.v3` and `grant_v3` key registry
+remain stable; the v4 wire and transcript domain distinguish the payload, not a fourth key purpose.
+
+Execution evidence now has a separate Active-only context issuer and historical verification port.
+`PostgresDesktopExecutionContextService` commits the signed Grant/context, the original device key,
+and the three Cloud public keys actually used for signature verification in one credential-bound
+transaction. The key snapshot is immutable and separate from the bounded live rotation keyring;
+removing an old key from current configuration never turns historical evidence into client-selected
+trust. Historical context rows without a complete issuance key snapshot remain unprovable.
+
+`PostgresHistoricalExecutionContext` verifies all three purpose-separated signatures and exact
+canonical bytes, then checks the event's conservative time boundary against the original Grant,
+Lease, commercial deadline, actual device/key retirement, and Identity-owned security-epoch end.
+It does not derive historical authority from `updated_at`, receipt time, or the current Lease.
+`readSourceSigningKeyForQuarantine` supplies attribution only: a known device signature can block
+a first drain seal when context authority is missing, but cannot authorize an accepted event.
+`PostgresExecutionEvidenceAuthority` holds one consumed `devices_account` transaction through
+source/default-workspace/Active admission, stream verdict, and final live-credential fence; failure
+of the final fence rolls the whole verdict back. Audit and execution-ledger retain their own records,
+verification and receipts through declared ports. No evidence operation invokes a Provider.
+
+## Recovering the first switch request
+
+A normal creation request carries `expectedSourceLeaseEpoch`, captured from Native's authority at
+confirmation. The writer compares it with the locked current source Lease before changing any
+workflow. An exact accepted idempotency replay returns its original history; a new delayed request
+cannot create a switch in a later epoch. New rows retain an immutable `source_lease_epoch`; legacy
+rows remain null and never acquire an inferred original epoch. First-device bootstrap has no source
+Lease and keeps a null epoch; another workflow purpose cannot supply a handoff source epoch.
+
+`PostgresDeviceSwitchRequestResolution` resolves an original idempotency key for the authenticated
+source alone, under the same source account-state locks as creation. Both Active and Standby may
+read it. Account, default workspace and device come from the consumed live credential, followed by
+a final session fence. The result is either authoritative `not_found` or the existing view with its
+original target key and nullable source epoch. It neither renews a Lease nor recreates the request.
+A higher-epoch `not_found` supersedes the old local intent; repeating the POST requires a new
+confirmation. A legacy null epoch grants no same-epoch barrier authority.
+
+The fixed `/v1/device-switch/requests/resolve` transport bounds requests to 2 KiB and responses to
+8 KiB. Real PostgreSQL/OAuth tests cover lost responses across a role change, stale POST rejection,
+source-only and cross-account isolation, immutable epochs, legacy rows, revocation, and resolution
+waiting for a concurrent first writer to commit.
+
+
+## Target bootstrap termination
+
+`PostgresTargetBootstrapControl` is exported from `index.ts` for the production HTTP composition
+(`../../entrypoints/http.ts`) and the fixed target status/cancel ports. It consumes one authenticated
+`devices_account` capability, derives the current device and default workspace, locks the account
+before workflow authority, and revalidates the exact session after all terminal writes. Both roles
+may inspect or cancel only their own target workflow; the source cancel application stays Active-only.
+Discovery cannot select another device, and cancellation always requires an exact request id.
+
+`terminateDeviceBootstrap` remains a same-module helper shared with `PostgresExpiredDeviceBootstrap`.
+It burns only the consistent highest pending epoch, consumes capability and active nonces, clears
+the next step and releases the checkpoint pin in the same transaction. The original receipt, proof,
+seals, source release and high-water mark remain history. It neither grants a Lease nor restores the
+source. Cancelled ids replay their original history and never affect a later bootstrap reservation.
+Real PostgreSQL/OAuth tests cover final-session expiry rollback, revoked/cross-account credentials,
+activation/step/expiry competition, duplicate cancel, failed checkpoint release and old-id replay.
+The activation signer and commercial authority used in those race tests are explicit test fixtures;
+this does not qualify production target installation or activation.
+
+The real OAuth handoff test found an older mutation drain guard that required a workspace-scoped
+allocation even though Desktop login allocations are account-scoped. Forward migration
+`202611190021-mutation-drain-login-allocation` preserves the original guard/lock order and admits
+only an activated `desktop_login` allocation through its account's exact default workspace binding.
+Unbound/nondefault workspaces, other devices/epochs, burned allocations and invalid allocation
+purposes remain refused. Existing migration SQL is unchanged.

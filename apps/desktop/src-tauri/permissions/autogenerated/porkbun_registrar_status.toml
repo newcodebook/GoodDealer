@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-porkbun-registrar-status"
+description = "Enables the porkbun_registrar_status command without any pre-configured scope."
+commands.allow = ["porkbun_registrar_status"]
+
+[[permission]]
+identifier = "deny-porkbun-registrar-status"
+description = "Denies the porkbun_registrar_status command without any pre-configured scope."
+commands.deny = ["porkbun_registrar_status"]

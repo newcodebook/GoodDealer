@@ -1,4 +1,5 @@
 .batch-list, .batch-detail { display: flex; flex: 1; flex-direction: column; min-height: 0; height: 100%; }
+.batch-list-notice { margin: 0; padding: 6px var(--space-3); border-bottom: 1px solid var(--gd-line); background: var(--gd-panel); }
 .batch-list .gd-toolbar .gd-field:first-child { width: 220px; }
 .batch-list-body { display: flex; flex: 1; min-height: 0; }
 .batch-list-body > .gd-table-shell { flex: 1; min-height: 0; border: none; border-radius: 0; }

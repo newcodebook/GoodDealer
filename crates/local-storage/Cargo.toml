@@ -7,6 +7,9 @@ license.workspace = true
 
 [features]
 default = []
+afternic-controlled-acceptance = []
+# Debug-only: treats every Provider capability as qualified (ADR-0027 development qualification).
+development-qualification = []
 
 [dependencies]
 base64 = "=0.22.1"
@@ -24,7 +27,8 @@ zeroize = "=1.9.0"
 
 [dev-dependencies]
 chacha20poly1305.workspace = true
-rusqlite.workspace = true
+# `trace` lets the ignored query-plan test record the statements each paged read runs.
+rusqlite = { workspace = true, features = ["trace"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "=0.11.0"
@@ -44,4 +48,15 @@ name = "backup_evidence"
 path = "examples/backup_evidence.rs"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+gtk = "=0.18.2"
 secret-service = { version = "=5.2.0", default-features = false, features = ["rt-async-io-crypto-rust"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = { version = "=1.1.0", default-features = false }
+keyring-core = "=1.0.1"
+windows-permissions = "=0.2.4"
+winapi-util = "=0.1.11"
+winapi = { version = "=0.3.9", features = ["processthreadsapi"] }
+dirs = "=7.0.0"
+
+winsafe = { version = "=0.0.29", default-features = false, features = ["kernel", "shell"] }

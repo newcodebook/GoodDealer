@@ -45,11 +45,12 @@ const activeDeviceLease = {
 } as const;
 
 const mutation = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   mutationId: "mutation-1",
   workspaceSchemaVersion: 1,
   entityType: "domain_asset",
   entityId: "example.test",
+  entityGeneration: 1,
   operationKind: "upsert",
   baseServerRevision: 0,
   changedFields: [{ fieldPath: "note", value: "local note" }],
@@ -59,7 +60,7 @@ const mutation = {
 } as const;
 
 const mutationPage = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   workspaceId: "workspace-1",
   fromServerRevisionExclusive: 0,
   throughServerRevisionInclusive: 1,
@@ -70,7 +71,7 @@ const mutationPage = {
 } as const;
 
 const checkpoint = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   checkpointId: "checkpoint-1",
   workspaceId: "workspace-1",
   workspaceSchemaVersion: 1,
@@ -147,8 +148,9 @@ function responses(): Record<CloudOperationId, unknown> {
       paidThrough: "2027-08-29T10:00:00Z",
     },
     [DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID]: {
-      schemaVersion: 3,
-      typ: "gd.desktop-authorization-grant.v3",
+      schemaVersion: 5, role: "active", grant: {
+      schemaVersion: 4,
+      typ: "gd.desktop-authorization-grant.v4",
       iss: "https://accounts.gooddealer.com",
       aud: "gooddealer-desktop/local-business",
       kid: "grant-key-1",
@@ -158,17 +160,18 @@ function responses(): Record<CloudOperationId, unknown> {
       activeDeviceLease,
       scopes: ["workspace:mutate", "workspace:read"],
       commercialAuthority: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         entitlementRevision: 2,
         entitlementProjectionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         state: "active",
         commercialExpiresAt: "2027-08-29T10:00:00Z",
-        capability: "cloudflare:dns:observe",
+        capabilities: ["cloudflare:dns:observe"],
       },
       signature: "c2lnbmF0dXJl",
+      },
     },
     [WORKSPACE_SYNC_PUSH_OPERATION_ID]: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       accepted: true,
       acknowledgements: [{
         mutationId: "mutation-1",
@@ -179,7 +182,7 @@ function responses(): Record<CloudOperationId, unknown> {
       headServerRevision: 1,
     },
     [WORKSPACE_SYNC_PULL_OPERATION_ID]: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       accepted: true,
       confirmedThrough: 0,
       pendingDelivery: {
@@ -195,7 +198,7 @@ function responses(): Record<CloudOperationId, unknown> {
       confirmToken: "confirm-token-1",
       page: mutationPage,
     },
-    [WORKSPACE_SYNC_CHECKPOINT_OPERATION_ID]: { schemaVersion: 2, checkpoint },
+    [WORKSPACE_SYNC_CHECKPOINT_OPERATION_ID]: { schemaVersion: 3, checkpoint },
     [DOMAIN_ASSET_REPLICA_RECOVERY_OPERATION_ID]: portfolioResponse,
   };
 }
@@ -262,7 +265,7 @@ describe("Cloud control-plane and sync clients", () => {
     await new DesktopAuthorizationClient(transport).issue();
     const sync = new WorkspaceSyncClient(transport);
     await sync.push([mutation]);
-    await sync.pull({ schemaVersion: 2, afterServerRevision: 0, cursor: null, pageLimit: 64, confirm: null });
+    await sync.pull({ schemaVersion: 3, afterServerRevision: 0, cursor: null, pageLimit: 64, confirm: null });
     await sync.readCheckpoint();
     await new DomainAssetReplicaRecoveryClient(transport).read();
 
@@ -287,13 +290,13 @@ describe("Cloud control-plane and sync clients", () => {
         operationId: BILLING_SUBSCRIPTION_CANCEL_OPERATION_ID,
         payload: { schemaVersion: 1, requestId: "cancel-request-1" },
       },
-      { operationId: DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID, payload: { schemaVersion: 3 } },
-      { operationId: WORKSPACE_SYNC_PUSH_OPERATION_ID, payload: { schemaVersion: 2, mutations: [mutation] } },
+      { operationId: DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID, payload: { schemaVersion: 5 } },
+      { operationId: WORKSPACE_SYNC_PUSH_OPERATION_ID, payload: { schemaVersion: 3, mutations: [mutation] } },
       {
         operationId: WORKSPACE_SYNC_PULL_OPERATION_ID,
-        payload: { schemaVersion: 2, afterServerRevision: 0, cursor: null, pageLimit: 64, confirm: null },
+        payload: { schemaVersion: 3, afterServerRevision: 0, cursor: null, pageLimit: 64, confirm: null },
       },
-      { operationId: WORKSPACE_SYNC_CHECKPOINT_OPERATION_ID, payload: { schemaVersion: 2 } },
+      { operationId: WORKSPACE_SYNC_CHECKPOINT_OPERATION_ID, payload: { schemaVersion: 3 } },
       { operationId: DOMAIN_ASSET_REPLICA_RECOVERY_OPERATION_ID, payload: {} },
     ]);
     expect(JSON.stringify(calls)).not.toMatch(

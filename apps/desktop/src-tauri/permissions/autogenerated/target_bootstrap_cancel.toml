@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-target-bootstrap-cancel"
+description = "Enables the target_bootstrap_cancel command without any pre-configured scope."
+commands.allow = ["target_bootstrap_cancel"]
+
+[[permission]]
+identifier = "deny-target-bootstrap-cancel"
+description = "Denies the target_bootstrap_cancel command without any pre-configured scope."
+commands.deny = ["target_bootstrap_cancel"]

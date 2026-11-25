@@ -1,0 +1,33 @@
+{
+  "kind": "mutation_result",
+  "steps": [
+    {
+      "sequence": 1,
+      "outcome": "accepted",
+      "submittedEnvelopeBase64url": "c3VibWl0dGVkLW9uZQ",
+      "submittedEnvelopeDigest": "x-QE-JO_expbY6Ma_WArmQVeLUPrrZjW1JfFHEkTBpA",
+      "previousDigest": "58It6o62GZGmXgy6-ER1rezwYX-LCZVJzlZuZOGcWUs",
+      "resultEnvelopeBase64url": "AAAAI0dPT0RERUFMRVItTVVUQVRJT04tRFJBSU4tUkVTVUxULVYxAAAACGFjY2VwdGVkAAAAIMfkBPiTv3saW2OjGv1gK5kFXi1D662Y1tSXxRxJEwaQ",
+      "expectedDigest": "HLrzmZYpqAd188915QyEu0pOKj_43FBhagLmryhYKsA"
+    },
+    {
+      "sequence": 2,
+      "outcome": "rejected",
+      "submittedEnvelopeBase64url": "c3VibWl0dGVkLXR3bw",
+      "submittedEnvelopeDigest": "PZ3sRvdOs860S9XzxEpe5Z_k6I_PQExVSAKK9w8Gww8",
+      "previousDigest": "HLrzmZYpqAd188915QyEu0pOKj_43FBhagLmryhYKsA",
+      "resultEnvelopeBase64url": "AAAAI0dPT0RERUFMRVItTVVUQVRJT04tRFJBSU4tUkVTVUxULVYxAAAACHJlamVjdGVkAAAAID2d7Eb3TrPOtEvV88RKXuWf5OiPz0BMVUgCivcPBsMP",
+      "expectedDigest": "tSeWHdpUERnNt6_5OVoihICRCozB453g1dZ21y3Bo4Y"
+    },
+    {
+      "sequence": 3,
+      "outcome": "accepted",
+      "submittedEnvelopeBase64url": "c3VibWl0dGVkLXRocmVl",
+      "submittedEnvelopeDigest": "OvUSsW9nBu6W6mvjQ4pj5TqXMVEZQrh5WHQGeVfX4VE",
+      "previousDigest": "tSeWHdpUERnNt6_5OVoihICRCozB453g1dZ21y3Bo4Y",
+      "resultEnvelopeBase64url": "AAAAI0dPT0RERUFMRVItTVVUQVRJT04tRFJBSU4tUkVTVUxULVYxAAAACGFjY2VwdGVkAAAAIDr1ErFvZwbulupr40OKY-U6lzFRGUK4eVh0BnlX1-FR",
+      "expectedDigest": "BDPSxWCuMII7ib5M5Nf3T2-F6MeMfVhoiYblBmqL_ts"
+    }
+  ],
+  "expectedDigest": "BDPSxWCuMII7ib5M5Nf3T2-F6MeMfVhoiYblBmqL_ts"
+}

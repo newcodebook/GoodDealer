@@ -68,6 +68,7 @@ export const enUSAccount = {
     resetCompleted: "Password updated and every previous session signed out. Sign in again.",
     signedOut: "Signed out securely.",
     backToSignIn: "Back to sign in",
+    desktopReauthenticationRequired: "Sign in again to verify your identity before taking over on this device. You will review and confirm the takeover in Desktop.",
     desktopHandoffTitle: "Authorize GoodDealer Desktop",
     desktopHandoffNotice: "After you sign in, you return to GoodDealer Desktop to finish authorization.",
     desktopReturningTitle: "Returning to GoodDealer Desktop",

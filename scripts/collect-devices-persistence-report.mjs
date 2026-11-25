@@ -13,7 +13,13 @@ export const DEVICES_PERSISTENCE_INPUT_PATHS = [
   "apps/cloud/src/db/migrations.ts",
   "apps/cloud/src/modules/devices/ports.ts",
   "apps/cloud/src/modules/devices/postgres-drain-transition.ts",
+  "apps/cloud/src/modules/devices/postgres-switch-requests.ts",
+  "apps/cloud/src/modules/devices/postgres-switch-drain.ts",
+  "apps/cloud/src/modules/devices/postgres-device-directory.ts",
   "apps/cloud/src/modules/devices/migrations/202608200004-device-control.ts",
+  "apps/cloud/src/modules/devices/migrations/202611170001-drain-handoff-target-key.ts",
+  "apps/cloud/src/modules/devices/migrations/202611170002-drain-proof-admission.ts",
+  "apps/cloud/src/modules/devices/migrations/202611180001-device-self-report.ts",
   "apps/cloud/src/modules/workspace/mutations/migrations/202608200006-mutation-drain-ledger.ts",
   "apps/cloud/src/modules/execution-ledger/migrations/202608200007-execution-fact-drain-ledger.ts",
   "apps/cloud/src/modules/audit/migrations/202608200008-workspace-device-audit-drain-ledger.ts",
@@ -25,6 +31,10 @@ export const DEVICES_PERSISTENCE_INPUT_PATHS = [
   "apps/cloud/test/postgres/workspace-mutation-persistence.test.ts",
   "apps/cloud/test/postgres/workspace-checkpoint-persistence.test.ts",
   "apps/cloud/test/postgres/immutable-drain-ledger.test.ts",
+  "apps/cloud/test/postgres/device-switch-request-persistence.test.ts",
+  "apps/cloud/test/postgres/device-switch-drain-persistence.test.ts",
+  "apps/cloud/test/postgres/device-directory-persistence.test.ts",
+  "apps/cloud/test/support/drain-proof.ts",
   "scripts/collect-devices-persistence-report.mjs",
   "scripts/collect-cloud-boundary-report.mjs",
   "scripts/devices-persistence-evidence-policy.test.mjs",
@@ -64,9 +74,61 @@ export const IMMUTABLE_DRAIN_TEST_NAMES = [
   "keeps every hardened table read-only to the app role and force-enables tenant RLS",
 ];
 
+/** ADR-0032 S1b: the normal switch request that a drain proof later completes. */
+export const SWITCH_REQUEST_TEST_NAMES = [
+  "starts a normal switch only from the Lease holder, binds the target's key, and replays its idempotency key",
+  "admits a desktop-login allocation only through the exact personal default workspace",
+  "denies a caller without the current unexpired Lease and refuses ineligible targets without writing",
+  "shows a switch only to its two devices and lets the source cancel it once before bootstrap",
+  "isolates identical workspace, device, and idempotency ids across two accounts",
+  "fails an expired switch that never reached bootstrap when the next request arrives",
+  "lets exactly one of two concurrent requests open a switch",
+];
+
+/** ADR-0032 S1c2: the source's signed drain proof hands its switch to bootstrap. */
+export const SWITCH_DRAIN_TEST_NAMES = [
+  "admits the source's signed proof, seals all three streams including empty ones, and replays as bootstrapping",
+  "keeps handoff evidence after bootstrap becomes completed",
+  "keeps handoff evidence after bootstrap becomes failed",
+  "does not turn inconsistent source history into a receipt",
+  "does not turn inconsistent epoch history into a receipt",
+  "does not turn inconsistent released reason history into a receipt",
+  "does not turn inconsistent unreleased Lease history into a receipt",
+  "does not turn inconsistent release time history into a receipt",
+  "does not turn inconsistent acceptance time history into a receipt",
+  "does not turn inconsistent capability target history into a receipt",
+  "retains the original switch target after a normal handoff",
+  "retains the original switch mode after a normal handoff",
+  "does not infer handoff from bootstrapping status or an unconsumed proof",
+  "refuses ambiguous consumed proofs",
+  "never reads a forced workflow as a normal handoff",
+  "terminates a real drained bootstrap when its one-hour capability expires before the old drain deadline",
+  "refuses a forged, expired, or stale-stream proof and leaves the switch draining for a corrected one",
+  "gives the target device and other tenants no drain path, and keeps the proof table owner-written",
+];
+
+/** ADR-0032 S3a: the account's device list and a Desktop's report of itself. */
+export const DEVICE_DIRECTORY_TEST_NAMES = [
+  "lists the account's devices with roles from the Lease, before any device reports itself",
+  "records a report for the session's own device, floors last seen to the hour, and bumps the revision only on change",
+  "denies web sessions, revoked or stale sessions, removed devices, and recovery without writing",
+  "does not describe an unreleased but expired Lease as Active",
+  "denies a bound device whose signing key is revoked and gives it no role",
+  "denies a bound device whose signing key is rotated and gives it no role",
+  "waits for concurrent key revocation before allowing a report",
+  "serializes renames with writers that lock in drain order, without deadlock",
+  "rejects a report naming a device or carrying an invalid name before touching the database",
+  "isolates identical device and session ids across two accounts",
+  "keeps the self-report columns within their constraints even for the database owner",
+  "enforces the protocol display-label rule in the database for every Cc and Cf character and trimmed whitespace",
+];
+
 export const POSTGRES_DRAIN_TEST_FILES = [
   { file: "test/postgres/device-drain-persistence.test.ts", names: POSTGRES_DEVICES_TEST_NAMES },
   { file: "test/postgres/immutable-drain-ledger.test.ts", names: IMMUTABLE_DRAIN_TEST_NAMES },
+  { file: "test/postgres/device-switch-request-persistence.test.ts", names: SWITCH_REQUEST_TEST_NAMES },
+  { file: "test/postgres/device-switch-drain-persistence.test.ts", names: SWITCH_DRAIN_TEST_NAMES },
+  { file: "test/postgres/device-directory-persistence.test.ts", names: DEVICE_DIRECTORY_TEST_NAMES },
 ];
 
 export const DEVICE_PERSISTENCE_TABLES = [
@@ -84,6 +146,10 @@ export const HARDENED_DRAIN_TABLES = [
   "workspace_device_audit_drain_heads", "workspace_device_audit_drain_records",
   "workspace_device_audit_drain_seals",
 ].sort();
+
+// Migrations 202611190009 and 202611190010 moved authenticated evidence appends to `gd_account_api`
+// and withdrew the app role's read of the two record streams those appends write.
+export const APP_UNREADABLE_DRAIN_TABLES = new Set(["execution_fact_drain_records", "workspace_device_audit_drain_records"]);
 
 export const ROLE_EXPECTATIONS = [
   {
@@ -132,7 +198,7 @@ export const ROUTINE_EXPECTATIONS = [
   ["audit_recompute_workspace_device_drain_head(text,bigint)", false],
   ["device_consume_drain_proof(text,bytea,text,bigint,text)", true],
   ["device_read_just_consumed_drain_proof(text)", false],
-  ["execution_fact_drain_append_record(text,bigint,bigint,bytea,bytea,text,text)", true],
+  ["execution_fact_drain_append_record(text,bigint,bigint,bytea,bytea,text,text)", false],
   ["execution_fact_drain_install_accepted_seal(text)", true],
   ["execution_fact_drain_recompute_head(text,bigint)", false],
   ["workspace_mutation_drain_append_record(text,bigint,bigint,bytea)", true],
@@ -359,7 +425,7 @@ function exactHardenedTablePrivileges(value) {
   return exactJson(value, HARDENED_DRAIN_TABLES.map((table) => ({
     table,
     owner: "gooddealer_cloud_owner",
-    canSelect: true,
+    canSelect: !APP_UNREADABLE_DRAIN_TABLES.has(table),
     canInsert: false,
     canUpdate: false,
     canDelete: false,

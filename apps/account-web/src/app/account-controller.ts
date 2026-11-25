@@ -29,7 +29,7 @@ import {
   type NamespacedRecoveryStore,
   type RecoveryStorage,
 } from "../browser-storage";
-import { parseDesktopAuthorizationContinuation } from "../desktop-authorization-continuation";
+import { parseDesktopAuthorizationContinuation, requiresDesktopReauthentication } from "../desktop-authorization-continuation";
 import type { AccountAccessNotice, AccountAccessStep } from "../features/access/account-access";
 import type { LicenseNotice } from "../features/license/account-license";
 import { refundProgressView, type LicenseRefundState } from "../features/license/license-view";
@@ -104,6 +104,7 @@ export class AccountController {
   readonly #navigator;
   /** Read once: a later navigation inside the page must not re-arm a consumed authorize request. */
   readonly #continuation: string | null;
+  readonly #requiresReauthentication: boolean;
   readonly #listeners = new Set<() => void>();
   #state: AccountAppState;
   #generation = 0;
@@ -120,6 +121,7 @@ export class AccountController {
     this.#fence = createAccountNamespaceFence(host.storage);
     this.#navigator = createSameOriginApprovalNavigator(host.location);
     this.#continuation = parseDesktopAuthorizationContinuation(host.location.search, host.location.origin);
+    this.#requiresReauthentication = requiresDesktopReauthentication(host.location.search, host.location.origin);
     this.#state = {
       phase: "loading",
       accessStep: "sign_in",
@@ -186,17 +188,20 @@ export class AccountController {
   }
 
   async signIn(email: string, password: string): Promise<void> {
+    if (this.#state.accessBusy) return;
     this.#invalidateBillingContext();
+    const generation = this.#generation;
     this.#update({ accessBusy: true, accessNotice: null });
     try {
       const outcome = await this.#identity.signIn(email, password);
+      if (generation !== this.#generation) return;
       if (!outcome.ok) {
         this.#accessNotice(rejectionKey(outcome, "invalidCredentials"), "error");
         return;
       }
-      await this.#initialize();
+      await this.#initialize(true);
     } catch {
-      this.#accessNotice("serviceUnavailable", "error");
+      if (generation === this.#generation) this.#accessNotice("serviceUnavailable", "error");
     } finally {
       this.#update({ accessBusy: false });
     }
@@ -348,7 +353,7 @@ export class AccountController {
     return this.#submitRefund((context) => context.refundRecovery.retryRefund());
   }
 
-  async #initialize(): Promise<void> {
+  async #initialize(signedInHere = false): Promise<void> {
     this.#generation = supersedeGeneration(this.#generation);
     const generation = this.#generation;
     this.#stopRefundRecovery();
@@ -367,7 +372,8 @@ export class AccountController {
       // Only 401 proves there is no session; any other refusal is an outage, not a sign-out.
       if (session.httpStatus === 401) {
         this.#fence.clear();
-        this.#showAccess(undefined);
+        this.#showAccess(this.#requiresReauthentication
+          ? { key: "desktopReauthenticationRequired", tone: "info" } : undefined);
       } else this.#showAccess({ key: "serviceUnavailable", tone: "error" });
       return;
     }
@@ -376,6 +382,14 @@ export class AccountController {
       return;
     }
     if (this.#continuation !== null) {
+      if (this.#requiresReauthentication && !signedInHere) {
+        // Session discovery may find the very session Cloud refused for being too old. Only a
+        // successful sign-in in this generation resumes it; Cloud still checks the new session.
+        this.#fence.clear();
+        this.#update({ accessStep: "sign_in" });
+        this.#showAccess({ key: "desktopReauthenticationRequired", tone: "info" });
+        return;
+      }
       this.#update({ phase: "access", accessStep: "desktop_returning", accessNotice: null, refreshing: false });
       // Replace, not assign: Back must not reopen an authorize request that has been consumed.
       this.#host.location.replace(this.#continuation);

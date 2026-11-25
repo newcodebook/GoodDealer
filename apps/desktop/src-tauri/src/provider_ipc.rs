@@ -6,6 +6,20 @@ use serde::de::{DeserializeOwned, Deserializer, Error as _, MapAccess, SeqAccess
 use serde_json::{Map, Value};
 use tauri::ipc::{InvokeBody, Request};
 
+pub(crate) fn is_provider_connection_uuid(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && bytes[14] == b'4'
+        && matches!(bytes[19], b'8' | b'9' | b'a' | b'b')
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                *byte == b'-'
+            } else {
+                matches!(byte, b'0'..=b'9' | b'a'..=b'f')
+            }
+        })
+}
+
 pub(crate) fn decode_provider_request<T: DeserializeOwned>(
     request: &Request<'_>,
     maximum_wire_bytes: usize,
@@ -13,7 +27,7 @@ pub(crate) fn decode_provider_request<T: DeserializeOwned>(
     decode_provider_body(request.body(), maximum_wire_bytes)
 }
 
-fn decode_provider_body<T: DeserializeOwned>(
+pub(crate) fn decode_provider_body<T: DeserializeOwned>(
     body: &InvokeBody,
     maximum_wire_bytes: usize,
 ) -> Result<T, String> {
@@ -164,6 +178,38 @@ mod tests {
             ),
             Err("CLOUDFLARE_INPUT_REJECTED".to_owned())
         );
+    }
+
+    #[test]
+    fn retirement_requires_a_closed_action_and_rejects_duplicate_confirmation() {
+        use crate::command_handlers::CloudflareConnectionPurgeRequest;
+        for action in ["confirm_retirement", "retry_pending"] {
+            let wire = format!(
+                r#"{{"schemaVersion":1,"connectionId":"connection-1","action":"{action}"}}"#
+            );
+            assert!(
+                decode_provider_body::<CloudflareConnectionPurgeRequest>(
+                    &InvokeBody::Raw(wire.into_bytes()),
+                    512
+                )
+                .is_ok()
+            );
+        }
+        for wire in [
+            r#"{"schemaVersion":1,"connectionId":"a"}"#,
+            r#"{"schemaVersion":1,"connectionId":"a","action":true}"#,
+            r#"{"schemaVersion":1,"connectionId":"a","action":"force"}"#,
+            r#"{"schemaVersion":1,"connectionId":"a","action":"retry_pending","action":"confirm_retirement"}"#,
+            r#"{"schemaVersion":1,"connectionId":"a","action":"confirm_retirement","digest":"caller-slot"}"#,
+        ] {
+            assert!(
+                decode_provider_body::<CloudflareConnectionPurgeRequest>(
+                    &InvokeBody::Raw(wire.as_bytes().to_vec()),
+                    512
+                )
+                .is_err()
+            );
+        }
     }
 
     #[test]

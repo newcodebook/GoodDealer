@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sellerhub-status"
+description = "Enables the sellerhub_status command without any pre-configured scope."
+commands.allow = ["sellerhub_status"]
+
+[[permission]]
+identifier = "deny-sellerhub-status"
+description = "Denies the sellerhub_status command without any pre-configured scope."
+commands.deny = ["sellerhub_status"]

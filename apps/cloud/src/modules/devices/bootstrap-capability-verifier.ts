@@ -17,10 +17,19 @@ export interface BootstrapVerificationKeySource {
   }): Promise<KeyObject | null>;
 }
 
-/** Production authority. It has no configuration seam and can never return a key. */
-export class DenyingBootstrapVerificationKeySource implements BootstrapVerificationKeySource {
-  async findVerificationKey(): Promise<null> {
-    return null;
+/** Fixed-purpose verification registry. Duplicate ids and non-Ed25519 keys fail closed. */
+export class TrustedBootstrapVerificationKeySource implements BootstrapVerificationKeySource {
+  private readonly keys = new Map<string, KeyObject>();
+  constructor(entries: readonly { readonly kid: string; readonly publicKey: KeyObject }[]) {
+    for (const entry of entries) {
+      if (!/^[!-~]{1,200}$/u.test(entry.kid) || this.keys.has(entry.kid) ||
+        entry.publicKey.type !== "public" || entry.publicKey.asymmetricKeyType !== "ed25519")
+        throw new TypeError("invalid bootstrap verification registry");
+      this.keys.set(entry.kid, entry.publicKey);
+    }
+  }
+  async findVerificationKey(input: { readonly purpose: typeof BOOTSTRAP_CAPABILITY_KEY_PURPOSE; readonly kid: string }): Promise<KeyObject | null> {
+    return input.purpose === BOOTSTRAP_CAPABILITY_KEY_PURPOSE ? this.keys.get(input.kid) ?? null : null;
   }
 }
 
@@ -61,7 +70,7 @@ export class VerifiedBootstrapCapabilityPresentation {
   }
 }
 
-/** Internal verifier. Fixture key injection is deliberately not re-exported by devices/index. */
+/** Internal verifier consumes only a purpose-specific key source supplied by the composition root. */
 export class BootstrapCapabilityVerifier {
   readonly #owner = Object.freeze({});
 
@@ -143,18 +152,18 @@ function copyWireValue(
   budget: { properties: number; bytes: number },
   depth: number,
 ): unknown | null {
-  if (depth > 12 || budget.properties > 256 || budget.bytes > 65_536) return null;
+  if (depth > 12 || budget.properties > 65_536 || budget.bytes > 1_048_576) return null;
   if (value === null || typeof value === "boolean") return value;
   if (typeof value === "number") return Number.isSafeInteger(value) ? value : null;
   if (typeof value === "string") {
     budget.bytes += Buffer.byteLength(value, "utf8");
-    return budget.bytes <= 65_536 && value.length <= 16_384 ? value : null;
+    return budget.bytes <= 1_048_576 && value.length <= 16_384 ? value : null;
   }
   if (typeof value !== "object") return null;
 
   const prototype = Object.getPrototypeOf(value);
   if (Array.isArray(value)) {
-    if (prototype !== Array.prototype || value.length > 256) return null;
+    if (prototype !== Array.prototype || value.length > 4096) return null;
     const keys = Reflect.ownKeys(value);
     if (keys.some((key) => typeof key !== "string" || (key !== "length" && !/^(?:0|[1-9]\d*)$/u.test(key)))) {
       return null;

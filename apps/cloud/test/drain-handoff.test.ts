@@ -108,8 +108,8 @@ function serviceOptions() {
 }
 
 const switchRequest = {
-  schemaVersion: 1 as const,
-  mode: "normal" as const,
+  schemaVersion: 2 as const,
+  mode: "normal" as const, expectedSourceLeaseEpoch: 1,
   toDeviceId: "device-b",
   idempotencyKey: "switch-key",
 };

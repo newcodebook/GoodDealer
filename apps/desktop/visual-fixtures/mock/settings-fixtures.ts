@@ -9,7 +9,7 @@ const connectionRows = [
   { id: "dynadot-main", provider: "Dynadot", alias: "main", category: "registrar", method: "api", summary: "69 域名 · Token 过期", health: "action_required", checked: null },
   { id: "cloudflare-main", provider: "Cloudflare", alias: "main", category: "dns", method: "api", summary: "601 区域 · A/CNAME/TXT/MX", health: "healthy", checked: "2026-08-20T06:02:00Z" },
   { id: "atom-main", provider: "Atom", alias: "main", category: "marketplace", method: "api", summary: "511 Listing", health: "healthy", checked: "2026-08-20T06:01:00Z" },
-  { id: "afternic-main", provider: "Afternic", alias: "main", category: "marketplace", method: "csv", summary: "601 Listing · 需 CSV 人工", health: "retained_unverified", checked: "2026-07-28T03:00:00Z" },
+  { id: "afternic-main", provider: "Afternic", alias: "main", category: "marketplace", method: "api", summary: "601 Listing · Portfolio API", health: "retained_unverified", checked: "2026-07-28T03:00:00Z" },
   { id: "sellerhub-main", provider: "SellerHub", alias: "main", category: "marketplace", method: null, summary: "尚未授权账户", health: "unconfigured", checked: null },
 ] as const;
 
@@ -70,4 +70,5 @@ export function mockSyncSettings(cadence: SyncSettingsViewModel["pullRefreshCade
   return syncSettingsViewModelSchema.parse({ schemaVersion: 1, kind: "sync_settings", businessSynchronization: "mandatory", pullRefreshCadence: cadence, conflictResolution: "manual_review" });
 }
 
-export const mockAbout: AboutView = { version: "0.9.0 · Tauri", dataDirectory: "~/Library/Application Support/GoodDealer", revisionBase: 8241 };
+export const mockAbout: AboutView = { version: "0.9.0 · Tauri", dataDirectory: "~/Library/Application Support/GoodDealer", revisionBase: 8241,
+  storageIntegrity: { malformedExpiries: 0, invalidRegistrarObservations: 0, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 0 } };

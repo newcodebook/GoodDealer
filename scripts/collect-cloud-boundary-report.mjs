@@ -94,12 +94,16 @@ export const CLOUD_BOUNDARY_REQUIRED_INPUTS = Object.freeze([
   "apps/cloud/src/entrypoints/adapter/surface.ts",
   "apps/cloud/src/entrypoints/ports/public-session.ts",
   "apps/cloud/src/entrypoints/ports/desktop-authorization.ts",
+  "apps/cloud/src/entrypoints/ports/execution-context.ts",
+  "apps/cloud/src/entrypoints/ports/execution-evidence.ts",
   "apps/cloud/src/entrypoints/ports/staff-session.ts",
   "apps/cloud/test/support/public-session.ts",
   "apps/cloud/src/entrypoints/routes/public/boundary.ts",
   "apps/cloud/src/entrypoints/routes/admin/boundary.ts",
   "apps/cloud/test/entrypoints/error-identity-matrix.test.ts",
   "apps/cloud/test/entrypoints/desktop-authorization-route.test.ts",
+  "apps/cloud/test/entrypoints/execution-context-route.test.ts",
+  "apps/cloud/test/entrypoints/execution-evidence-route.test.ts",
   "apps/cloud/test/entrypoints/billing-route.test.ts",
   "apps/cloud/test/entrypoints/jobs-composition.test.ts",
   "apps/cloud/test/entrypoints/rate-limit-boundary.test.ts",
@@ -223,12 +227,75 @@ export function sourceDefinesSafeAccountActivationRoute(source) {
 export function sourceDefinesSafeDesktopAuthorizationRoute(source) {
   const cleanSource = withoutComments(source);
   return /from\s+["']@gooddealer\/protocol\/devices["']/.test(cleanSource)
-    && /request:\s*desktopAuthorizationGrantRequestSchema\b/.test(cleanSource)
-    && /response:\s*desktopAuthorizationGrantSchema\b/.test(cleanSource)
+    && /request:\s*desktopAuthorizationGrantRoleRequestSchema\b/.test(cleanSource)
+    && /response:\s*desktopAuthorizationGrantRoleResponseSchema\b/.test(cleanSource)
     && /path:\s*DESKTOP_AUTHORIZATION_GRANT_ROUTE\b/.test(cleanSource)
     && /DESKTOP_AUTHORIZATION_GRANT_ROUTE\s*=\s*["']\/v1\/devices\/authorization-grant["']/.test(cleanSource)
     && /authorize:\s*\(principal\)\s*=>\s*principal\.clientKind\s*===\s*["']desktop["']/.test(cleanSource)
     && /desktopAuthorization\.issue\(request,\s*principal\)/.test(cleanSource);
+}
+
+export function sourceDefinesSafeExecutionContextRoute(source) {
+  const cleanSource = withoutComments(source);
+  const context = cleanSource.match(/const contextRoutes:[\s\S]*?\}\];/u)?.[0] ?? "";
+  const fields = [...context.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*:/gu)].map((match) => match[1]);
+  const exactFields = ["contextRoutes", "surface", "method", "path", "request", "response",
+    "requiredScope", "deviceRole", "bodyLimit", "authorizeDeviceRole", "authorize", "invoke"];
+  return /DESKTOP_EXECUTION_CONTEXT_ROUTE\s*=\s*["']\/v1\/devices\/execution-context["']/u.test(cleanSource)
+    && JSON.stringify(fields) === JSON.stringify(exactFields)
+    && !/\.\.\.|\}\s*,\s*\{/u.test(context)
+    && (context.match(/\[/gu) ?? []).length === 3
+    && /return response;\s*\},\s*\}\];$/u.test(context)
+    && /ports\.desktopExecutionContext === undefined \? \[\] : \[\{/u.test(context)
+    && /method:\s*"POST",\s*path:\s*DESKTOP_EXECUTION_CONTEXT_ROUTE/u.test(context)
+    && /request:\s*desktopExecutionContextRequestSchema,\s*response:\s*desktopExecutionContextResponseSchema/u.test(context)
+    && /deviceRole:\s*"active",\s*bodyLimit:\s*DESKTOP_EXECUTION_CONTEXT_REQUEST_LIMIT_BYTES/u.test(context)
+    && /authorizeDeviceRole:\s*\(principal, required\)\s*=>\s*ports\.desktopRouteAuthority\.authorize\(principal, required\)/u.test(context)
+    && /authorize:\s*\(principal\)\s*=>\s*principal\.clientKind\s*===\s*"desktop"/u.test(context)
+    && /ports\.desktopExecutionContext!\.issue\(value, principal\)/u.test(context)
+    && /if \(response === null\) throw new PublicRouteAuthorizationError\(/u.test(context)
+    && /return\s*\[\s*\.\.\.contextRoutes,/u.test(cleanSource);
+}
+
+/** Fixed source evidence only; actual receipt adjudication requires the owner PostgreSQL tests. */
+export function sourceDefinesSafeExecutionEvidenceRoutes(source) {
+  const cleanSource = withoutComments(source);
+  const compact = (value) => value.replace(/\s+/gu, "");
+  for (const [name, port, routes] of [
+    ["deviceAuditEvidenceRoutes", "deviceAuditEvidence", [
+      ["DEVICE_AUDIT_INGEST_ROUTE", "/v1/device-audits/ingest", "deviceAuditIngestRequestSchema", "executionEvidenceIngestResponseSchema", "ingest", "16_384"],
+      ["DEVICE_AUDIT_RECEIPTS_ROUTE", "/v1/device-audits/receipts", "executionEvidenceReceiptsRequestSchema", "executionEvidenceReceiptsResponseSchema", "receipts", "32_768"],
+    ]],
+    ["executionFactEvidenceRoutes", "executionFactEvidence", [
+      ["EXECUTION_FACT_INGEST_ROUTE", "/v1/execution-facts/ingest", "executionFactIngestRequestSchema", "executionEvidenceIngestResponseSchema", "ingest", "32_768"],
+      ["EXECUTION_FACT_RECEIPTS_ROUTE", "/v1/execution-facts/receipts", "executionEvidenceReceiptsRequestSchema", "executionEvidenceReceiptsResponseSchema", "receipts", "32_768"],
+    ]],
+  ]) {
+    const definition = cleanSource.match(new RegExp(`const ${name}:[\\s\\S]*?\\];`, "u"))?.[0];
+    if (definition === undefined) return false;
+    const expected = `const ${name}: readonly PublicRoute<any, any>[] = ports.${port} === undefined ? [] : [${routes.map(
+      ([constant, path, request, response, method, limit]) => {
+        if (!compact(cleanSource).includes(`exportconst${constant}="${path}"asconst;`)) return "INVALID_ROUTE";
+        return `{
+          surface: PUBLIC_SURFACE, method: "POST", path: ${constant},
+          request: ${request}, response: ${response}, requiredScope: null, deviceRole: "active",
+          authorizeDeviceRole: (principal, required) => ports.desktopRouteAuthority.authorize(principal, required),
+          authorize: (principal) => principal.clientKind === "desktop",
+          invoke: async (value, principal) => {
+            const response = await ports.${port}!.${method}(value, principal);
+            if (response === null) throw new PublicRouteAuthorizationError("public route authorization denied");
+            assertExecutionEvidenceResponseBound(response);
+            return response;
+          }, bodyLimit: ${limit},
+        },`;
+      },
+    ).join("")}];`;
+    // Compare the entire declaration, including both array elements. A matching safe first
+    // element must not conceal a second arbitrary object, spread, or variable route.
+    if (compact(definition) !== compact(expected)) return false;
+  }
+  return /from\s+"@gooddealer\/protocol\/execution-events"/u.test(cleanSource)
+    && /\.\.\.deviceDirectoryRoutes,\s*\.\.\.deviceAuditEvidenceRoutes,\s*\.\.\.executionFactEvidenceRoutes,\s*\];/u.test(cleanSource);
 }
 
 export function sourceDefinesSafeBillingRoutes(source) {
@@ -276,12 +343,14 @@ export function sourceDefinesExactAccountActivationBusinessRoute(source) {
     factoryStart < 0
     || !sourceDefinesSafeAccountActivationRoute(cleanSource)
     || !sourceDefinesSafeDesktopAuthorizationRoute(cleanSource)
+    || (/\bcontextRoutes\b/u.test(cleanSource) && !sourceDefinesSafeExecutionContextRoute(cleanSource))
+    || (/\bdeviceAuditEvidenceRoutes\b/u.test(cleanSource) && !sourceDefinesSafeExecutionEvidenceRoutes(cleanSource))
   ) return false;
   const factorySource = cleanSource.slice(factoryStart);
   const businessFactory = factorySource.split("const workspaceSyncRoutes", 1)[0];
   return (businessFactory.match(/\bconst\s+\w+Route\s*:\s*PublicRoute(?:<|\s*\n)/gu) ?? []).length === 8
     && (businessFactory.match(/\bpath\s*:/gu) ?? []).length === 8
-    && /return\s*\[\s*accountActivationRoute,\s*desktopAuthorizationRoute,\s*billingCheckoutRoute,\s*billingStatusRoute,\s*billingCancellationRoute,\s*billingFixedTermConfirmRoute,\s*billingFirstPurchaseRefundRoute,\s*billingFirstPurchaseRefundStatusRoute,?[\s\S]*?\]/u.test(factorySource);
+    && /return\s*\[\s*(?:\.\.\.contextRoutes,\s*)?accountActivationRoute,\s*desktopAuthorizationRoute,\s*billingCheckoutRoute,\s*billingStatusRoute,\s*billingCancellationRoute,\s*billingFixedTermConfirmRoute,\s*billingFirstPurchaseRefundRoute,\s*billingFirstPurchaseRefundStatusRoute,?[\s\S]*?\]/u.test(factorySource);
 }
 
 export function sourceRegistersModuleRoute(source) {
@@ -611,6 +680,10 @@ function staticBoundaryEvidence(runtime) {
   const accountActivationIntegrationRequired = existsSync(resolve(root, accountActivationPortPath));
   return {
     accountActivationIntegrationRequired,
+    desktopExecutionContextRouteSourceSafe:
+      publicBoundary !== undefined && sourceDefinesSafeExecutionContextRoute(publicBoundary.source),
+    executionEvidenceRoutesSourceSafe:
+      publicBoundary !== undefined && sourceDefinesSafeExecutionEvidenceRoutes(publicBoundary.source),
     accountActivationRouteSourceSafe:
       !accountActivationIntegrationRequired
       || (publicBoundary !== undefined && sourceDefinesSafeAccountActivationRoute(publicBoundary.source)),
@@ -718,7 +791,7 @@ function requirementMapping() {
       { requirement: "admin-routes-unregistered-and-periodic-jobs-exactly-allowlisted", fields: ["adminBusinessRoutesRegistered", "periodicJobsRegistered", "periodicJobsExactlyApproved", "periodicJobRegistry"], produced: true },
       { requirement: "live-cloud-integration", fields: ["runtimeIsolation", "errorIdentityMatrix"], produced: true },
       { requirement: "audit-event-chain-and-head-cas", fields: [], produced: false, reason: "AuditSinkPort records are boundary observations, not an AuditEvent chain." },
-      { requirement: "tenant-job-envelope-fan-out-and-replay-matrix", fields: [], produced: false, reason: "P0-31 job runtime is outside this slice." },
+      { requirement: "tenant-job-envelope-fan-out-and-replay-matrix", fields: [], produced: false, reason: "The tenant job envelope runtime is outside this boundary slice." },
     ],
     r0_15: [
       { requirement: "composition-root-static-import-and-registration", fields: ["publicRootImportsStaffSurface", "adminRootImportsPublicSurface", "moduleSourceRegistersRoute"], produced: true },
@@ -924,7 +997,7 @@ export async function collectCloudBoundaryReport(options = {}) {
         overLimitCount: 2,
         ...rateLimitObservation,
         probeCriterion: "crit_e26e01ef006a",
-        productionStrategyDeferredTo: "P0-19",
+        productionStrategyDeferredTo: "Q-OPS",
       },
       requirementMapping: requirementMapping(),
       requiredInputsPresent: inputs.length === CLOUD_BOUNDARY_REQUIRED_INPUTS.length,
@@ -968,6 +1041,8 @@ export function cloudBoundaryReportPassesPolicy(report) {
     && report.fixtureOnly === true
     && accountActivationBoundaryPasses
     && report.adminBusinessRoutesRegistered === false
+    && report.desktopExecutionContextRouteSourceSafe === true
+    && report.executionEvidenceRoutesSourceSafe === true
     && report.periodicJobsRegistered === true
     && report.periodicJobsExactlyApproved === true
     && JSON.stringify(report.periodicJobRegistry) === JSON.stringify(approvedPeriodicJobs)
@@ -1010,7 +1085,7 @@ export function cloudBoundaryReportPassesPolicy(report) {
     && report.rateLimitBoundary?.absentCookieAfterExhaustionStatus === 429
     && report.rateLimitBoundary?.retryAfterPairingObserved === true
     && report.rateLimitBoundary?.probeCriterion === "crit_e26e01ef006a"
-    && report.rateLimitBoundary?.productionStrategyDeferredTo === "P0-19"
+    && report.rateLimitBoundary?.productionStrategyDeferredTo === "Q-OPS"
     && report.rateLimitBoundary?.observationVerdict === "pass"
     && report.requirementMapping?.closesGate === false
     && report.requirementMapping?.r0_09?.length === 6

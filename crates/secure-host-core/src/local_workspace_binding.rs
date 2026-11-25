@@ -318,18 +318,18 @@ fn clear_native_binding() -> Result<(), LocalWorkspaceBindingError> {
         .map_err(secret_service_error)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn load_native_binding() -> Result<Option<Vec<u8>>, LocalWorkspaceBindingError> {
     let _ = (KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
     Err(LocalWorkspaceBindingError::Unavailable)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn store_native_binding(_value: &[u8]) -> Result<(), LocalWorkspaceBindingError> {
     Err(LocalWorkspaceBindingError::Unavailable)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn clear_native_binding() -> Result<(), LocalWorkspaceBindingError> {
     Err(LocalWorkspaceBindingError::Unavailable)
 }
@@ -389,6 +389,22 @@ fn is_canonical_timestamp(value: &str) -> bool {
         _ => return false,
     };
     (1..=last_day).contains(&day) && hour < 24 && minute < 60 && second < 60
+}
+
+#[cfg(windows)]
+fn load_native_binding() -> Result<Option<Vec<u8>>, LocalWorkspaceBindingError> {
+    crate::windows_custody::load(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map_err(|_| LocalWorkspaceBindingError::Unavailable)
+}
+#[cfg(windows)]
+fn store_native_binding(value: &[u8]) -> Result<(), LocalWorkspaceBindingError> {
+    crate::windows_custody::store(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, value)
+        .map_err(|_| LocalWorkspaceBindingError::Unavailable)
+}
+#[cfg(windows)]
+fn clear_native_binding() -> Result<(), LocalWorkspaceBindingError> {
+    crate::windows_custody::delete(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map_err(|_| LocalWorkspaceBindingError::Unavailable)
 }
 
 #[cfg(test)]

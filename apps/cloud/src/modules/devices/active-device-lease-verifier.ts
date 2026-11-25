@@ -9,6 +9,7 @@ import { identifier } from "@gooddealer/protocol/wire";
 
 export interface ActiveDeviceLeaseVerifier {
   verify(value: unknown): ActiveDeviceLeaseEnvelope | null;
+  verifyWithKeyEvidence(value: unknown): { envelope: ActiveDeviceLeaseEnvelope; verificationKey: KeyObject } | null;
 }
 
 export interface TrustedActiveDeviceLeaseVerificationKey {
@@ -35,6 +36,10 @@ export class TrustedActiveDeviceLeaseVerifier implements ActiveDeviceLeaseVerifi
   }
 
   verify(value: unknown): ActiveDeviceLeaseEnvelope | null {
+    return this.verifyWithKeyEvidence(value)?.envelope ?? null;
+  }
+
+  verifyWithKeyEvidence(value: unknown): { envelope: ActiveDeviceLeaseEnvelope; verificationKey: KeyObject } | null {
     const parsed = activeDeviceLeaseEnvelopeSchema.safeParse(value);
     if (!parsed.success) return null;
     const envelope = parsed.data;
@@ -46,7 +51,7 @@ export class TrustedActiveDeviceLeaseVerifier implements ActiveDeviceLeaseVerifi
         encodeActiveDeviceLeaseSignatureTranscript(envelope),
         key,
         Buffer.from(envelope.signature, "base64url"),
-      ) ? envelope : null;
+      ) ? { envelope, verificationKey: key } : null;
     } catch {
       return null;
     }
@@ -54,6 +59,7 @@ export class TrustedActiveDeviceLeaseVerifier implements ActiveDeviceLeaseVerifi
 }
 
 export class DenyingActiveDeviceLeaseVerifier implements ActiveDeviceLeaseVerifier {
+  verifyWithKeyEvidence(): null { return null; }
   verify(): null {
     return null;
   }

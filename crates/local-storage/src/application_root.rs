@@ -2,7 +2,9 @@
 
 use std::fmt;
 use std::fs::File;
-use std::path::{Component, Path, PathBuf};
+#[cfg(not(windows))]
+use std::path::Component;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DesktopApplicationRootError {
@@ -33,6 +35,8 @@ pub struct DesktopApplicationRoot {
     path: PathBuf,
     directory: File,
     identity: DirectoryIdentity,
+    #[cfg(windows)]
+    windows: crate::windows_private_files::PinnedDirectory,
 }
 
 impl DesktopApplicationRoot {
@@ -40,51 +44,73 @@ impl DesktopApplicationRoot {
     ///
     /// # Errors
     ///
-    /// Rejects relative paths, symlinks in the existing path, non-directories, a final directory
-    /// not owned by this process user, or group/world-writable final permissions.
+    /// Rejects relative paths, symlinks/reparse points and unowned directories. Unix requires
+    /// private final permissions; Windows pins every ancestor under Local App Data and requires
+    /// a closed, protected owner-only final DACL.
     pub fn validate(path: &Path) -> Result<Self, DesktopApplicationRootError> {
-        if !path.is_absolute()
-            || path
-                .components()
-                .any(|part| matches!(part, Component::ParentDir))
+        #[cfg(windows)]
         {
-            return Err(DesktopApplicationRootError::Rejected);
-        }
-        reject_existing_symlink_components(path)?;
-        create_private_directory_all(path)?;
-        reject_existing_symlink_components(path)?;
-        let metadata = std::fs::symlink_metadata(path)
-            .map_err(|_| DesktopApplicationRootError::StorageRejected)?;
-        if metadata.file_type().is_symlink() || !metadata.is_dir() {
-            return Err(DesktopApplicationRootError::Rejected);
-        }
-        validate_owner_and_mode(&metadata)?;
-        #[cfg(unix)]
-        {
-            let directory = File::from(
-                rustix::fs::openat(
-                    rustix::fs::CWD,
-                    path,
-                    rustix::fs::OFlags::RDONLY
-                        | rustix::fs::OFlags::DIRECTORY
-                        | rustix::fs::OFlags::NOFOLLOW
-                        | rustix::fs::OFlags::CLOEXEC,
-                    rustix::fs::Mode::empty(),
-                )
-                .map_err(|_| DesktopApplicationRootError::StorageRejected)?,
-            );
-            let identity = directory_identity(&directory)?;
-            let root = Self {
-                path: path.to_path_buf(),
+            let windows = crate::windows_private_files::PinnedDirectory::open(path)
+                .map_err(|_| DesktopApplicationRootError::Rejected)?;
+            let id = windows.identity();
+            let directory = windows
+                .directory()
+                .map_err(|_| DesktopApplicationRootError::StorageRejected)?;
+            Ok(Self {
+                path: path.to_owned(),
                 directory,
-                identity,
-            };
-            root.verify_identity()?;
-            Ok(root)
+                identity: DirectoryIdentity {
+                    dev: id.volume,
+                    ino: id.index,
+                },
+                windows,
+            })
         }
-        #[cfg(not(unix))]
+        #[cfg(not(windows))]
         {
-            Err(DesktopApplicationRootError::Rejected)
+            if !path.is_absolute()
+                || path
+                    .components()
+                    .any(|part| matches!(part, Component::ParentDir))
+            {
+                return Err(DesktopApplicationRootError::Rejected);
+            }
+            reject_existing_symlink_components(path)?;
+            create_private_directory_all(path)?;
+            reject_existing_symlink_components(path)?;
+            let metadata = std::fs::symlink_metadata(path)
+                .map_err(|_| DesktopApplicationRootError::StorageRejected)?;
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                return Err(DesktopApplicationRootError::Rejected);
+            }
+            validate_owner_and_mode(&metadata)?;
+            #[cfg(unix)]
+            {
+                let directory = File::from(
+                    rustix::fs::openat(
+                        rustix::fs::CWD,
+                        path,
+                        rustix::fs::OFlags::RDONLY
+                            | rustix::fs::OFlags::DIRECTORY
+                            | rustix::fs::OFlags::NOFOLLOW
+                            | rustix::fs::OFlags::CLOEXEC,
+                        rustix::fs::Mode::empty(),
+                    )
+                    .map_err(|_| DesktopApplicationRootError::StorageRejected)?,
+                );
+                let identity = directory_identity(&directory)?;
+                let root = Self {
+                    path: path.to_path_buf(),
+                    directory,
+                    identity,
+                };
+                root.verify_identity()?;
+                Ok(root)
+            }
+            #[cfg(not(any(unix, windows)))]
+            {
+                Err(DesktopApplicationRootError::Rejected)
+            }
         }
     }
 
@@ -120,22 +146,32 @@ impl DesktopApplicationRoot {
         self.path.join(".desktop-local-host.lock")
     }
 
+    #[cfg(unix)]
     pub(crate) fn directory(&self) -> &File {
         &self.directory
     }
 
     pub(crate) fn verify_identity(&self) -> Result<(), DesktopApplicationRootError> {
-        if directory_identity(&self.directory)? != self.identity {
-            return Err(DesktopApplicationRootError::Rejected);
+        #[cfg(windows)]
+        {
+            self.windows
+                .verify()
+                .map_err(|_| DesktopApplicationRootError::Rejected)
         }
-        let metadata = std::fs::symlink_metadata(&self.path)
-            .map_err(|_| DesktopApplicationRootError::StorageRejected)?;
-        validate_owner_and_mode(&metadata)?;
-        let path_identity = metadata_identity(&metadata)?;
-        if path_identity != self.identity {
-            return Err(DesktopApplicationRootError::Rejected);
+        #[cfg(not(windows))]
+        {
+            if directory_identity(&self.directory)? != self.identity {
+                return Err(DesktopApplicationRootError::Rejected);
+            }
+            let metadata = std::fs::symlink_metadata(&self.path)
+                .map_err(|_| DesktopApplicationRootError::StorageRejected)?;
+            validate_owner_and_mode(&metadata)?;
+            let path_identity = metadata_identity(&metadata)?;
+            if path_identity != self.identity {
+                return Err(DesktopApplicationRootError::Rejected);
+            }
+            Ok(())
         }
-        Ok(())
     }
 }
 
@@ -145,6 +181,7 @@ impl fmt::Debug for DesktopApplicationRoot {
     }
 }
 
+#[cfg(not(windows))]
 fn reject_existing_symlink_components(path: &Path) -> Result<(), DesktopApplicationRootError> {
     let mut current = PathBuf::new();
     for component in path.components() {
@@ -177,7 +214,7 @@ fn create_private_directory_all(path: &Path) -> Result<(), DesktopApplicationRoo
         .map_err(|_| DesktopApplicationRootError::StorageRejected)
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn create_private_directory_all(path: &Path) -> Result<(), DesktopApplicationRootError> {
     std::fs::create_dir_all(path).map_err(|_| DesktopApplicationRootError::StorageRejected)
 }
@@ -215,13 +252,14 @@ fn metadata_identity(
     })
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn metadata_identity(
     _metadata: &std::fs::Metadata,
 ) -> Result<DirectoryIdentity, DesktopApplicationRootError> {
     Err(DesktopApplicationRootError::Rejected)
 }
 
+#[cfg(not(windows))]
 fn directory_identity(file: &File) -> Result<DirectoryIdentity, DesktopApplicationRootError> {
     let metadata = file
         .metadata()
@@ -230,7 +268,7 @@ fn directory_identity(file: &File) -> Result<DirectoryIdentity, DesktopApplicati
     metadata_identity(&metadata)
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn validate_owner_and_mode(
     _metadata: &std::fs::Metadata,
 ) -> Result<(), DesktopApplicationRootError> {
@@ -242,14 +280,29 @@ fn validate_owner_and_mode(
 mod tests {
     use std::path::Path;
 
-    use tempfile::tempdir;
+    use crate::test_tempdir::tempdir;
 
     use super::*;
 
     #[test]
     fn validates_absolute_owned_directory_and_derives_only_fixed_private_children() {
+        #[cfg(not(windows))]
         let parent = tempdir().unwrap();
+        #[cfg(not(windows))]
         let path = parent.path().canonicalize().unwrap().join("GoodDealer");
+        #[cfg(windows)]
+        let path = {
+            use base64::Engine as _;
+            let mut nonce = [0_u8; 16];
+            getrandom::fill(&mut nonce).unwrap();
+            dirs::data_local_dir()
+                .unwrap()
+                .join("GoodDealer")
+                .join(format!(
+                    "application-root-test-{}",
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(nonce)
+                ))
+        };
         let root = DesktopApplicationRoot::validate(&path).unwrap();
         assert_eq!(format!("{root:?}"), "DesktopApplicationRoot([REDACTED])");
         assert_eq!(
@@ -264,6 +317,12 @@ mod tests {
             root.rebootstrap_journal_path(),
             path.join("active-workspace/rebootstrap.journal")
         );
+        #[cfg(windows)]
+        {
+            root.verify_identity().unwrap();
+            drop(root);
+            std::fs::remove_dir_all(&path).unwrap();
+        }
     }
 
     #[test]

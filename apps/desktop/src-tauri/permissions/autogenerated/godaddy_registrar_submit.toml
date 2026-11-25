@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-godaddy-registrar-submit"
+description = "Enables the godaddy_registrar_submit command without any pre-configured scope."
+commands.allow = ["godaddy_registrar_submit"]
+
+[[permission]]
+identifier = "deny-godaddy-registrar-submit"
+description = "Denies the godaddy_registrar_submit command without any pre-configured scope."
+commands.deny = ["godaddy_registrar_submit"]

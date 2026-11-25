@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-aliyun-registrar-submit"
+description = "Enables the aliyun_registrar_submit command without any pre-configured scope."
+commands.allow = ["aliyun_registrar_submit"]
+
+[[permission]]
+identifier = "deny-aliyun-registrar-submit"
+description = "Denies the aliyun_registrar_submit command without any pre-configured scope."
+commands.deny = ["aliyun_registrar_submit"]

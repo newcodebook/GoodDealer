@@ -4,11 +4,11 @@ import { useEffect, useState } from "react";
 
 import { DnsVerification } from "../../src/features/dns";
 import { ConflictCenter } from "../../src/features/sync/conflict-center";
-import { initialMockConflicts, initialMockDnsRows, mockConflictCenter, mockDnsVerification, type MockConflict, type MockDnsRow } from "../mock/dns-conflict-fixtures";
+import { initialMockConflicts, initialMockDnsRows, mockConflictCenter, mockDnsHealthView, mockDnsVerification, type MockConflict, type MockDnsRow } from "../mock/dns-conflict-fixtures";
 import { MockShell, mockShellStatus } from "../mock/mock-shell";
 import type { DesignWindowPlatform } from "../screen-registry";
 
-export const dnsVariants = [{ id: "active", label: "Active · 可修复" }, { id: "standby", label: "Standby · 只读" }] as const;
+export const dnsVariants = [{ id: "active", label: "Active · 可修复" }, { id: "standby", label: "Standby · 只读" }, { id: "host", label: "Host 观察 · 所有权未接入" }] as const;
 export const conflictVariants = [{ id: "active", label: "Active · 可裁决" }, { id: "continuation", label: "本地延续 · 不可裁决" }] as const;
 
 interface ScreenProps {
@@ -45,7 +45,7 @@ export function DnsScreen({ variant, platform, onNavigateScreen }: ScreenProps) 
       onNavigateScreen={onNavigateScreen}
       {...(standby ? { banner: <Banner tone="sync" title={shellCopy.standby}>{shellCopy.standbyNotice}</Banner> } : {})}
     >
-      <DnsVerification
+      {variant === "host" ? <DnsVerification locale={locale} view={mockDnsHealthView()} /> : <DnsVerification
         locale={locale}
         view={mockDnsVerification(rows, standby)}
         verifyingIds={verifying}
@@ -57,7 +57,7 @@ export function DnsScreen({ variant, platform, onNavigateScreen }: ScreenProps) 
             : row));
           setUnsynced((count) => count + 1);
         }}
-      />
+      />}
     </MockShell>
   );
 }

@@ -1,3 +1,23 @@
+import {
+  atomStandardListingApprovalAuditPayloadSchema,
+  atomStandardListingClaimAuditPayloadSchema,
+  atomStandardListingPreflightRefusedAuditPayloadSchema,
+  atomStandardListingReconciledAuditPayloadSchema,
+} from "./atom-standard-listing-evidence";
+import {
+  sellerHubCreateListingApprovalAuditPayloadSchema,
+  sellerHubCreateListingClaimAuditPayloadSchema,
+  sellerHubCreateListingPreflightRefusedAuditPayloadSchema,
+  sellerHubCreateListingReconciledAuditPayloadSchema,
+} from "./sellerhub-create-listing-evidence";
+import { atomStandardDelistApprovalAuditPayloadSchema, atomStandardDelistClaimAuditPayloadSchema, atomStandardDelistPreflightRefusedAuditPayloadSchema, atomStandardDelistReconciledAuditPayloadSchema } from "./atom-standard-delist-evidence";
+import { sellerHubBinPriceApprovalAuditPayloadSchema, sellerHubBinPriceClaimAuditPayloadSchema, sellerHubBinPricePreflightRefusedAuditPayloadSchema, sellerHubBinPriceReconciledAuditPayloadSchema } from "./sellerhub-bin-price-evidence";
+import { afternicListingPlanApprovalAuditPayloadSchema, afternicListingPlanClaimAuditPayloadSchema, afternicListingPlanReconciledAuditPayloadSchema,
+  afternicListingPlanPreflightRefusedAuditPayloadSchema, afternicOwnershipReviewClaimAuditPayloadSchema,
+  afternicOwnershipReviewReconciledAuditPayloadSchema, afternicOwnershipReviewPreflightRefusedAuditPayloadSchema,
+  afternicOwnershipReviewPreflightSatisfiedAuditPayloadSchema } from "./afternic-listing-plan-evidence";
+import { afternicListingWriteApprovalAuditPayloadSchema, afternicListingWriteClaimAuditPayloadSchema, afternicListingWriteReconciledAuditPayloadSchema, afternicListingWritePreflightRefusedAuditPayloadSchema } from "./afternic-listing-write-evidence";
+import { afternicDelistApprovalAuditPayloadSchema, afternicDelistClaimAuditPayloadSchema, afternicDelistReconciledAuditPayloadSchema, afternicDelistPreflightRefusedAuditPayloadSchema } from "./afternic-delist-evidence";
 import { z } from "zod";
 
 import { sha256DigestSchema } from "../workspace/index";
@@ -107,3 +127,25 @@ export function encodeDeviceAuditEventSignatureTranscript(value: unknown): Uint8
 }
 
 export type DeviceAuditEvent = z.infer<typeof deviceAuditEventSchema>;
+
+/** Separate from the three-stream drain digest: this anchors the signed audit previousHash chain. */
+export const DEVICE_AUDIT_CHAIN_GENESIS_INPUT = new TextEncoder().encode("GOODDEALER-DEVICE-AUDIT-CHAIN-GENESIS-V1");
+export const DEVICE_AUDIT_CHAIN_GENESIS_DIGEST = "qNhif0AJWgKL2IWy5ylAUyTNimMebPbmmrUrz0U-NA8" as const;
+export function encodeDeviceAuditEventHashInput(value: unknown): Uint8Array {
+  const { eventHash: _hash, deviceSignature: _signature, ...event } = deviceAuditEventSchema.parse(value);
+  return encodeDomainSeparatedWireValue("GOODDEALER-DEVICE-AUDIT-EVENT-HASH-V1", event);
+}
+
+/** Fixed HTTP ingest forms remain representable as JSON Schema; the general v1 safe-value codec is unchanged. */
+export const workspaceDeviceAuditIngestSchema = z.object({
+ ...deviceAuditCommonFields,scopeKind:z.literal("workspace"),workspaceId:identifier,activeLeaseEpoch:safePositiveInteger,
+ payloadRedacted:z.union([afternicDelistApprovalAuditPayloadSchema,afternicDelistClaimAuditPayloadSchema,afternicDelistReconciledAuditPayloadSchema,afternicDelistPreflightRefusedAuditPayloadSchema,afternicListingWriteApprovalAuditPayloadSchema,afternicListingWriteClaimAuditPayloadSchema,afternicListingWriteReconciledAuditPayloadSchema,afternicListingWritePreflightRefusedAuditPayloadSchema, afternicListingPlanApprovalAuditPayloadSchema, afternicListingPlanClaimAuditPayloadSchema, afternicListingPlanReconciledAuditPayloadSchema,
+  afternicListingPlanPreflightRefusedAuditPayloadSchema, afternicOwnershipReviewClaimAuditPayloadSchema,
+  afternicOwnershipReviewReconciledAuditPayloadSchema, afternicOwnershipReviewPreflightRefusedAuditPayloadSchema,
+  afternicOwnershipReviewPreflightSatisfiedAuditPayloadSchema, sellerHubBinPriceApprovalAuditPayloadSchema, sellerHubBinPriceClaimAuditPayloadSchema, sellerHubBinPricePreflightRefusedAuditPayloadSchema, sellerHubBinPriceReconciledAuditPayloadSchema, atomStandardDelistApprovalAuditPayloadSchema, atomStandardDelistClaimAuditPayloadSchema, atomStandardDelistPreflightRefusedAuditPayloadSchema, atomStandardDelistReconciledAuditPayloadSchema,
+  sellerHubCreateListingApprovalAuditPayloadSchema, sellerHubCreateListingClaimAuditPayloadSchema,
+  sellerHubCreateListingPreflightRefusedAuditPayloadSchema, sellerHubCreateListingReconciledAuditPayloadSchema,
+  atomStandardListingApprovalAuditPayloadSchema, atomStandardListingClaimAuditPayloadSchema,
+  atomStandardListingPreflightRefusedAuditPayloadSchema, atomStandardListingReconciledAuditPayloadSchema,
+ ]),
+}).strict().superRefine(enforceAuthorizationSource);

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sellerhub-bin-price-approve"
+description = "Enables the sellerhub_bin_price_approve command without any pre-configured scope."
+commands.allow = ["sellerhub_bin_price_approve"]
+
+[[permission]]
+identifier = "deny-sellerhub-bin-price-approve"
+description = "Denies the sellerhub_bin_price_approve command without any pre-configured scope."
+commands.deny = ["sellerhub_bin_price_approve"]

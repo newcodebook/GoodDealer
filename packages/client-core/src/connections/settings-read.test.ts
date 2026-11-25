@@ -1,0 +1,149 @@
+import { describe, expect, it } from "vitest";
+
+import { parseConnectionSettingsViewModel } from "./index";
+import { parseSettingsRead, parseStorageRepairReceipt, projectConnectionSettings, settingsConnectionHealth, storageRepairRequestSchema, type SettingsConnection } from "./settings-read";
+
+const connection = {
+  providerKind: "cloudflare",
+  connectionLabel: "Cloudflare",
+  lifecycleStatus: "active",
+  validationStatus: "valid",
+  credentialUseState: "active",
+  lastValidatedAt: "2026-08-28T00:00:00Z",
+  roles: [{ role: "dns", availability: "unavailable", unavailableReason: "qualification_pending" }],
+} as const;
+
+const integrity = { malformedExpiries: 0, invalidRegistrarObservations: 3, rejectedDnsRows: 0, rejectedListings: 0, malformedOutboxRows: 1 } as const;
+
+function read(overrides: Record<string, unknown> = {}): unknown {
+  return {
+    schemaVersion: 2,
+    kind: "settings",
+    readGeneration: 3,
+    freshness: { source: "active_local", readOnlyReason: null, serverRevision: 2, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
+    connections: [connection],
+    storageIntegrity: integrity,
+    ...overrides,
+  };
+}
+
+describe("settings Host read", () => {
+  it("places each connection under its declared roles with no executable action", () => {
+    const view = projectConnectionSettings(parseSettingsRead(read()), () => "unavailable before qualification");
+    // The projection must satisfy the settings view-model contract it feeds.
+    expect(parseConnectionSettingsViewModel(view)).toEqual(view);
+    const dns = view.groups.find((group) => group.category === "dns");
+    expect(dns?.connections).toHaveLength(1);
+    expect(dns?.connections[0]).toMatchObject({
+      provider: "Cloudflare",
+      accountAlias: "Cloudflare",
+      credentialHealth: "healthy",
+      admission: { actionAvailability: "unavailable" },
+      summary: "unavailable before qualification",
+    });
+    expect(view.groups.filter((group) => group.category !== "dns").every((group) => group.connections.length === 0)).toBe(true);
+  });
+
+  it("lists a connection on any ADR-0027 platform without guessing how it authenticates", () => {
+    const view = projectConnectionSettings(parseSettingsRead(read({ connections: [
+      connection,
+      { ...connection, providerKind: "porkbun", connectionLabel: "Porkbun main", roles: [{ role: "registrar", availability: "unavailable", unavailableReason: "qualification_pending" }] },
+      { ...connection, providerKind: "godaddy", connectionLabel: "GoDaddy", roles: [{ role: "marketplace", availability: "unavailable", unavailableReason: "qualification_pending" }] },
+      { ...connection, providerKind: "dynadot", connectionLabel: "Dynadot", roles: [{ role: "acquisition", availability: "unavailable", unavailableReason: "qualification_pending" }] },
+    ] })), () => "unavailable before qualification");
+    expect(parseConnectionSettingsViewModel(view)).toEqual(view);
+    const byCategory = Object.fromEntries(view.groups.map((group) => [group.category, group.connections.map((item) => [item.provider, item.method, item.admission.actionAvailability])]));
+    expect(byCategory).toEqual({
+      registrar: [["Porkbun", null, "unavailable"]],
+      dns: [["Cloudflare", "api", "unavailable"]],
+      marketplace: [["GoDaddy", null, "unavailable"]],
+      acquisition: [["Dynadot", null, "unavailable"]],
+    });
+  });
+
+  it("lists a connection that declares no role once, last, with no action, instead of hiding it", () => {
+    const seen: Array<[string, string | null]> = [];
+    const view = projectConnectionSettings(parseSettingsRead(read({ connections: [
+      { ...connection, providerKind: "porkbun", connectionLabel: "Porkbun", roles: [] },
+      connection,
+      { ...connection, providerKind: "spaceship", connectionLabel: "Spaceship", roles: [
+        { role: "registrar", availability: "unavailable", unavailableReason: "qualification_pending" },
+        { role: "marketplace", availability: "unavailable", unavailableReason: "qualification_pending" },
+      ] },
+    ] })), (item, role) => {
+      seen.push([item.connectionLabel, role]);
+      return role === null ? "no declared role" : `${role} pending`;
+    });
+    expect(parseConnectionSettingsViewModel(view)).toEqual(view);
+    expect(view.groups.map((group) => group.category)).toEqual(["registrar", "dns", "marketplace", "acquisition", "undeclared"]);
+    expect(view.groups.at(-1)?.connections).toEqual([expect.objectContaining({
+      provider: "Porkbun", category: "undeclared", summary: "no declared role", admission: { actionAvailability: "unavailable" },
+    })]);
+    // Each row's line is asked for the role it is listed under, so one connection can differ per role.
+    expect(seen).toEqual(expect.arrayContaining([["Spaceship", "registrar"], ["Spaceship", "marketplace"], ["Porkbun", null]]));
+    expect(view.groups.find((group) => group.category === "marketplace")?.connections[0]?.summary).toBe("marketplace pending");
+    // With every connection declaring a role there is no empty undeclared group.
+    const declared = projectConnectionSettings(parseSettingsRead(read()), () => "pending");
+    expect(declared.groups.map((group) => group.category)).not.toContain("undeclared");
+  });
+
+  it("refuses an action on a connection that declares no role", () => {
+    const view = projectConnectionSettings(parseSettingsRead(read({ connections: [{ ...connection, roles: [] }] })), () => "none");
+    const undeclared = view.groups.at(-1)!;
+    const actionable = { ...view, groups: [...view.groups.slice(0, -1), { ...undeclared, connections: [{ ...undeclared.connections[0]!, admission: { actionAvailability: "available", action: "manage" } }] }] };
+    expect(() => parseConnectionSettingsViewModel(actionable)).toThrow(TypeError);
+    const misfiled = { ...view, groups: [...view.groups.slice(0, -1), { ...undeclared, connections: [{ ...undeclared.connections[0]!, category: "dns" }] }] };
+    expect(() => parseConnectionSettingsViewModel(misfiled)).toThrow(TypeError);
+  });
+
+  it("rejects unknown fields, identifiers, executable roles and unknown roles", () => {
+    for (const bad of [
+      read({ extra: true }),
+      read({ connections: [{ ...connection, connectionId: "cf-1" }] }),
+      read({ connections: [{ ...connection, roles: [{ role: "dns", availability: "available", unavailableReason: "qualification_pending" }] }] }),
+      read({ connections: [{ ...connection, roles: [{ role: "monitoring", availability: "unavailable", unavailableReason: "qualification_pending" }] }] }),
+      read({ connections: [{ ...connection, roles: [{ role: "acquisition", availability: "available", unavailableReason: "qualification_pending" }] }] }),
+      read({ connections: [{ ...connection, roles: [connection.roles[0], connection.roles[0]] }] }),
+      read({ connections: [{ ...connection, connectionLabel: "Cloud\u0007flare" }] }),
+      read({ connections: [{ ...connection, providerKind: "unsupported-platform" }] }),
+      read({ schemaVersion: 1 }),
+      read({ storageIntegrity: undefined }),
+      read({ storageIntegrity: { ...integrity, unknownRows: 0 } }),
+      read({ storageIntegrity: { ...integrity, rejectedListings: -1 } }),
+      read({ storageIntegrity: { ...integrity, rejectedListings: 1.5 } }),
+      read({ storageIntegrity: { ...integrity, rejectedListings: 2 ** 32 } }),
+      read({ storageIntegrity: { ...integrity, rejectedListings: "1" } }),
+    ]) {
+      expect(() => parseSettingsRead(bad)).toThrow();
+    }
+  });
+
+  it("keeps the Host's storage integrity counts", () => {
+    expect(parseSettingsRead(read()).storageIntegrity).toEqual(integrity);
+  });
+
+  it("maps credential facts to a badge where revocation and remediation win", () => {
+    const health = (overrides: Partial<SettingsConnection>) => settingsConnectionHealth({ ...connection, ...overrides } as SettingsConnection);
+    expect(health({})).toBe("healthy");
+    expect(health({ validationStatus: "unknown" })).toBe("retained_unverified");
+    expect(health({ validationStatus: "unreachable" })).toBe("retained_unverified");
+    expect(health({ validationStatus: "insufficient_scope" })).toBe("action_required");
+    expect(health({ validationStatus: "invalid" })).toBe("invalid");
+    expect(health({ credentialUseState: "inactive" })).toBe("unconfigured");
+    expect(health({ credentialUseState: "transition_pending" })).toBe("verifying");
+    expect(health({ credentialUseState: "remediation_required" })).toBe("action_required");
+    expect(health({ lifecycleStatus: "revoked", validationStatus: "valid" })).toBe("revoked");
+  });
+
+  it("sends only a closed repair category and accepts only the receipt for it", () => {
+    const request = { schemaVersion: 1, expectedReadGeneration: 4, repairKind: "rejectedDnsRows" };
+    expect(storageRepairRequestSchema.parse(request)).toEqual(request);
+    for (const hostile of [{ ...request, entityId: "a.com" }, { ...request, repairKind: "RejectedDnsRows" }, { ...request, schemaVersion: 2 }, { ...request, expectedReadGeneration: 1.5 }]) {
+      expect(() => storageRepairRequestSchema.parse(hostile)).toThrow();
+    }
+    expect(parseStorageRepairReceipt({ schemaVersion: 1, repairKind: "rejectedDnsRows", repairedRows: 0 }, "rejectedDnsRows").repairedRows).toBe(0);
+    expect(() => parseStorageRepairReceipt({ schemaVersion: 1, repairKind: "rejectedListings", repairedRows: 1 }, "rejectedDnsRows")).toThrow();
+    expect(() => parseStorageRepairReceipt({ schemaVersion: 1, repairKind: "rejectedDnsRows", repairedRows: 2 ** 32 }, "rejectedDnsRows")).toThrow();
+    expect(() => parseStorageRepairReceipt("ok", "rejectedDnsRows")).toThrow();
+  });
+});

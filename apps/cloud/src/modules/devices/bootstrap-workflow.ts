@@ -4,7 +4,7 @@ import {
   type BootstrapStepRequest,
   type BootstrapStepResult,
 } from "@gooddealer/protocol/devices";
-import type { CheckpointDescriptor, SyncMutation, WorkspaceEntityDigest } from "@gooddealer/protocol/workspace";
+import type { CheckpointDescriptor, SyncMutation, CheckpointEntityDigest } from "@gooddealer/protocol/workspace";
 
 import {
   BootstrapFixtureService,
@@ -38,7 +38,8 @@ export interface BootstrapWorkflowOptions {
   readonly workflow: DeviceSwitchWorkflow;
   readonly checkpoint: CheckpointDescriptor;
   readonly mutations: readonly SyncMutation[];
-  readonly expectedEntityDigests: readonly WorkspaceEntityDigest[];
+  readonly checkpointEntityDigests: readonly CheckpointEntityDigest[];
+  readonly expectedEntityDigests: readonly CheckpointEntityDigest[];
   readonly stepNonceFor: (stepNumber: number) => string;
   readonly capabilityVerifier: CapabilityVerifierPort;
   readonly checkpointCatalog?: CheckpointCatalogPort;
@@ -67,6 +68,7 @@ export type BootstrapActivationResult = {
  */
 export class BootstrapWorkflow {
   readonly #workflow: DeviceSwitchWorkflow;
+  readonly #checkpoint: CheckpointDescriptor;
   readonly #executor: BootstrapFixtureService;
   readonly #capabilityVerifier: CapabilityVerifierPort;
   readonly #checkpointCatalog: CheckpointCatalogPort;
@@ -82,6 +84,7 @@ export class BootstrapWorkflow {
   constructor(options: BootstrapWorkflowOptions) {
     const capabilityAtConstruction = options.workflow.capability;
     this.#workflow = options.workflow;
+    this.#checkpoint = options.checkpoint;
     this.#capabilityVerifier = options.capabilityVerifier;
     this.#checkpointCatalog = options.checkpointCatalog ?? new DenyingCheckpointCatalog();
     this.#workspaceRevision = options.workspaceRevision ?? new DenyingWorkspaceRevisionReader();
@@ -98,6 +101,7 @@ export class BootstrapWorkflow {
       checkpoint: options.checkpoint,
       mutations: options.mutations,
       expectedEntityDigests: options.expectedEntityDigests,
+      checkpointEntityDigests: options.checkpointEntityDigests,
       stepNonceFor: options.stepNonceFor,
       initialWorkflowRevision: options.workflow.workflowRevision,
       now: () => new Date(this.#trustedTime.now()),
@@ -161,14 +165,14 @@ export class BootstrapWorkflow {
       const scope = { accountId: this.#workflow.accountId, workspaceId: this.#workflow.workspaceId };
       const selected = await this.#checkpointCatalog.selectPublishedCheckpoint(
         scope,
-        request.stepPayload.checkpointId,
+        this.#checkpoint.checkpointId,
       );
       if (
         selected === null ||
         selected.workspaceId !== this.#workflow.workspaceId ||
-        selected.checkpointId !== request.stepPayload.checkpointId ||
-        selected.throughServerRevision !== request.stepPayload.checkpointThroughServerRevision ||
-        selected.checkpointDigest !== request.stepPayload.checkpointDigest
+        selected.checkpointId !== this.#checkpoint.checkpointId ||
+        selected.throughServerRevision !== this.#checkpoint.throughServerRevision ||
+        selected.checkpointDigest !== this.#checkpoint.checkpointDigest
       ) {
         return reject("CHECKPOINT_MISMATCH");
       }
@@ -307,7 +311,7 @@ export class BootstrapWorkflow {
       snapshot.toDeviceId,
       snapshot.targetServerRevision,
     );
-    throw new TypeError("lease issuance success is disabled in P0-16");
+    throw new TypeError("lease issuance success is disabled in the in-memory bootstrap workflow");
   }
 
   async cancel(): Promise<void> {

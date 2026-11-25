@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-afternic-inventory-refresh"
+description = "Enables the afternic_inventory_refresh command without any pre-configured scope."
+commands.allow = ["afternic_inventory_refresh"]
+
+[[permission]]
+identifier = "deny-afternic-inventory-refresh"
+description = "Denies the afternic_inventory_refresh command without any pre-configured scope."
+commands.deny = ["afternic_inventory_refresh"]

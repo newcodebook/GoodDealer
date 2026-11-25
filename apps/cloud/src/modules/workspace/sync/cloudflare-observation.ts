@@ -143,7 +143,7 @@ export class PostgresCloudflareDnsObservationIngress implements CloudflareDnsObs
 
     await transaction.query(
       `SELECT 1 FROM workspace_replica_domain_assets
-        WHERE account_id = $1 AND workspace_id = $2 AND entity_id = $3
+        WHERE account_id = $1 AND workspace_id = $2 AND entity_id = $3 AND deleted_at IS NULL
         FOR KEY SHARE`,
       [transaction.scope.accountId, transaction.scope.workspaceId, request.entityId],
     ).then((result) => { if (result.rowCount !== 1) throw new ObservationRejectedError(); });

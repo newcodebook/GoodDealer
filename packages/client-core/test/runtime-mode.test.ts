@@ -184,11 +184,11 @@ describe("runtime-mode read-only ports", () => {
     };
 
     await expect(port.requestSwitch({
-      schemaVersion: 1,
+      schemaVersion: 2,
       mode: "forced",
       toDeviceId: "device-b",
       idempotencyKey: "switch-attempt-1",
-      reauthProofId: "reauth-proof-1",
+      expectedSourceLeaseEpoch: 1,
     })).resolves.toEqual(rejection);
     await expect(port.getSwitchStatus(adjudicatedView.requestId)).resolves.toMatchObject({
       earliestTakeoverAt: "2026-08-14T12:00:00Z",
@@ -401,7 +401,8 @@ function switchView(
 ): DeviceSwitchRequestView {
   const mode = status === "waiting_expiry" ? "forced" : "normal";
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    normalHandoffReceipt: null,
     requestId: `switch-${status}`,
     mode,
     status,

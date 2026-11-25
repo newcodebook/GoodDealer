@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-target-bootstrap-status"
+description = "Enables the target_bootstrap_status command without any pre-configured scope."
+commands.allow = ["target_bootstrap_status"]
+
+[[permission]]
+identifier = "deny-target-bootstrap-status"
+description = "Denies the target_bootstrap_status command without any pre-configured scope."
+commands.deny = ["target_bootstrap_status"]

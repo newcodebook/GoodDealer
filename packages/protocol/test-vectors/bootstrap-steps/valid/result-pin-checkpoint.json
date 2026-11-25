@@ -1,14 +1,33 @@
 {
-  "schemaVersion": 1,
-  "workflowRevision": 1,
+  "schemaVersion": 2,
+  "workflowRevision": 2,
   "acceptedStepNumber": 1,
-  "nextStepNonce": "bm9uY2UtMg",
+  "nextStepNonce": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+  "resultDigest": "VsBeZEXa2IR5zsDZH1yG2piDveAokR1vp6R753fsX2k",
   "stepKind": "pin_checkpoint",
   "resultPayload": {
-    "checkpointId": "checkpoint-4",
-    "checkpointThroughServerRevision": 4,
-    "checkpointDigest": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    "pinExpiresAt": "2026-08-14T09:00:00Z"
-  },
-  "resultDigest": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+    "checkpoint": {
+      "schemaVersion": 3,
+      "checkpointId": "installation-checkpoint",
+      "workspaceId": "installation-workspace",
+      "workspaceSchemaVersion": 1,
+      "throughServerRevision": 5,
+      "checkpointDigest": "f_ivtpHN0Q01XFYzjZME-YOVBZdH2SHXNn6I6C_Isas"
+    },
+    "pinExpiresAt": "2030-01-01T00:15:00Z",
+    "targetServerRevision": 7,
+    "workspaceSchemaVersion": 1,
+    "checkpointEntityDigests": [
+      {
+        "entityType": "domain_asset",
+        "partitionId": "p0000",
+        "digest": "vx930gRdp4ZFvg1cVkA04ht9424ljHmflpLEvTKNW-c"
+      },
+      {
+        "entityType": "domain_asset_tombstone",
+        "partitionId": "t0000",
+        "digest": "HpHZfP3vJvPPyQBRh4ueRhFiaykL3mk94bA51DwVaYE"
+      }
+    ]
+  }
 }

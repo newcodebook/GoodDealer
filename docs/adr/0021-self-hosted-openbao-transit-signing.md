@@ -1,16 +1,20 @@
-# ADR-0021：生产签名 KMS 使用自托管 OpenBao Transit
+# ADR-0021：OpenBao 签名托管、用途隔离与轮换
 
-状态：Accepted production security design; local adapter and isolated development instance exist,
-but no production OpenBao cluster or key is provisioned.
+状态：Accepted
 
-## 决策
+## 签名边界
 
 GoodDealer 生产签名 KMS 统一使用自托管 OpenBao Transit。生产、预发布和开发分别使用隔离的
 OpenBao 实例或严格隔离的 namespace、工作负载身份、策略、密钥和审计目标；OpenBao 不与普通
 Cloud 应用共享进程、管理员身份或持久化凭据。
 
-`DesktopAuthorizationGrantV3`、`ActiveDeviceLeaseV1`、`user_audit`、`staff_audit` 与
+`DesktopAuthorizationGrantV3`、`ActiveDeviceLeaseV1`、`DesktopStandbyGrantV1`、`DesktopExecutionContextV1`、`BootstrapCapabilityV1`、`user_audit`、`staff_audit` 与
 `service_audit` 分别使用独立的 Ed25519 Transit key 和只允许对应 `transit/sign/<key>` 的策略。
+`DesktopAuthorizationGrantV3` 是稳定的逻辑签名用途及密钥身份，包含现有 purpose
+`gooddealer.devices.desktop-authorization-grant.v3`；它不等于当前 wire schema 版本。
+Active Grant v4 继续使用该用途，通过 v4 typ 与签名域区分协议，不因字段改版新增签名用途或共享 Lease/Standby 密钥。
+Execution Context 使用独立逻辑用途 `gooddealer.devices.desktop-execution-context.v1` 和固定签名域，绑定服务器自行签发的完整 Active Grant 摘要、Native 单次 nonce、当前设备密钥/credentialEpoch 与新鲜服务器时间；它只提供已有授权的执行证据，不分配或续租 Lease、不改变角色、不成为新的 Provider grant。
+Bootstrap Capability 使用独立用途 `gooddealer.devices.bootstrap-capability.v1`，仅绑定已确认的工作流、目标设备、账户安全代次和原期限。其签名只能用于目标引导，不能作为 Grant、Lease 或执行上下文。
 业务工作负载不得创建、读取私钥、导出、备份、删除、配置或轮换 key；key 必须保持
 `exportable=false`、`allow_plaintext_backup=false`、`deletion_allowed=false` 且不启用派生签名。
 
@@ -31,31 +35,17 @@ OpenBao request id、purpose、key/version/kid 和 transcript/签名摘要，不
 OpenBao Transit 是软件 KMS 边界，不自动等价于硬件 HSM。若风险或合规要求硬件不可导出根
 保护，OpenBao 的 seal/root custody 必须接入获批的 HSM；无 HSM 的环境不得宣称 HSM 保证。
 
-## 理由
+## 审计职责与密钥轮换
 
-统一 OpenBao 能让私钥始终留在独立签名控制面，同时保留自托管、目的分钥、策略、审计和轮换
-能力。显式版本和独立公钥复验避免把 OpenBao API 响应本身当作最终信任根；短期 workload
-identity 避免把长期 KMS 凭据变成普通应用秘密。
+审计应用身份只可对其被分配的键执行签名，且只能接收已规范化的审计 transcript。它不能
+创建、删除、导出或重新授权密钥，也不能把签名接口变成通用签名服务。Security Custodian
+拥有密钥策略；Platform Operations Owner 负责运行环境。创建、轮换、禁用或紧急替换必须有
+两者的可审计批准，且两项职责不得由同一运行时身份兼任。
 
-## 当前实现
+轮换至少每年进行一次，并在疑似泄露、策略变化或算法不再适用时立即进行。新键开始签名
+前必须按 M013 追加规范的 `audit_signing_key_transition` 记录，并以
+`signing_key_transition_id` 保持审计链连续性。不存在软件私钥、测试键提升或其他回退签名器。
 
-Cloud 已有窄 OpenBao Transit adapter，覆盖 Grant/Lease 的 key name、`kid` 与 Ed25519 key material
-分离、固定版本、HTTPS、显式 token policy allowlist、短期 token source、有界响应、非成功响应取消、
-通用失败错误、receipt 和本地 Ed25519 复验，并有 provider-wire 负向测试。部署公开配置为每个
-purpose 保存 1–8 把 verifier key，并以 `(name, version, kid)` 明确选择唯一 active signer；轮换期
-Cloud Lease verifier 与 Desktop registry 同时保留旧/新 key，signer 只使用 active key。
-隔离的开发 VPS 已运行 OpenBao 2.6.2 单节点 Raft、开发 TLS、声明式 file audit、五把目的分离的
-Ed25519 v1 key 和只可签 Grant/Lease 的 15 分钟 AppRole token；公开验证材料与恢复材料保存在
-仓库外的受限开发目录。详细运行边界见[开发 OpenBao 运行手册](../DEVELOPMENT_OPENBAO.md)。
-
-开发组合根已通过 `api.gooddealer.com` 的 Cloudflare/Nginx HTTPS 入口部署在同一开发 VPS；Cloud、
-PostgreSQL 与 OpenBao 分别只监听 loopback。Cloud 从 `root:gooddealer 0640` 文件按需读取七天有效的
-AppRole RoleID/SecretID，只把换得的 15 分钟 token 缓存在内存，并在提前量到达后重新登录。该开发
-例外不适用于生产部署；生产仍必须替换为 Agent 或平台 workload identity，不能把 SecretID 文件
-随应用发布。
-
-仓库当前没有 production composition root。Audit 默认签名构造仍为 Denying；Grant/Lease 的
-production signer 尚未配置或资格化，不能表述为生产正在使用某个 Denying Grant signer。已部署的
-开发组合根只完成真实 PostgreSQL migration、AppRole、Grant/Lease Transit 签名和本地公钥复验。
-开发实例没有 HA、HSM/auto-unseal、生产 workload identity、生产 key、公钥批准记录、轮换/恢复
-演练或独立资格，因此本 ADR 不声明 production custody 已完成。
+Desktop 的 Grant、Lease、Standby Grant、Execution Context 与 Bootstrap Capability 使用互不通用的 build-pinned 公钥 allowlist。先发布包含旧、新验证材料
+的签名与公证 Desktop，再切换签名版本，最后按撤销策略移除旧 `kid`。开发配置与操作记录见
+[OpenBao 运行手册](../DEVELOPMENT_OPENBAO.md)，不作为生产授权。

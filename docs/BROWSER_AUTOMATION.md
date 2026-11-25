@@ -7,13 +7,14 @@
 
 ## 首发决定
 
-首发不创建或控制远程页面、Browser Profile、Cookie、密码输入、多因素认证、DOM、脚本、
-弹窗、下载或上传，也不以浏览器作为任一 API 的回退。需要网页操作时，界面只能显示脱敏的
-人工步骤和结果要求，由用户在 GoodDealer 之外的浏览器自行完成。
+首发不创建或控制远程浏览器页面，不读取用户 Browser Profile，不执行远程脚本，不以浏览器自动化作为
+API 的隐式回退。官方能力缺口由具名平台 Service 自研私有 HTTP 接口实现；必要 Cookie、CSRF 和账户会话
+留在 Native custody，有界解析表单不属于通用浏览器自动化。尚未完成的步骤或登录挑战可以交接到用户
+控制的外部页面；回跳只触发 Host 对账。
 
 任何未来浏览器能力必须先有新的 ADR，并逐项明确提供商条款、页面流程、WebView 平台矩阵、
 IPC/权限、秘密边界和独立审查。详见
-[ADR-0017](adr/0017-v1-excludes-browser-automation.md)。
+[ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)。
 
 ## 已接受的目标约束
 
@@ -29,7 +30,7 @@ IPC/权限、秘密边界和独立审查。详见
 ## 当前实现
 
 `automation-host` 的公开引擎可用性只有 `Unavailable`。没有浏览器会话、远程页面桥接、
-浏览器组合、提供商浏览器执行或浏览器结果路径。Tauri 的三个本地业务命令不包含浏览器、
+浏览器组合、提供商浏览器执行或浏览器结果路径。Tauri 的本地业务 IPC 不提供浏览器、
 Cookie、Profile、下载、上传或任意网络能力。
 
 ## 交付条件

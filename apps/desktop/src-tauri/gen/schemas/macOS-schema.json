@@ -345,10 +345,148 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the afternic_connection_connect command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-connection-connect",
+          "markdownDescription": "Enables the afternic_connection_connect command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_connection_revoke command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-connection-revoke",
+          "markdownDescription": "Enables the afternic_connection_revoke command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_connection_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-connection-status",
+          "markdownDescription": "Enables the afternic_connection_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_delist_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-delist-approve",
+          "markdownDescription": "Enables the afternic_delist_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_delist_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-delist-preview",
+          "markdownDescription": "Enables the afternic_delist_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_delist_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-delist-status",
+          "markdownDescription": "Enables the afternic_delist_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_inventory_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-inventory-refresh",
+          "markdownDescription": "Enables the afternic_inventory_refresh command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_listing_plan_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-listing-plan-approve",
+          "markdownDescription": "Enables the afternic_listing_plan_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_listing_plan_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-listing-plan-preview",
+          "markdownDescription": "Enables the afternic_listing_plan_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_listing_plan_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-listing-plan-status",
+          "markdownDescription": "Enables the afternic_listing_plan_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_listing_write_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-listing-write-approve",
+          "markdownDescription": "Enables the afternic_listing_write_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_listing_write_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-listing-write-preview",
+          "markdownDescription": "Enables the afternic_listing_write_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the afternic_listing_write_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-afternic-listing-write-status",
+          "markdownDescription": "Enables the afternic_listing_write_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the aliyun_registrar_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-aliyun-registrar-status",
+          "markdownDescription": "Enables the aliyun_registrar_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the aliyun_registrar_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-aliyun-registrar-submit",
+          "markdownDescription": "Enables the aliyun_registrar_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the atom_marketplace_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-atom-marketplace-status",
+          "markdownDescription": "Enables the atom_marketplace_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the atom_marketplace_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-atom-marketplace-submit",
+          "markdownDescription": "Enables the atom_marketplace_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the atom_standard_delist_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-atom-standard-delist-approve",
+          "markdownDescription": "Enables the atom_standard_delist_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the atom_standard_delist_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-atom-standard-delist-preview",
+          "markdownDescription": "Enables the atom_standard_delist_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the atom_standard_delist_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-atom-standard-delist-status",
+          "markdownDescription": "Enables the atom_standard_delist_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cloudflare_connection_activate command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cloudflare-connection-activate",
           "markdownDescription": "Enables the cloudflare_connection_activate command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloudflare_connection_create command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloudflare-connection-create",
+          "markdownDescription": "Enables the cloudflare_connection_create command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloudflare_connection_purge command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloudflare-connection-purge",
+          "markdownDescription": "Enables the cloudflare_connection_purge command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloudflare_connection_revoke command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloudflare-connection-revoke",
+          "markdownDescription": "Enables the cloudflare_connection_revoke command without any pre-configured scope."
         },
         {
           "description": "Enables the cloudflare_connection_status command without any pre-configured scope.",
@@ -361,6 +499,30 @@
           "type": "string",
           "const": "allow-cloudflare-observation-read",
           "markdownDescription": "Enables the cloudflare_observation_read command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloudflare_registrar_account_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloudflare-registrar-account-status",
+          "markdownDescription": "Enables the cloudflare_registrar_account_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloudflare_registrar_account_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloudflare-registrar-account-submit",
+          "markdownDescription": "Enables the cloudflare_registrar_account_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloudflare_registrar_inventory_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloudflare-registrar-inventory-refresh",
+          "markdownDescription": "Enables the cloudflare_registrar_inventory_refresh command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloudflare_retirement_candidates command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloudflare-retirement-candidates",
+          "markdownDescription": "Enables the cloudflare_retirement_candidates command without any pre-configured scope."
         },
         {
           "description": "Enables the cloudflare_zone_observe command without any pre-configured scope.",
@@ -385,6 +547,84 @@
           "type": "string",
           "const": "allow-desktop-authentication-status",
           "markdownDescription": "Enables the desktop_authentication_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the device_directory_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-device-directory-read",
+          "markdownDescription": "Enables the device_directory_read command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the device_self_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-device-self-report",
+          "markdownDescription": "Enables the device_self_report command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the device_switch_advance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-device-switch-advance",
+          "markdownDescription": "Enables the device_switch_advance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the device_switch_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-device-switch-cancel",
+          "markdownDescription": "Enables the device_switch_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the device_switch_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-device-switch-request",
+          "markdownDescription": "Enables the device_switch_request command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the device_switch_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-device-switch-status",
+          "markdownDescription": "Enables the device_switch_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the forced_takeover_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-forced-takeover-cancel",
+          "markdownDescription": "Enables the forced_takeover_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the forced_takeover_confirm command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-forced-takeover-confirm",
+          "markdownDescription": "Enables the forced_takeover_confirm command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the forced_takeover_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-forced-takeover-preview",
+          "markdownDescription": "Enables the forced_takeover_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the forced_takeover_reauthenticate command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-forced-takeover-reauthenticate",
+          "markdownDescription": "Enables the forced_takeover_reauthenticate command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the forced_takeover_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-forced-takeover-status",
+          "markdownDescription": "Enables the forced_takeover_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the godaddy_registrar_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-godaddy-registrar-status",
+          "markdownDescription": "Enables the godaddy_registrar_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the godaddy_registrar_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-godaddy-registrar-submit",
+          "markdownDescription": "Enables the godaddy_registrar_submit command without any pre-configured scope."
         },
         {
           "description": "Enables the local_asset_library_read command without any pre-configured scope.",
@@ -417,6 +657,12 @@
           "markdownDescription": "Enables the local_backup_restore_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the local_batch_operations_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-batch-operations-read",
+          "markdownDescription": "Enables the local_batch_operations_read command without any pre-configured scope."
+        },
+        {
           "description": "Enables the local_business_status command without any pre-configured scope.",
           "type": "string",
           "const": "allow-local-business-status",
@@ -433,6 +679,24 @@
           "type": "string",
           "const": "allow-local-conflict-resolve",
           "markdownDescription": "Enables the local_conflict_resolve command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_device_lease_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-device-lease-read",
+          "markdownDescription": "Enables the local_device_lease_read command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_dns_health_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-dns-health-read",
+          "markdownDescription": "Enables the local_dns_health_read command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_domain_asset_create command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-domain-asset-create",
+          "markdownDescription": "Enables the local_domain_asset_create command without any pre-configured scope."
         },
         {
           "description": "Enables the local_domain_asset_delete command without any pre-configured scope.",
@@ -459,16 +723,304 @@
           "markdownDescription": "Enables the local_domain_detail_read command without any pre-configured scope."
         },
         {
+          "description": "Enables the local_history_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-history-read",
+          "markdownDescription": "Enables the local_history_read command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_manual_tasks_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-manual-tasks-read",
+          "markdownDescription": "Enables the local_manual_tasks_read command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_portable_backup command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-portable-backup",
+          "markdownDescription": "Enables the local_portable_backup command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_renewals_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-renewals-read",
+          "markdownDescription": "Enables the local_renewals_read command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_sales_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-sales-read",
+          "markdownDescription": "Enables the local_sales_read command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_settings_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-settings-read",
+          "markdownDescription": "Enables the local_settings_read command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_storage_repair command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-storage-repair",
+          "markdownDescription": "Enables the local_storage_repair command without any pre-configured scope."
+        },
+        {
           "description": "Enables the local_sync_status command without any pre-configured scope.",
           "type": "string",
           "const": "allow-local-sync-status",
           "markdownDescription": "Enables the local_sync_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the porkbun_registrar_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-porkbun-registrar-status",
+          "markdownDescription": "Enables the porkbun_registrar_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the porkbun_registrar_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-porkbun-registrar-submit",
+          "markdownDescription": "Enables the porkbun_registrar_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sedo_marketplace_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sedo-marketplace-status",
+          "markdownDescription": "Enables the sedo_marketplace_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sedo_marketplace_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sedo-marketplace-submit",
+          "markdownDescription": "Enables the sedo_marketplace_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sellerhub_bin_price_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-bin-price-approve",
+          "markdownDescription": "Enables the sellerhub_bin_price_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sellerhub_bin_price_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-bin-price-preview",
+          "markdownDescription": "Enables the sellerhub_bin_price_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sellerhub_bin_price_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-bin-price-status",
+          "markdownDescription": "Enables the sellerhub_bin_price_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sellerhub_create_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-create-approve",
+          "markdownDescription": "Enables the sellerhub_create_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sellerhub_create_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-create-preview",
+          "markdownDescription": "Enables the sellerhub_create_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sellerhub_create_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-create-status",
+          "markdownDescription": "Enables the sellerhub_create_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sellerhub_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-status",
+          "markdownDescription": "Enables the sellerhub_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sellerhub_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sellerhub-submit",
+          "markdownDescription": "Enables the sellerhub_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the spaceship_registrar_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-spaceship-registrar-status",
+          "markdownDescription": "Enables the spaceship_registrar_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the spaceship_registrar_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-spaceship-registrar-submit",
+          "markdownDescription": "Enables the spaceship_registrar_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the target_bootstrap_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-target-bootstrap-cancel",
+          "markdownDescription": "Enables the target_bootstrap_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the target_bootstrap_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-target-bootstrap-status",
+          "markdownDescription": "Enables the target_bootstrap_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the target_installation_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-target-installation-start",
+          "markdownDescription": "Enables the target_installation_start command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the target_installation_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-target-installation-status",
+          "markdownDescription": "Enables the target_installation_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_connection_connect command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-connection-connect",
+          "markdownDescription": "Denies the afternic_connection_connect command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_connection_revoke command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-connection-revoke",
+          "markdownDescription": "Denies the afternic_connection_revoke command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_connection_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-connection-status",
+          "markdownDescription": "Denies the afternic_connection_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_delist_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-delist-approve",
+          "markdownDescription": "Denies the afternic_delist_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_delist_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-delist-preview",
+          "markdownDescription": "Denies the afternic_delist_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_delist_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-delist-status",
+          "markdownDescription": "Denies the afternic_delist_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_inventory_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-inventory-refresh",
+          "markdownDescription": "Denies the afternic_inventory_refresh command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_listing_plan_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-listing-plan-approve",
+          "markdownDescription": "Denies the afternic_listing_plan_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_listing_plan_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-listing-plan-preview",
+          "markdownDescription": "Denies the afternic_listing_plan_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_listing_plan_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-listing-plan-status",
+          "markdownDescription": "Denies the afternic_listing_plan_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_listing_write_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-listing-write-approve",
+          "markdownDescription": "Denies the afternic_listing_write_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_listing_write_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-listing-write-preview",
+          "markdownDescription": "Denies the afternic_listing_write_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the afternic_listing_write_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-afternic-listing-write-status",
+          "markdownDescription": "Denies the afternic_listing_write_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the aliyun_registrar_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-aliyun-registrar-status",
+          "markdownDescription": "Denies the aliyun_registrar_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the aliyun_registrar_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-aliyun-registrar-submit",
+          "markdownDescription": "Denies the aliyun_registrar_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the atom_marketplace_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-atom-marketplace-status",
+          "markdownDescription": "Denies the atom_marketplace_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the atom_marketplace_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-atom-marketplace-submit",
+          "markdownDescription": "Denies the atom_marketplace_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the atom_standard_delist_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-atom-standard-delist-approve",
+          "markdownDescription": "Denies the atom_standard_delist_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the atom_standard_delist_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-atom-standard-delist-preview",
+          "markdownDescription": "Denies the atom_standard_delist_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the atom_standard_delist_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-atom-standard-delist-status",
+          "markdownDescription": "Denies the atom_standard_delist_status command without any pre-configured scope."
+        },
+        {
           "description": "Denies the cloudflare_connection_activate command without any pre-configured scope.",
           "type": "string",
           "const": "deny-cloudflare-connection-activate",
           "markdownDescription": "Denies the cloudflare_connection_activate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloudflare_connection_create command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloudflare-connection-create",
+          "markdownDescription": "Denies the cloudflare_connection_create command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloudflare_connection_purge command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloudflare-connection-purge",
+          "markdownDescription": "Denies the cloudflare_connection_purge command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloudflare_connection_revoke command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloudflare-connection-revoke",
+          "markdownDescription": "Denies the cloudflare_connection_revoke command without any pre-configured scope."
         },
         {
           "description": "Denies the cloudflare_connection_status command without any pre-configured scope.",
@@ -481,6 +1033,30 @@
           "type": "string",
           "const": "deny-cloudflare-observation-read",
           "markdownDescription": "Denies the cloudflare_observation_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloudflare_registrar_account_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloudflare-registrar-account-status",
+          "markdownDescription": "Denies the cloudflare_registrar_account_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloudflare_registrar_account_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloudflare-registrar-account-submit",
+          "markdownDescription": "Denies the cloudflare_registrar_account_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloudflare_registrar_inventory_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloudflare-registrar-inventory-refresh",
+          "markdownDescription": "Denies the cloudflare_registrar_inventory_refresh command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloudflare_retirement_candidates command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloudflare-retirement-candidates",
+          "markdownDescription": "Denies the cloudflare_retirement_candidates command without any pre-configured scope."
         },
         {
           "description": "Denies the cloudflare_zone_observe command without any pre-configured scope.",
@@ -505,6 +1081,84 @@
           "type": "string",
           "const": "deny-desktop-authentication-status",
           "markdownDescription": "Denies the desktop_authentication_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the device_directory_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-device-directory-read",
+          "markdownDescription": "Denies the device_directory_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the device_self_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-device-self-report",
+          "markdownDescription": "Denies the device_self_report command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the device_switch_advance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-device-switch-advance",
+          "markdownDescription": "Denies the device_switch_advance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the device_switch_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-device-switch-cancel",
+          "markdownDescription": "Denies the device_switch_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the device_switch_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-device-switch-request",
+          "markdownDescription": "Denies the device_switch_request command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the device_switch_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-device-switch-status",
+          "markdownDescription": "Denies the device_switch_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the forced_takeover_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-forced-takeover-cancel",
+          "markdownDescription": "Denies the forced_takeover_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the forced_takeover_confirm command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-forced-takeover-confirm",
+          "markdownDescription": "Denies the forced_takeover_confirm command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the forced_takeover_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-forced-takeover-preview",
+          "markdownDescription": "Denies the forced_takeover_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the forced_takeover_reauthenticate command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-forced-takeover-reauthenticate",
+          "markdownDescription": "Denies the forced_takeover_reauthenticate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the forced_takeover_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-forced-takeover-status",
+          "markdownDescription": "Denies the forced_takeover_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the godaddy_registrar_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-godaddy-registrar-status",
+          "markdownDescription": "Denies the godaddy_registrar_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the godaddy_registrar_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-godaddy-registrar-submit",
+          "markdownDescription": "Denies the godaddy_registrar_submit command without any pre-configured scope."
         },
         {
           "description": "Denies the local_asset_library_read command without any pre-configured scope.",
@@ -537,6 +1191,12 @@
           "markdownDescription": "Denies the local_backup_restore_status command without any pre-configured scope."
         },
         {
+          "description": "Denies the local_batch_operations_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-batch-operations-read",
+          "markdownDescription": "Denies the local_batch_operations_read command without any pre-configured scope."
+        },
+        {
           "description": "Denies the local_business_status command without any pre-configured scope.",
           "type": "string",
           "const": "deny-local-business-status",
@@ -553,6 +1213,24 @@
           "type": "string",
           "const": "deny-local-conflict-resolve",
           "markdownDescription": "Denies the local_conflict_resolve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_device_lease_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-device-lease-read",
+          "markdownDescription": "Denies the local_device_lease_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_dns_health_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-dns-health-read",
+          "markdownDescription": "Denies the local_dns_health_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_domain_asset_create command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-domain-asset-create",
+          "markdownDescription": "Denies the local_domain_asset_create command without any pre-configured scope."
         },
         {
           "description": "Denies the local_domain_asset_delete command without any pre-configured scope.",
@@ -579,10 +1257,160 @@
           "markdownDescription": "Denies the local_domain_detail_read command without any pre-configured scope."
         },
         {
+          "description": "Denies the local_history_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-history-read",
+          "markdownDescription": "Denies the local_history_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_manual_tasks_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-manual-tasks-read",
+          "markdownDescription": "Denies the local_manual_tasks_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_portable_backup command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-portable-backup",
+          "markdownDescription": "Denies the local_portable_backup command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_renewals_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-renewals-read",
+          "markdownDescription": "Denies the local_renewals_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_sales_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-sales-read",
+          "markdownDescription": "Denies the local_sales_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_settings_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-settings-read",
+          "markdownDescription": "Denies the local_settings_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_storage_repair command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-storage-repair",
+          "markdownDescription": "Denies the local_storage_repair command without any pre-configured scope."
+        },
+        {
           "description": "Denies the local_sync_status command without any pre-configured scope.",
           "type": "string",
           "const": "deny-local-sync-status",
           "markdownDescription": "Denies the local_sync_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the porkbun_registrar_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-porkbun-registrar-status",
+          "markdownDescription": "Denies the porkbun_registrar_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the porkbun_registrar_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-porkbun-registrar-submit",
+          "markdownDescription": "Denies the porkbun_registrar_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sedo_marketplace_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sedo-marketplace-status",
+          "markdownDescription": "Denies the sedo_marketplace_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sedo_marketplace_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sedo-marketplace-submit",
+          "markdownDescription": "Denies the sedo_marketplace_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_bin_price_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-bin-price-approve",
+          "markdownDescription": "Denies the sellerhub_bin_price_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_bin_price_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-bin-price-preview",
+          "markdownDescription": "Denies the sellerhub_bin_price_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_bin_price_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-bin-price-status",
+          "markdownDescription": "Denies the sellerhub_bin_price_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_create_approve command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-create-approve",
+          "markdownDescription": "Denies the sellerhub_create_approve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_create_preview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-create-preview",
+          "markdownDescription": "Denies the sellerhub_create_preview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_create_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-create-status",
+          "markdownDescription": "Denies the sellerhub_create_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-status",
+          "markdownDescription": "Denies the sellerhub_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sellerhub_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sellerhub-submit",
+          "markdownDescription": "Denies the sellerhub_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the spaceship_registrar_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-spaceship-registrar-status",
+          "markdownDescription": "Denies the spaceship_registrar_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the spaceship_registrar_submit command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-spaceship-registrar-submit",
+          "markdownDescription": "Denies the spaceship_registrar_submit command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the target_bootstrap_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-target-bootstrap-cancel",
+          "markdownDescription": "Denies the target_bootstrap_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the target_bootstrap_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-target-bootstrap-status",
+          "markdownDescription": "Denies the target_bootstrap_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the target_installation_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-target-installation-start",
+          "markdownDescription": "Denies the target_installation_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the target_installation_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-target-installation-status",
+          "markdownDescription": "Denies the target_installation_status command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

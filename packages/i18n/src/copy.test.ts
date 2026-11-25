@@ -102,10 +102,10 @@ describe("desktop copy contract", () => {
       const zhKeys = Object.keys(zhCN[presentation]);
       const enKeys = Object.keys(enUS[presentation]);
       const inventory = presentationCopyInventory[presentation];
-      const source = readFileSync(
-        resolve(import.meta.dirname, "../../../brand/ui_kits/desktop", inventory.source),
+      const source = [inventory.source].flat().map((file) => readFileSync(
+        resolve(import.meta.dirname, "../../../brand/ui_kits/desktop", file),
         "utf8",
-      );
+      )).join("\n");
       const exactKeys = Object.values(zhCN[presentation]).filter((value) =>
         source.includes(value),
       );

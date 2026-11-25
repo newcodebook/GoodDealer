@@ -1,6 +1,10 @@
 import { z } from "zod";
+import { domainProviderRoleSchema } from "@gooddealer/protocol/domain-providers";
 
 export * from "./device-credential-lifecycle";
+export * from "./connection-label";
+export * from "./launch-platforms";
+export * from "./settings-read";
 
 const identifierSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const safePositiveGenerationSchema = z.number().int().safe().min(1);
@@ -48,14 +52,21 @@ export const deviceCredentialCandidateStateSchema = z.enum([
 
 export const connectionSettingsActionSchema = z.enum(["connect", "reauthorize", "manage"]);
 
+/**
+ * The settings group a connection is listed under: one of the four ADR-0027 roles it declares, or
+ * `undeclared` when it declares none. A connection without a role is still stored credential
+ * custody, so settings lists it rather than hiding it, and it never offers an action.
+ */
+export const connectionSettingsCategorySchema = z.union([domainProviderRoleSchema, z.literal("undeclared")]);
+
 const connectionMetadataSchema = z
   .object({
     providerConnectionId: identifierSchema,
     provider: z.string().min(1).max(80),
     accountAlias: z.string().min(1).max(120),
     remoteAccountId: z.string().min(1).max(160).nullable(),
-    category: z.enum(["registrar", "dns", "marketplace"]),
-    method: z.enum(["api", "browser", "csv", "oauth"]).nullable(),
+    category: connectionSettingsCategorySchema,
+    method: z.enum(["api", "oauth"]).nullable(),
     summary: z.string().min(1).max(240),
   })
   .strict();
@@ -116,7 +127,7 @@ export const connectionSettingsItemSchema = z.discriminatedUnion("view", [
 
 export const connectionSettingsGroupSchema = z
   .object({
-    category: z.enum(["registrar", "dns", "marketplace"]),
+    category: connectionSettingsCategorySchema,
     connections: z.array(connectionSettingsItemSchema).max(100),
   })
   .strict()
@@ -129,6 +140,13 @@ export const connectionSettingsGroupSchema = z
           message: "connection category must match its settings group",
         });
       }
+      if (group.category === "undeclared" && connection.admission.actionAvailability !== "unavailable") {
+        context.addIssue({
+          code: "custom",
+          path: ["connections", index, "admission"],
+          message: "a connection without a declared role offers no action",
+        });
+      }
     });
   });
 
@@ -136,7 +154,7 @@ export const connectionSettingsViewModelSchema = z
   .object({
     schemaVersion: z.literal(1),
     surface: z.enum(["active", "standby"]),
-    groups: z.array(connectionSettingsGroupSchema).min(1).max(3),
+    groups: z.array(connectionSettingsGroupSchema).min(1).max(5),
   })
   .strict()
   .superRefine((model, context) => {
@@ -179,6 +197,7 @@ export type DeviceCredentialCandidateState = z.infer<
   typeof deviceCredentialCandidateStateSchema
 >;
 export type ConnectionSettingsAction = z.infer<typeof connectionSettingsActionSchema>;
+export type ConnectionSettingsCategory = z.infer<typeof connectionSettingsCategorySchema>;
 export type ConnectionSettingsItemViewModel = z.infer<typeof connectionSettingsItemSchema>;
 export type ConnectionSettingsGroupViewModel = z.infer<typeof connectionSettingsGroupSchema>;
 export type ConnectionSettingsViewModel = z.infer<typeof connectionSettingsViewModelSchema>;
@@ -305,3 +324,18 @@ export class ValidatingConnectionSettingsPort implements ConnectionSettingsPort 
     return parseConnectionSettingsViewModel(await this.#boundary.getConnectionSettings());
   }
 }
+
+export { deviceDirectoryViewSchema, deviceSelfNameIntentSchema, parseDeviceDirectoryView, type DeviceDirectoryView, type DeviceSelfNameIntent, type DeviceDirectorySettingsPort } from "./device-directory";
+export { afternicConnectIntentSchema, afternicConnectionIntentSchema, afternicConnectionsStatusSchema, parseAfternicConnectionsStatus, type AfternicConnectionsStatus, type AfternicConnectionPort } from "./afternic";
+
+export { afternicControlledAcceptanceSchema, type AfternicControlledAcceptance } from "./afternic-controlled-acceptance";
+export { parseSpaceshipRegistrarStatus, spaceshipRegistrarIntentSchema, type SpaceshipRegistrarIntent, type SpaceshipRegistrarPort, type SpaceshipRegistrarStatus } from "./spaceship-registrar";
+export { parseAliyunRegistrarStatus, aliyunRegistrarIntentSchema, type AliyunRegistrarIntent, type AliyunRegistrarPort, type AliyunRegistrarStatus } from "./aliyun-registrar";
+export { parseGoDaddyRegistrarStatus, godaddyRegistrarIntentSchema, type GoDaddyRegistrarIntent, type GoDaddyRegistrarPort, type GoDaddyRegistrarStatus } from "./godaddy-registrar";
+export { parsePorkbunRegistrarStatus, porkbunRegistrarIntentSchema, type PorkbunRegistrarIntent, type PorkbunRegistrarPort, type PorkbunRegistrarStatus } from "./porkbun-registrar";
+export { parseAtomMarketplaceStatus, atomMarketplaceIntentSchema, type AtomMarketplaceIntent, type AtomMarketplacePort, type AtomMarketplaceStatus } from "./atom-marketplace";
+
+export { parseCloudflareRegistrarAccountStatus, cloudflareRegistrarAccountIntentSchema, type CloudflareRegistrarAccountIntent, type CloudflareRegistrarAccountPort, type CloudflareRegistrarAccountStatus } from "./cloudflare-registrar-account";
+export { parseSellerHubStatus, sellerHubIntentSchema, type SellerHubIntent, type SellerHubPort, type SellerHubStatus } from "./sellerhub";
+
+export { parseSedoMarketplaceStatus, sedoMarketplaceIntentSchema, type SedoMarketplaceIntent, type SedoMarketplacePort, type SedoMarketplaceStatus } from "./sedo-marketplace";

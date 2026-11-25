@@ -236,7 +236,7 @@ describe("DeviceSwitchWorkflow", () => {
 });
 
 describe("DevicesFixtureService control-plane guards", () => {
-  const request = { schemaVersion: 1 as const, mode: "normal" as const, toDeviceId: "device-b", idempotencyKey: "switch-key" };
+  const request = { schemaVersion: 2 as const, mode: "normal" as const, expectedSourceLeaseEpoch: 1, toDeviceId: "device-b", idempotencyKey: "switch-key" };
 
   it("evaluates recovery, security epoch, entitlement, and binding guards in frozen order", () => {
     rejection(new DevicesFixtureService({ accountSecurityState: "recovery_pending" }).requestSwitch(request), "ACCOUNT_RECOVERY_PENDING");
@@ -256,7 +256,7 @@ describe("DevicesFixtureService control-plane guards", () => {
   });
 
   it("preserves forced reauthentication order and blocks a normal request with no Active during isolation", () => {
-    const forced = { schemaVersion: 1 as const, mode: "forced" as const, toDeviceId: "device-b", idempotencyKey: "forced-key", reauthProofId: "proof" };
+    const forced = { schemaVersion: 2 as const, mode: "forced" as const, toDeviceId: "device-b", idempotencyKey: "forced-key", expectedSourceLeaseEpoch: 1 };
     rejection(new DevicesFixtureService({ seedBindings: [binding("device-b", "standby")] }).requestSwitch(forced), "REAUTHENTICATION_REQUIRED");
     rejection(new DevicesFixtureService({
       seedBindings: [binding("device-b", "standby")],
@@ -315,11 +315,11 @@ describe("DevicesFixtureService control-plane guards", () => {
       reauthProofId: "proof",
     });
     const waiting = deviceSwitchRequestViewSchema.parse(service.requestSwitch({
-      schemaVersion: 1,
+      schemaVersion: 2,
       mode: "forced",
       toDeviceId: "device-b",
       idempotencyKey: "forced-key",
-      reauthProofId: "proof",
+      expectedSourceLeaseEpoch: 1,
     }));
     expect(waiting.status).toBe("waiting_expiry");
     rejection(service.claimTakeover(waiting.requestId), "EXCLUSIVE_EXECUTION_BLOCKED");
@@ -351,20 +351,20 @@ describe("DevicesFixtureService control-plane guards", () => {
       reauthProofId: "proof",
     });
     const waiting = deviceSwitchRequestViewSchema.parse(service.requestSwitch({
-      schemaVersion: 1,
+      schemaVersion: 2,
       mode: "forced",
       toDeviceId: "device-b",
       idempotencyKey: "forced-key",
-      reauthProofId: "proof",
+      expectedSourceLeaseEpoch: 1,
     }));
     now = new Date("2026-01-02T01:00:00Z");
     expect(service.expireSwitch(waiting.requestId)?.status).toBe("failed");
     expect(deviceSwitchRequestViewSchema.parse(service.requestSwitch({
-      schemaVersion: 1,
+      schemaVersion: 2,
       mode: "forced",
       toDeviceId: "device-b",
       idempotencyKey: "forced-after-expiry",
-      reauthProofId: "proof",
+      expectedSourceLeaseEpoch: 1,
     })).status).toBe("waiting_expiry");
   });
 
@@ -427,7 +427,7 @@ describe("DevicesFixtureService control-plane guards", () => {
     expect(securityCascade.getSwitchStatus(securityView.requestId)?.status).toBe("failed");
   });
 
-  it("keeps a normal switch draining when the P0-17 drain verifier refuses", async () => {
+  it("keeps a normal switch draining when the drain-proof signature verifier refuses", async () => {
     const service = new DevicesFixtureService({
       seedBindings: [binding("device-a", "active"), binding("device-b", "standby")],
     });

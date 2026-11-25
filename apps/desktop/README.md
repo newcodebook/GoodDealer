@@ -6,18 +6,19 @@ Customer Desktop application that composes the Renderer and native Host around t
 
 ## Owns
 
-- The mock design host in `visual-fixtures/` (`pnpm --filter @gooddealer/desktop visual:dev`), which
-  renders every Desktop screen from typed mock data, including capabilities without a Host port. It
-  is a separate Vite root outside the production graph and grants no authority.
-- Desktop Renderer routing, shell composition, and sanitized Tauri IPC adapters. The presentation
-  layer is being rebuilt from `brand/`; until it lands, `src/app.tsx` renders only an unstyled
-  startup state while `src/app/*` keeps the workspace, authentication, and Portfolio fences.
-- Native application composition for authorization, local business commands, sync, projection, and Provider lanes.
+- Renderer routing, shell, onboarding and business-page composition using Host projections.
+- Narrow Tauri IPC adapters and native composition for authorization, local business, sync,
+  projection, Provider coordination and device handoff.
+- A separate `visual-fixtures/` design host outside the production graph; it grants no authority.
+
+Current screen composition and remaining work are recorded in
+[current implementation](../../docs/CURRENT_IMPLEMENTATION.md). The production roots are
+`src/app.tsx`, `src/app/workspace-view.tsx` and `src-tauri/src/main.rs`.
 
 ## Touchpoints
 
 - Uses `../../crates/local-storage` as the sole local business and backup aggregate owner.
-- Uses `../../crates/secure-host-core` for native OAuth, device identity, authorization verification, and Cloudflare observation.
+- Uses `../../crates/secure-host-core` for native OAuth, device identity, authorization verification, Cloudflare observation, Afternic I/O, and safe OS power admission.
 - Consumes host-independent contracts from `../../packages/client-core`, `../../packages/cloud-client`, `../../packages/ui`, and `../../packages/i18n`.
 
 ## Change Guide
@@ -58,83 +59,26 @@ replace this Repository.
 
 ## Native commands
 
-The `local-app` WebView capability admits only the reviewed local-business, sanitized authentication,
-and Host-owned Cloudflare command names listed below. The Cloudflare handlers accept only bounded raw
-JSON connection/entity lookup hints, reject duplicate and unknown fields before enqueue, and submit to
-the isolated user-triggered Provider lane. Native composition captures the credential, observes the fixed
-Zone/DNS endpoint set, asks `DesktopLocalHost` to derive the complete durable operation, publishes the
-Secure Host envelope under exact-base Keychain CAS, and commits observations locally before waking the
-projection lane. The Renderer-side journey coordinator (`src/features/connections`) covers activation, bounded status,
-observation enqueue, and committed local observation reads; it is not composed into the production
-root until the rebuilt Desktop screens land. Production-provider qualification remains separate, so this source
-composition is not a customer-availability claim. Revoke/deactivate remains intentionally unavailable until
-a Host-owned atomic custody and fencing capability is delivered.
+The production command inventory is owned by `src-tauri/src/main.rs`, `src-tauri/build.rs` and
+`src-tauri/capabilities/local-app.json`. Command-policy tests require them to agree; this README
+keeps no parallel list. Commands cover local business and repair, sync/conflicts, device switch,
+backup workflow, authentication and Cloudflare connection/observation/retirement.
 
-- `cloudflare_connection_activate`
-- `cloudflare_connection_status`
-- `cloudflare_observation_read`
-- `cloudflare_zone_observe`
-- `local_business_status`
-- `local_asset_library_read`
-- `local_domain_detail_read`
-- `local_domain_asset_edit`
-- `local_domain_asset_delete`
-- `local_domain_asset_provider_bind`
-- `local_sync_status`
-- `local_conflict_center_read`
-- `local_conflict_resolve`
-- `local_backup_restore_status`
-- `local_backup_export`
-- `local_backup_artifact_select`
-- `local_backup_restore_begin`
-- `desktop_authentication_status`
-- `desktop_authentication_begin`
-- `desktop_authentication_refresh`
+Renderer intents are bounded and strictly parsed. Commands expose no database path, database key,
+SQL, account/workspace selector, Provider account, credential, OAuth URL, bearer token or Cloud
+Repository. Native derives authority and resource identity before execution and publishes local
+results only after the owning transaction commits.
 
-No command accepts or returns a database path, database key, SQL, account/workspace selector,
-Provider account, credential, OAuth URL, bearer token, or Cloud Repository. Authentication IPC exposes
-only `unavailable`, `signed_out`, `pending`, `authorization_failed`, `authorization_retryable`, or
-`authenticated`; the last state means the signed Grant has been verified and the local runtime activated.
-`authorization_failed` blocks refresh and clears refresh custody before a new sign-in, while
-`authorization_retryable` means Native retained the newest rotated refresh credential plus its still-valid
-memory-only access token and may retry without exposing either. Its durable binding state remains distinct
-from security revocation, so restart resumes the safe refresh path while local data stays locked. `DesktopLocalHost` starts
-activation-required unless the
-Host loads an OS-protected, previously verified workspace binding. That binding can reopen only the
-same local database for read-only use; only trusted native authorization composition can restore
-mutation authority.
+Cloudflare activation and observation remain subject to the Host qualification register. Onboarding
+composes connection creation/activation; settings composes rejected-custody retirement and stored-row
+repair. Revocation and retirement reduce custody and do not require Provider execution qualification.
+They do not revoke a token at Cloudflare; the user must delete or rotate that token at the Provider.
+The separate Provider lane serializes these workflows and retains the durable prewrite/marker fences.
 
-DomainAsset edit/delete commits the local business row, field versions, tombstone (for delete), and a secret-free Sync Outbox entry in one
-SQLCipher transaction. Asset Library and Domain Detail reads return bounded projections from the
-Host-bound local database. The legacy whole-snapshot command is test-only and absent from the
-production invoke closure. Cloud transport is absent from these local-business command implementations and the
-regression suite proves local read/write without it.
-Renderer mutation completions are independently fenced by mounted state, route/entity identity,
-and a fresh Active Host status before any generation acceptance, refresh, or navigation effect.
-
-Conflict Center responses contain bounded display text, hashes, revisions, and manual choices only.
-The Host derives workspace, device, lease, current time, and the deterministic resolution identity;
-the Renderer supplies no authority selector. Delete conflicts expose `accept_remote` only. The current production
-composition always reports rebootstrap as `recovery_unavailable`; no platform is qualified yet.
-Conflict resolution is always one explicit candidate and one explicit choice; no bulk or automatic
-"low-risk" resolution API exists. Hostile display values are bounded before they reach React and
-are rendered only as text children.
-
-`sync.conflicts` is an independent workspace route. Active may receive a resolution admission for one
-candidate; commercial read-only and Standby may read the Conflict Center projection but receive no resolution
-admission. Locked, retryable, security, and recovery surfaces are route-free, so they cannot reach this route
-through navigation or fallback routing.
-
-The customer sync command returns a durable `SyncSnapshot` with pending, open-conflict, and rejected mutation
-counts, `recoveryRequired`, the applied server revision, last replication activity, and Native transport
-observation. Native transport is exactly `checking`, `reachable`, `offline`, or `blocked`; startup and restart
-begin at `checking` and never reuse the previous successful observation. Sync is mandatory asynchronous
-replication with no manual-sync action and no `navigator.onLine` authority. A conflict resolution receipt only
-fences the local commit (and any Outbox enqueue or idempotent replay); it is not a Cloud ACK. First-time conflict
-resolution requires the exact current Host `readGeneration` and returns exactly `expectedReadGeneration + 1`;
-only an identical replay may reuse that receipt. After success, Renderer reads business status, Asset Library,
-Conflict Center, and `SyncSnapshot` between matching Host status generations and publishes the complete bundle
-in one state update; a torn read is retried and never partially published.
+Device-switch commands drive the native side of ADR-0032. The switch identity comes from Cloud;
+Lease, receipts, proof and signature stay Native. The device-management screen remains to be composed.
+Backup commands do not make production recovery available while their native dependencies are absent;
+replacement recovery requirements are being established in the product discovery record.
 
 ## WebView content security policy
 
@@ -154,14 +98,34 @@ Overlay`, `hiddenTitle`, `trafficLightPosition`); the shell reserves their inset
 The macOS patch may change only title-bar presentation, verified by `src/app/native-policy.test.ts`.
 The traffic-light position and undecorated resizing still need checking on each target platform.
 
+## Local storage repair
+
+`local_storage_repair` repairs one category of the stored rows that the Settings integrity counts
+report (ADR-0019). The Renderer sends only `{schemaVersion, expectedReadGeneration, repairKind}`, never
+a row identity or value; the Host reselects the rows with the read's own predicate in one immediate
+transaction, refuses a stale read generation, and answers with the category and a row count. It
+quarantines observations and bindings, sets an unreplicated expiry to unknown, or marks an Outbox
+commit time; it rewrites no synced history and uses no credential. Settings offers it per non-zero
+category only on a writable surface, after a confirmation that names the count and the effect, and
+re-reads the counts and republishes the workspace whether or not the call reported a result.
+
 ## Local Provider binding
 
 `local_domain_asset_provider_bind` persists an immutable association for an existing asset from
 committed Host-verified Cloudflare Zone evidence. It performs no Provider API write and exposes no
 credential or resource selector. The concrete adapter implements the required narrow
 `PortfolioProviderBindingPort` through its validating wrapper. The broad injected
-`LocalBusinessPort` retains an optional binding method until the asset-detail UI exposes a bind
-action; read-only adapters need not supply write capabilities. No bind action is currently exposed.
+`LocalBusinessPort` keeps the binding method optional, so read-only adapters need not supply write
+capabilities. The DNS page offers "Bind Zone" on a row only when the Host's DNS health read reports
+the row `bindable`, and only on a writable surface. The Host computes it with the bind's own
+evidence query (`latest_bindable_zone`: a live asset, a committed available Zone of its own name,
+seen through the connection's current active credential for that Zone) and the bind's identity rule
+for an existing binding (none, or a detached one of the same connection, Zone and name), so a
+revoked or invalid credential, a changed credential generation, a paused Zone or an archived asset
+is never offered; the Renderer rejects a row that claims bindability over a live binding or without
+its own Zone observed; a committed bind republishes the workspace at the receipt generation. A Zone is
+observed only through a qualified Cloudflare connection, and connecting is unavailable until
+qualification, so the action does not appear yet.
 First commit advances Host generation once; replay may return the current generation after
 intervening commits.
 
@@ -175,7 +139,7 @@ owner.
 Before reading any Keychain item or opening SQLCipher, the first process acquires an OS-level exclusive
 application-data lock. A second process cannot become a refresh or database authority; the
 single-instance plugin hands a second launch to the established process. Browser sign-in no longer
-arrives through process launches at all (ADR-0026), so there is no startup callback window to buffer.
+arrives through process launches at all (ADR-0011), so there is no startup callback window to buffer.
 
 On macOS, the Host reads the 32-byte SQLCipher key from the user's OS Keychain and generates it with
 the operating system CSPRNG only when no database exists. If an existing database loses its
@@ -191,7 +155,7 @@ boundary. They never enter Renderer state, IPC requests, sync mutations, Cloud, 
 ordinary audit payloads.
 
 GoodDealer Desktop login uses the system browser with Authorization Code + PKCE S256. PKCE verifier
-and state remain in Native memory. Following RFC 8252 §7.3 (ADR-0026), each attempt binds a
+and state remain in Native memory. Following RFC 8252 §7.3 (ADR-0011), each attempt binds a
 short-lived HTTP listener on `127.0.0.1` with an OS-chosen port and sends
 `http://127.0.0.1:{port}/oauth/callback` as the redirect URI; the browser returns over a plain HTTP
 redirect, so no OS URL scheme or browser external-protocol prompt is involved. The listener accepts
@@ -216,7 +180,7 @@ Account, subscription/entitlement, device binding, and ActiveDeviceLease/Epoch r
 plane facts. Invalid authorization keeps the runtime locked. A valid cached grant may permit local
 business work only for its defined offline window; Desktop cannot extend that window itself.
 
-The Host strictly consumes signed `DesktopAuthorizationGrant` v3 and separately verifies its nested
+The Host strictly consumes the v4 role exchange. Active carries signed `DesktopAuthorizationGrant` v3 and the Host separately verifies its nested
 ActiveDeviceLease. The outer purpose-specific signature covers Workspace, exact read/mutate scopes,
 window and the complete signed Lease; the nested signature covers account, device, Account Security
 Epoch and Lease Epoch. Parsing never proves either signature. DomainAsset writes recheck the trusted
@@ -233,11 +197,14 @@ fsyncs the directory, so a crash preserves either the complete old marker or the
 Successful verified activation clears both barriers in order.
 
 After each code exchange or refresh, Native uses the memory-only Bearer access token to POST the
-fixed `{ "schemaVersion": 3 }` request to `/v1/devices/authorization-grant`, accepts at most 16 KiB
-of JSON, verifies both signatures, enforces device/account and monotonic Epoch floors, persists the
-verified binding, and only then activates the same `DesktopLocalHost` aggregate. Production builds use the
+fixed `{ "schemaVersion": 4 }` request to `/v1/devices/authorization-grant`, accepts at most 16 KiB
+of JSON, parses the strict role envelope, verifies the role-specific signatures and enforces device/account
+and monotonic security/Lease floors before installing authority in the same `DesktopLocalHost` aggregate.
+Active has both Grant and Lease signatures; Standby has its independent read-only signature and never
+activates execution. Production builds use the
 embedded `https://api.gooddealer.com/` origin and must embed a strict `GOODDEALER_DESKTOP_AUTHORIZATION_KEYS_JSON` registry containing
-one to eight globally purpose-separated keys for both `grant_v3` and `active_device_lease_v1`.
+one to eight globally purpose-separated keys for each of `grant_v3`, `active_device_lease_v1` and
+`standby_grant_v1`. All three purpose rings are mandatory.
 Duplicate key IDs or public material fail closed. Rotation publishes an overlapping registry
 in a signed/notarized Desktop release before Cloud changes the OpenBao signing version; removal from
 the registry is revocation by omission.
@@ -299,7 +266,7 @@ platform filesystem behavior, and target-platform fault evidence are qualified. 
 `security-framework` 3.7.0 dependency and has no production fake, feature, environment selector, fork, or
 preflight-plus-upsert fallback. There is no passphrase, cross-device,
 or Cloud-hosted fallback. See
-`../../docs/adr/0023-installation-bound-gdbk-backup-and-honest-business-restore.md`.
+`../../docs/adr/0023-business-backup-and-recovery.md`.
 
 For an authorization-code exchange, access and refresh credentials remain transient until Grant
 verification, binding persistence, and runtime activation succeed; only then does Native persist the
@@ -339,3 +306,30 @@ pnpm --filter @gooddealer/desktop test
 cargo test -p gooddealer-desktop-tauri
 node --test scripts/tauri-command-policy.test.mjs
 ```
+
+
+### Device directory and self-name
+
+Settings → Devices reads Cloud's bounded device directory through Native fixed routes. The Renderer
+submits only a name; Native supplies the build platform, verifies the current-device identity and
+credential-instance fence, and removes signing metadata before IPC. Cloud owns persistence; no local
+business database copy is introduced. Unknown save outcomes require a directory read before another
+save. Ordinary business replication preserves unsaved edits. The current Native admission still
+requires Active authority; this does not enable Standby login, handoff or bootstrap.
+
+
+Afternic create/update now uses the same private Service and serial Provider lane as inventory and
+delist. The batch screen stores a bounded preview, approves its immutable hash once and reads durable
+plan history. Only a single committed claim permits POST/PATCH; every uncertain response or restart
+uses authenticated GET reconciliation. Matched fields remain separate from provider review and
+ownership states. See [the current implementation](../../docs/CURRENT_IMPLEMENTATION.md) and
+[the review](../../docs/reviews/2026-11-19-afternic-listing-write-review.md) for source evidence and
+the outstanding real-account, verification/DNS and target-platform qualifications.
+
+The explicit Linux debug feature `afternic-controlled-acceptance` uses the normal Settings and
+Batch Operations screens to test the Afternic connection, complete inventory, and Listing changes
+for `wecin.com`. It requires the current signed commercial entitlement and execution context. The
+first connection binds the run to this device, Lease epoch, and credential slot. Both screens show
+the deadline returned by the Host. Build the frontend with `pnpm --filter @gooddealer/desktop build`,
+then build the native app with `cargo build --locked -p gooddealer-desktop-tauri --features afternic-controlled-acceptance`
+using the public verification registry described in the [development Cloud runbook](../../docs/DEVELOPMENT_CLOUD.md).

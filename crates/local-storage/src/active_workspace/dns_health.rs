@@ -1,0 +1,764 @@
+//! Read-only DNS health projection: each local domain asset joined with its Provider Zone binding
+//! and the latest Host-committed Zone observation summary.
+//!
+//! The projection reports only what the Host has observed. Delegation is judged only by comparing
+//! the latest registry nameserver read with the nameservers of the Zone observation the row shows;
+//! record health and ownership need capabilities that are not composed, so the Renderer presents
+//! them as unavailable instead of inferring a healthy state.
+
+use rusqlite::{Connection, OptionalExtension, params};
+use serde::Serialize;
+
+use crate::portfolio_projection::{
+    PortfolioReadError, PortfolioReadFreshness, valid_connection_label, validate_timestamp,
+};
+
+use super::launch_platforms::LAUNCH_PLATFORMS;
+use super::portfolio::{read_freshness, validate_workspace};
+
+const MAX_NAMESERVERS: usize = 16;
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsHealthReadSnapshot {
+    pub schema_version: u8,
+    pub kind: String,
+    pub read_generation: u64,
+    pub freshness: PortfolioReadFreshness,
+    /// Rows matching the search prefix; the window pages through these.
+    pub total_rows: u32,
+    /// Workspace-wide counts, unaffected by the search, so the metrics describe every asset even
+    /// though the Renderer reads one page: assets, those with an applicable Zone observation, and
+    /// those whose observation is not an available, confirmed, active Zone.
+    pub asset_count: u32,
+    pub observed_count: u32,
+    pub warning_count: u32,
+    /// Workspace-wide assets whose delegation is `mismatch` or `unresolved`.
+    pub delegation_issue_count: u32,
+    pub window: DnsHealthWindow,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsHealthWindow {
+    pub start_index: u32,
+    pub size: u16,
+    pub rows: Vec<DnsHealthRow>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsHealthRow {
+    pub entity_id: String,
+    pub zone_binding: Option<DnsZoneBinding>,
+    pub observation: Option<DnsZoneObservationSummary>,
+    /// Whether binding the Zone would be admitted now: the Host's own bind selection finds
+    /// evidence for it and no live or conflicting binding stands in the way. The Renderer offers
+    /// "Bind Zone" only on this, never from the observation it shows.
+    pub bindable: bool,
+    /// The latest registry nameserver read for the asset, through any registrar connection.
+    pub delegation: Option<DnsDelegationSummary>,
+    /// `healthy` when that set equals the shown Zone observation's nameservers, `mismatch` when it
+    /// differs, `unresolved` when the registry lists none, and `unknown` without a delegation read
+    /// or without an available observation that names nameservers.
+    pub delegation_status: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsDelegationSummary {
+    pub nameservers: Vec<String>,
+    pub observed_at: String,
+}
+
+/// The asset's Zone binding on any launch platform. Connection identity and Provider resource IDs
+/// stay in the Host.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsZoneBinding {
+    pub provider_kind: String,
+    pub connection_label: String,
+    pub zone_label: String,
+    pub validation_status: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsZoneObservationSummary {
+    /// The platform whose connection committed the observation: Cloudflare, or Porkbun for an
+    /// asset whose live Zone binding is on Porkbun. Other platforms have no composed observation.
+    pub provider_kind: String,
+    pub observed_at: String,
+    pub availability: String,
+    pub evidence_status: String,
+    pub zone_label: String,
+    pub zone_status: String,
+    pub authoritative_nameservers: Vec<String>,
+    pub dnssec_status: String,
+    pub record_counts: DnsRecordCounts,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsRecordCounts {
+    pub a: u32,
+    pub aaaa: u32,
+    pub cname: u32,
+    pub txt: u32,
+    pub other: u32,
+}
+
+type RawRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    [i64; 5],
+);
+
+/// Non-deleted assets of the requested workspace (`?1`).
+const ASSETS: &str = "a.workspace_id = ?1 AND a.deleted_at IS NULL";
+/// The search: a canonical domain prefix (`?2`, empty for every asset) up to its successor (`?3`).
+const PREFIX: &str = "(?2 = '' OR (a.entity_id >= ?2 AND a.entity_id < ?3))";
+/// Each asset's Zone binding and its applicable Zone observation. A Cloudflare observation joins
+/// through its projection head, and only for an unbound or detached asset or a Cloudflare-bound
+/// one: it says nothing about a Zone bound on another platform. A live binding on another platform
+/// joins the latest observation its own connection committed for the asset (today only Porkbun
+/// writes one). The Renderer applies the same rule per row; joining here keeps the
+/// workspace-wide counts consistent with it.
+///
+/// A binding or observation a storage repair quarantined (ADR-0019) joins as absent: the asset reads
+/// as unbound or unobserved instead of failing the page.
+const ZONE_JOINS: &str = "
+     LEFT JOIN domain_asset_provider_bindings b
+       ON b.workspace_id = a.workspace_id AND b.entity_id = a.entity_id AND b.resource_kind = 'zone'
+      AND NOT EXISTS (SELECT 1 FROM storage_repair_receipts x
+                      WHERE x.workspace_id = a.workspace_id AND x.repair_kind = 'dns_binding'
+                        AND x.row_key = a.entity_id)
+     LEFT JOIN local_provider_connections c
+       ON c.workspace_id = b.workspace_id AND c.connection_id = b.connection_id
+     LEFT JOIN cloudflare_dns_projection_heads h
+       ON h.workspace_id = a.workspace_id AND h.entity_id = a.entity_id
+      AND (b.entity_id IS NULL OR b.validation_status = 'detached' OR b.provider_kind = 'cloudflare')
+     LEFT JOIN dns_zone_observations z
+       ON z.workspace_id = a.workspace_id AND z.zone_observation_id = coalesce(h.observation_id, (
+            SELECT bz.zone_observation_id
+              FROM dns_zone_observations bz JOIN provider_observation_runs br
+                ON br.workspace_id = bz.workspace_id AND br.observation_run_id = bz.observation_run_id
+             WHERE b.provider_kind <> 'cloudflare' AND b.validation_status <> 'detached'
+               AND bz.workspace_id = b.workspace_id AND bz.entity_id = b.entity_id
+               AND br.connection_id = b.connection_id AND br.observation_capability = 'dns'
+             ORDER BY bz.observed_at DESC, bz.rowid DESC LIMIT 1))
+      AND NOT EXISTS (SELECT 1 FROM storage_repair_receipts x
+                      WHERE x.workspace_id = a.workspace_id
+                        AND x.repair_kind = 'dns_zone_observation'
+                        AND x.row_key = z.zone_observation_id)
+     LEFT JOIN provider_observation_runs zr
+       ON zr.workspace_id = z.workspace_id AND zr.observation_run_id = z.observation_run_id
+     LEFT JOIN local_provider_connections zc
+       ON zc.workspace_id = zr.workspace_id AND zc.connection_id = zr.connection_id";
+
+/// The binding and observation columns `project_row` validates, in its order; the page read adds the
+/// record counts after them.
+const ROW_COLUMNS: &str = "a.entity_id,
+                   b.provider_kind, c.provider_kind, c.display_label, b.resource_label, b.validation_status,
+                   z.observed_at, z.observation_availability, z.evidence_status, z.zone_name_ascii,
+                   coalesce(z.cloudflare_zone_status, 'unknown'), z.authoritative_nameservers_json,
+                   z.dnssec_status, zc.provider_kind";
+
+pub(crate) struct ActiveDnsHealthReader<'a> {
+    connection: &'a Connection,
+}
+
+impl<'a> ActiveDnsHealthReader<'a> {
+    pub(crate) const fn new(connection: &'a Connection) -> Self {
+        Self { connection }
+    }
+
+    pub(crate) fn read(
+        &self,
+        requested_workspace_id: &str,
+        start_index: u32,
+        size: u16,
+        query: &str,
+    ) -> Result<DnsHealthReadSnapshot, PortfolioReadError> {
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(|_| PortfolioReadError::StorageRejected)?;
+        validate_workspace(&transaction, requested_workspace_id)?;
+        if start_index > 1_000_000 || !(1..=200).contains(&size) {
+            return Err(PortfolioReadError::WindowRejected);
+        }
+        let query = super::portfolio::canonical_query(query)?;
+        let upper = format!("{query}{{");
+        let total_rows: i64 = transaction
+            .query_row(
+                &format!("SELECT count(*) FROM domain_assets a WHERE {ASSETS} AND {PREFIX}"),
+                params![requested_workspace_id, query, upper],
+                |row| row.get(0),
+            )
+            .map_err(|_| PortfolioReadError::StorageRejected)?;
+        let (asset_count, observed_count, warning_count) =
+            workspace_counts(&transaction, requested_workspace_id)?;
+        let delegation_issue_count = delegation_issues(&transaction, requested_workspace_id)?;
+        if rejected_rows(&transaction, requested_workspace_id)? != 0 {
+            return Err(PortfolioReadError::ProjectionRejected);
+        }
+        let mut statement = transaction
+            .prepare(&format!(
+                "SELECT {ROW_COLUMNS},
+                   (SELECT count(*) FROM dns_record_observations r WHERE r.workspace_id = z.workspace_id AND r.zone_observation_id = z.zone_observation_id AND r.record_type = 'A'),
+                   (SELECT count(*) FROM dns_record_observations r WHERE r.workspace_id = z.workspace_id AND r.zone_observation_id = z.zone_observation_id AND r.record_type = 'AAAA'),
+                   (SELECT count(*) FROM dns_record_observations r WHERE r.workspace_id = z.workspace_id AND r.zone_observation_id = z.zone_observation_id AND r.record_type = 'CNAME'),
+                   (SELECT count(*) FROM dns_record_observations r WHERE r.workspace_id = z.workspace_id AND r.zone_observation_id = z.zone_observation_id AND r.record_type = 'TXT'),
+                   (SELECT count(*) FROM dns_record_observations r WHERE r.workspace_id = z.workspace_id AND r.zone_observation_id = z.zone_observation_id AND r.record_type NOT IN ('A', 'AAAA', 'CNAME', 'TXT'))
+                 FROM domain_assets a {ZONE_JOINS}
+                 WHERE {ASSETS} AND {PREFIX}
+                 ORDER BY a.entity_id COLLATE BINARY LIMIT ?4 OFFSET ?5"
+            ))
+            .map_err(|_| PortfolioReadError::SchemaRejected)?;
+        let raw = statement
+            .query_map(
+                params![requested_workspace_id, query, upper, size, start_index],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                        row.get(9)?,
+                        row.get(10)?,
+                        row.get(11)?,
+                        row.get(12)?,
+                        row.get(13)?,
+                        [
+                            row.get(14)?,
+                            row.get(15)?,
+                            row.get(16)?,
+                            row.get(17)?,
+                            row.get(18)?,
+                        ],
+                    ))
+                },
+            )
+            .map_err(|_| PortfolioReadError::ProjectionRejected)?
+            .collect::<Result<Vec<RawRow>, _>>()
+            .map_err(|_| PortfolioReadError::ProjectionRejected)?;
+        let rows = raw
+            .into_iter()
+            .map(|raw| page_row(&transaction, requested_workspace_id, raw))
+            .collect::<Result<Vec<_>, PortfolioReadError>>()?;
+        let freshness = read_freshness(&transaction)?;
+        drop(statement);
+        transaction
+            .commit()
+            .map_err(|_| PortfolioReadError::StorageRejected)?;
+        Ok(DnsHealthReadSnapshot {
+            schema_version: 1,
+            kind: "dns_health".to_owned(),
+            read_generation: 0,
+            freshness,
+            total_rows: count(total_rows)?,
+            asset_count: count(asset_count)?,
+            observed_count: count(observed_count)?,
+            warning_count: count(warning_count)?,
+            delegation_issue_count: count(delegation_issue_count)?,
+            window: DnsHealthWindow {
+                start_index,
+                size,
+                rows,
+            },
+        })
+    }
+}
+
+/// Workspace-wide asset, observed and warning counts; a warning is an applicable observation that is
+/// not an available, confirmed, active Zone, the Renderer's `current` rule.
+fn workspace_counts(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<(i64, i64, i64), PortfolioReadError> {
+    connection
+        .query_row(
+            &format!(
+                "SELECT count(*), count(z.zone_observation_id),
+                   coalesce(sum(z.zone_observation_id IS NOT NULL AND NOT (
+                     z.observation_availability = 'available' AND z.evidence_status = 'confirmed'
+                     AND coalesce(z.cloudflare_zone_status, 'unknown') = 'active')), 0)
+                 FROM domain_assets a {ZONE_JOINS} WHERE {ASSETS}"
+            ),
+            [workspace_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|_| PortfolioReadError::StorageRejected)
+}
+
+/// One page row: the validated projection plus the Host's bind and delegation verdicts.
+fn page_row(
+    connection: &Connection,
+    workspace_id: &str,
+    raw: RawRow,
+) -> Result<DnsHealthRow, PortfolioReadError> {
+    let mut row = project_row(raw)?;
+    row.bindable = row_bindable(connection, workspace_id, &row.entity_id)?;
+    row.delegation = row_delegation(connection, workspace_id, &row.entity_id)?;
+    row.delegation_status =
+        delegation_status(row.delegation.as_ref(), row.observation.as_ref()).to_owned();
+    Ok(row)
+}
+
+/// The latest registry delegation read of each asset (`d`), newest first by observation time.
+const DELEGATION_JOIN: &str = "
+     LEFT JOIN registrar_delegation_observations d
+       ON d.workspace_id = a.workspace_id AND d.delegation_observation_id = (
+            SELECT d2.delegation_observation_id FROM registrar_delegation_observations d2
+             WHERE d2.workspace_id = a.workspace_id AND d2.entity_id = a.entity_id
+             ORDER BY d2.observed_at DESC, d2.rowid DESC LIMIT 1)";
+
+/// Workspace-wide assets whose delegation `delegation_status` calls `mismatch` or `unresolved`. The
+/// stored delegation set is duplicate-free, so equal size plus containment is set equality.
+fn delegation_issues(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<i64, PortfolioReadError> {
+    connection
+        .query_row(
+            &format!(
+                "SELECT coalesce(sum(CASE
+                   WHEN d.nameservers_json IS NULL THEN 0
+                   WHEN json_array_length(d.nameservers_json) = 0 THEN 1
+                   WHEN z.zone_observation_id IS NOT NULL AND z.observation_availability = 'available'
+                    AND json_array_length(z.authoritative_nameservers_json) > 0
+                    AND (json_array_length(d.nameservers_json) <> (
+                           SELECT count(DISTINCT zn.value) FROM json_each(z.authoritative_nameservers_json) zn)
+                         OR EXISTS (SELECT 1 FROM json_each(d.nameservers_json) dn
+                                     WHERE dn.value NOT IN (
+                                       SELECT zn.value FROM json_each(z.authoritative_nameservers_json) zn)))
+                   THEN 1 ELSE 0 END), 0)
+                 FROM domain_assets a {ZONE_JOINS} {DELEGATION_JOIN} WHERE {ASSETS}"
+            ),
+            [workspace_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| PortfolioReadError::StorageRejected)
+}
+
+/// The asset's latest delegation read. Its insert trigger admits only canonical host names, so a
+/// row that fails here is corruption and fails the page closed.
+fn row_delegation(
+    connection: &Connection,
+    workspace_id: &str,
+    entity_id: &str,
+) -> Result<Option<DnsDelegationSummary>, PortfolioReadError> {
+    let Some((nameservers, observed_at)): Option<(String, String)> = connection
+        .query_row(
+            "SELECT nameservers_json, observed_at FROM registrar_delegation_observations
+              WHERE workspace_id = ?1 AND entity_id = ?2
+              ORDER BY observed_at DESC, rowid DESC LIMIT 1",
+            params![workspace_id, entity_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|_| PortfolioReadError::StorageRejected)?
+    else {
+        return Ok(None);
+    };
+    let nameservers: Vec<String> =
+        serde_json::from_str(&nameservers).map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    let distinct: std::collections::BTreeSet<&str> =
+        nameservers.iter().map(String::as_str).collect();
+    if nameservers.len() > MAX_NAMESERVERS
+        || distinct.len() != nameservers.len()
+        || nameservers.iter().any(|host| {
+            host.len() > 253
+                || !host.contains('.')
+                || host.split('.').any(|label| {
+                    !(1..=63).contains(&label.len())
+                        || label.starts_with('-')
+                        || label.ends_with('-')
+                        || !label.bytes().all(|byte| {
+                            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                        })
+                })
+        })
+    {
+        return Err(PortfolioReadError::ProjectionRejected);
+    }
+    Ok(Some(DnsDelegationSummary {
+        nameservers,
+        observed_at: validate_timestamp(Some(observed_at))?
+            .ok_or(PortfolioReadError::ProjectionRejected)?,
+    }))
+}
+
+/// The Host's delegation verdict; `delegation_issues` counts the same rule in SQL.
+fn delegation_status(
+    delegation: Option<&DnsDelegationSummary>,
+    observation: Option<&DnsZoneObservationSummary>,
+) -> &'static str {
+    let Some(delegation) = delegation else {
+        return "unknown";
+    };
+    if delegation.nameservers.is_empty() {
+        return "unresolved";
+    }
+    match observation {
+        Some(observation)
+            if observation.availability == "available"
+                && !observation.authoritative_nameservers.is_empty() =>
+        {
+            let zone: std::collections::BTreeSet<&str> = observation
+                .authoritative_nameservers
+                .iter()
+                .map(String::as_str)
+                .collect();
+            let delegated: std::collections::BTreeSet<&str> =
+                delegation.nameservers.iter().map(String::as_str).collect();
+            if zone == delegated {
+                "healthy"
+            } else {
+                "mismatch"
+            }
+        }
+        _ => "unknown",
+    }
+}
+
+/// How many of the rows the counts include fail validation, not only on the page. A page reads a few
+/// rows, so a bad binding or observation elsewhere would otherwise stay counted while no read ever
+/// rejects it; the read fails closed on any, as it did when the Renderer read every row, and
+/// settings diagnostics report the count so the cause is visible. An asset with neither a binding
+/// nor an applicable observation has nothing to validate beyond its schema-checked ID.
+pub(super) fn rejected_rows(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<u32, PortfolioReadError> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {ROW_COLUMNS} FROM domain_assets a {ZONE_JOINS}
+             WHERE {ASSETS} AND (b.entity_id IS NOT NULL OR z.zone_observation_id IS NOT NULL)"
+        ))
+        .map_err(|_| PortfolioReadError::SchemaRejected)?;
+    let rows = statement
+        .query_map([workspace_id], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+                row.get(8)?,
+                row.get(9)?,
+                row.get(10)?,
+                row.get(11)?,
+                row.get(12)?,
+                row.get(13)?,
+                // Record counts come from aggregates that cannot hold a bad value.
+                [0; 5],
+            ))
+        })
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    let mut rejected = 0_u32;
+    for row in rows {
+        if super::unreadable_row(row, project_row)? {
+            rejected = rejected.saturating_add(1);
+        }
+    }
+    Ok(rejected)
+}
+
+/// A row `rejected_rows` counts, split into the part that fails: its Zone binding (keyed by the
+/// asset) and its Zone observation. ADR-0019's repair quarantines exactly the failing parts. The
+/// two parts validate independently in `project_row`, so each is checked with the other absent.
+pub(super) struct RejectedDnsRow {
+    pub(super) entity_id: String,
+    /// The binding's columns, serialized for the receipt's digest, when the binding fails.
+    pub(super) binding: Option<String>,
+    /// The observation's ID and columns when the observation fails.
+    pub(super) observation: Option<(String, String)>,
+}
+
+pub(super) fn rejected_parts(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<Vec<RejectedDnsRow>, PortfolioReadError> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {ROW_COLUMNS}, z.zone_observation_id FROM domain_assets a {ZONE_JOINS}
+             WHERE {ASSETS} AND (b.entity_id IS NOT NULL OR z.zone_observation_id IS NOT NULL)"
+        ))
+        .map_err(|_| PortfolioReadError::SchemaRejected)?;
+    let mut rows = statement
+        .query([workspace_id])
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    let mut rejected = Vec::new();
+    while let Some(row) = rows
+        .next()
+        .map_err(|_| PortfolioReadError::StorageRejected)?
+    {
+        let entity_id: String = row
+            .get(0)
+            .map_err(|_| PortfolioReadError::StorageRejected)?;
+        let text = |range: std::ops::Range<usize>| -> (Option<Vec<Option<String>>>, String) {
+            let raw: Vec<rusqlite::types::Value> = range
+                .map(|index| row.get(index).unwrap_or(rusqlite::types::Value::Null))
+                .collect();
+            let shown = format!("{raw:?}");
+            let typed = raw
+                .into_iter()
+                .map(|value| match value {
+                    rusqlite::types::Value::Null => Ok(None),
+                    rusqlite::types::Value::Text(text) => Ok(Some(text)),
+                    _ => Err(()),
+                })
+                .collect::<Result<Vec<_>, ()>>()
+                .ok();
+            (typed, shown)
+        };
+        let (binding, binding_shown) = text(1..6);
+        let (observation, observation_shown) = text(6..14);
+        let binding_bad = binding.is_none_or(|columns| {
+            let raw: RawRow = (
+                entity_id.clone(),
+                columns[0].clone(),
+                columns[1].clone(),
+                columns[2].clone(),
+                columns[3].clone(),
+                columns[4].clone(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                [0; 5],
+            );
+            project_row(raw).is_err()
+        });
+        let observation_bad = observation.is_none_or(|columns| {
+            let raw: RawRow = (
+                entity_id.clone(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                columns[0].clone(),
+                columns[1].clone(),
+                columns[2].clone(),
+                columns[3].clone(),
+                columns[4].clone(),
+                columns[5].clone(),
+                columns[6].clone(),
+                columns[7].clone(),
+                [0; 5],
+            );
+            project_row(raw).is_err()
+        });
+        let observation_id: Option<String> = row.get(14).ok().flatten();
+        if !binding_bad && !observation_bad {
+            continue;
+        }
+        rejected.push(RejectedDnsRow {
+            entity_id,
+            binding: binding_bad.then_some(binding_shown),
+            observation: if observation_bad {
+                Some((
+                    observation_id.ok_or(PortfolioReadError::StorageRejected)?,
+                    observation_shown,
+                ))
+            } else {
+                None
+            },
+        });
+    }
+    Ok(rejected)
+}
+
+fn closed(value: String, allowed: &[&str]) -> Result<String, PortfolioReadError> {
+    if allowed.contains(&value.as_str()) {
+        Ok(value)
+    } else {
+        Err(PortfolioReadError::ProjectionRejected)
+    }
+}
+
+fn label(value: String) -> Result<String, PortfolioReadError> {
+    if value.is_empty() || value.len() > 253 || value.chars().any(char::is_control) {
+        return Err(PortfolioReadError::ProjectionRejected);
+    }
+    Ok(value)
+}
+
+fn count(value: i64) -> Result<u32, PortfolioReadError> {
+    u32::try_from(value).map_err(|_| PortfolioReadError::ProjectionRejected)
+}
+
+fn project_row(raw: RawRow) -> Result<DnsHealthRow, PortfolioReadError> {
+    let (
+        entity_id,
+        provider_kind,
+        connection_kind,
+        connection_label,
+        zone_label,
+        validation_status,
+    ) = (raw.0, raw.1, raw.2, raw.3, raw.4, raw.5);
+    let zone_binding = match (
+        provider_kind,
+        connection_kind,
+        connection_label,
+        zone_label,
+        validation_status,
+    ) {
+        (None, None, None, None, None) => None,
+        // The binding must name the platform of the connection it was made through.
+        (
+            Some(provider_kind),
+            Some(connection_kind),
+            Some(connection_label),
+            Some(zone_label),
+            Some(validation_status),
+        ) if provider_kind == connection_kind => Some(DnsZoneBinding {
+            // A Zone may be bound on any launch platform; whether one can hold it is decided by its
+            // capability manifest when the binding is made, not by this read.
+            provider_kind: closed(provider_kind, &LAUNCH_PLATFORMS)?,
+            connection_label: if valid_connection_label(&connection_label) {
+                connection_label
+            } else {
+                return Err(PortfolioReadError::ProjectionRejected);
+            },
+            zone_label: label(zone_label)?,
+            validation_status: closed(
+                validation_status,
+                &["unverified", "verified", "stale", "conflicted", "detached"],
+            )?,
+        }),
+        _ => return Err(PortfolioReadError::ProjectionRejected),
+    };
+    let observation = match (raw.6, raw.7, raw.8, raw.9, raw.10, raw.11, raw.12, raw.13) {
+        (None, None, None, None, _, None, None, None) => None,
+        (
+            Some(observed_at),
+            Some(availability),
+            Some(evidence_status),
+            Some(zone_label),
+            Some(zone_status),
+            Some(nameservers),
+            Some(dnssec_status),
+            Some(observation_provider),
+        ) => {
+            let authoritative_nameservers: Vec<String> = serde_json::from_str(&nameservers)
+                .map_err(|_| PortfolioReadError::ProjectionRejected)?;
+            if authoritative_nameservers.len() > MAX_NAMESERVERS {
+                return Err(PortfolioReadError::ProjectionRejected);
+            }
+            Some(DnsZoneObservationSummary {
+                provider_kind: closed(observation_provider, &["cloudflare", "porkbun"])?,
+                observed_at: validate_timestamp(Some(observed_at))?
+                    .ok_or(PortfolioReadError::ProjectionRejected)?,
+                availability: closed(availability, &["available", "unavailable"])?,
+                evidence_status: closed(
+                    evidence_status,
+                    &["confirmed", "stale", "conflicted", "unknown"],
+                )?,
+                zone_label: label(zone_label)?,
+                zone_status: closed(zone_status, &["active", "pending", "unknown"])?,
+                authoritative_nameservers: authoritative_nameservers
+                    .into_iter()
+                    .map(label)
+                    .collect::<Result<_, _>>()?,
+                dnssec_status: closed(
+                    dnssec_status,
+                    &["active", "inactive", "unknown", "unsupported"],
+                )?,
+                record_counts: DnsRecordCounts {
+                    a: count(raw.14[0])?,
+                    aaaa: count(raw.14[1])?,
+                    cname: count(raw.14[2])?,
+                    txt: count(raw.14[3])?,
+                    other: count(raw.14[4])?,
+                },
+            })
+        }
+        _ => return Err(PortfolioReadError::ProjectionRejected),
+    };
+    Ok(DnsHealthRow {
+        entity_id,
+        zone_binding,
+        observation,
+        bindable: false,
+        delegation: None,
+        delegation_status: "unknown".to_owned(),
+    })
+}
+
+/// Whether the Host would bind this asset's Zone now. It asks the bind's own evidence query, then
+/// applies the bind's identity rule to an existing binding: none, or a detached one for the same
+/// connection, Zone and name at no newer credential generation. A live binding is never offered
+/// again here, even where the bind would refresh it. Malformed evidence fails the page closed; the
+/// staged-batch CHECKs keep both digests canonical hex and the evidence must name its asset's own
+/// canonical ID, so only a corrupted database reaches that, and it is not counted separately.
+fn row_bindable(
+    connection: &Connection,
+    workspace_id: &str,
+    entity_id: &str,
+) -> Result<bool, PortfolioReadError> {
+    let Some(zone) = super::business::latest_bindable_zone(connection, workspace_id, entity_id)
+        .map_err(|_| PortfolioReadError::ProjectionRejected)?
+    else {
+        return Ok(false);
+    };
+    if zone.resource_label != entity_id {
+        return Ok(false);
+    }
+    let existing: Option<(String, String, String, String, i64, String)> = connection
+        .query_row(
+            "SELECT connection_id, provider_kind, resource_binding_digest, resource_label,
+                    binding_generation, validation_status
+               FROM domain_asset_provider_bindings
+              WHERE workspace_id = ?1 AND entity_id = ?2 AND resource_kind = 'zone'",
+            params![workspace_id, entity_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|_| PortfolioReadError::StorageRejected)?;
+    Ok(match existing {
+        None => true,
+        Some((connection_id, provider_kind, digest, label, generation, status)) => {
+            let generation =
+                u64::try_from(generation).map_err(|_| PortfolioReadError::ProjectionRejected)?;
+            status == "detached"
+                && zone.admits_existing(&connection_id, &provider_kind, &digest, &label, generation)
+        }
+    })
+}

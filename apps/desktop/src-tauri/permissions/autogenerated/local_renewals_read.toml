@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-local-renewals-read"
+description = "Enables the local_renewals_read command without any pre-configured scope."
+commands.allow = ["local_renewals_read"]
+
+[[permission]]
+identifier = "deny-local-renewals-read"
+description = "Denies the local_renewals_read command without any pre-configured scope."
+commands.deny = ["local_renewals_read"]

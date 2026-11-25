@@ -430,7 +430,7 @@ describe("persistent device Drain transition", () => {
     } as const;
     await expect(transactions.withTenant(scope, (transaction) => appendAuditRecord(transaction, callerOverride)))
       .rejects.toMatchObject({ code: "42501" });
-    const absent = await transactions.withTenant(scope, (transaction) => transaction.query<{ count: string }>(
+    const absent = await withOwnerTenant(scope, (transaction) => transaction.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM workspace_device_audit_drain_records WHERE source_device_id = $1",
       [callerOverride.sourceDeviceId],
     ));
@@ -461,6 +461,9 @@ describe("persistent device Drain transition", () => {
           pg_catalog.sha256($2::bytea), $2::bytea, pg_catalog.sha256($2::bytea)
         )`, ["device-old", Buffer.from("drain-fixture-audit-fork", "utf8")])).then(() => undefined), "STREAM_HEAD_CONFLICT"],
       ["key status", () => tenantUpdate("UPDATE device_signing_keys SET status = 'revoked', retired_at = transaction_timestamp()"), "SIGNING_KEY_CONFLICT"],
+      // ADR-0032 S1c: the workflow binds the target's key; a revoked target key stops the handoff.
+      ["target key status", () => tenantUpdate("UPDATE device_signing_keys SET status = 'revoked', retired_at = transaction_timestamp() WHERE device_id = 'device-new'"), "SIGNING_KEY_CONFLICT"],
+      ["bound key drift", () => tenantUpdate("UPDATE device_switch_workflows SET bound_key_id = 'key-old'"), "SIGNING_KEY_CONFLICT"],
       ["binding status", () => tenantUpdate(`UPDATE device_bindings SET status = 'removed', slot = NULL,
         removed_at = transaction_timestamp(), removal_reason = 'test' WHERE device_id = 'device-new'`), "BINDING_CONFLICT"],
     ];
@@ -580,6 +583,8 @@ function consumeDrainProof(transaction: TenantTransaction) {
 
 async function resetAndSeed(): Promise<void> {
   await clearLicensingTestData(ownerPool);
+  // Immutable epoch boundaries are cleared only by owner fixture maintenance, never runtime DELETE.
+  await ownerPool.query("TRUNCATE identity_private.security_epoch_end_boundaries");
   await ownerPool.query(`TRUNCATE
     workspace_device_cursors, workspace_device_audit_drain_seals, workspace_device_audit_drain_records,
     workspace_device_audit_drain_heads, execution_fact_drain_seals, execution_fact_drain_records,
@@ -587,7 +592,7 @@ async function resetAndSeed(): Promise<void> {
     device_bootstrap_activation_attempts, device_bootstrap_step_nonces, device_bootstrap_authorities,
     device_bootstrap_steps, device_bootstrap_capabilities, device_drain_proofs, device_active_leases,
     device_lease_epoch_allocations, device_switch_workflows, device_identity_challenges, device_login_challenges,
-    device_signing_keys, device_bindings, device_account_states`);
+    device_signing_keys, device_bindings, device_account_states CASCADE`);
   await ownerPool.query(
     "DELETE FROM workspace_revisions WHERE account_id = $1 AND workspace_id = $2",
     [scope.accountId, scope.workspaceId],
@@ -611,13 +616,14 @@ async function resetAndSeed(): Promise<void> {
       VALUES ($1, 'device-old', 1, 'bound', 1), ($1, 'device-new', 2, 'bound', 1)`, [scope.accountId]);
     await transaction.query(`INSERT INTO device_signing_keys
       (account_id, device_id, key_version, key_id, public_key, fingerprint, status)
-      VALUES ($1, 'device-old', 1, 'key-old', $2, $3, 'active')`, [scope.accountId, Buffer.alloc(32, 3), Buffer.alloc(32, 4)]);
+      VALUES ($1, 'device-old', 1, 'key-old', $2, $3, 'active'), ($1, 'device-new', 1, 'key-new', $4, $5, 'active')`,
+    [scope.accountId, Buffer.alloc(32, 3), Buffer.alloc(32, 4), Buffer.alloc(32, 6), Buffer.alloc(32, 7)]);
     await transaction.query(`INSERT INTO device_switch_workflows
       (account_id, workspace_id, workflow_id, purpose, mode, request_digest, idempotency_key, status,
        workflow_revision, from_device_id, to_device_id, bound_key_id, bound_key_version,
        bound_account_security_epoch, state_deadline)
       VALUES ($1, $2, 'workflow-one', 'device_switch', 'normal', $3, 'idem-one', 'draining',
-        3, 'device-old', 'device-new', 'key-old', 1, 1, transaction_timestamp() + interval '1 hour')`,
+        3, 'device-old', 'device-new', 'key-new', 1, 1, transaction_timestamp() + interval '1 hour')`,
       [scope.accountId, scope.workspaceId, Buffer.alloc(32, 5)]);
     await transaction.query(`INSERT INTO device_lease_epoch_allocations
       (account_id, workspace_id, workflow_id, lease_epoch, status, terminal_at)
@@ -722,15 +728,17 @@ async function clearAuditDrainDomain(): Promise<void> {
     public.workspace_device_audit_drain_heads`);
 }
 
-function readAuditDrainDomainState(transaction: TenantTransaction) {
+async function readAuditDrainDomainState(transaction: TenantTransaction) {
+  // Runtime reads no raw signed audit rows. Owner fixture inspection supplies only the immutable
+  // record count; all in-flight mutable head/seal/proof assertions still use the caller transaction.
+  const records=await ownerPool.query<{count:string}>("SELECT count(*)::text AS count FROM workspace_device_audit_drain_records WHERE account_id=$1 AND workspace_id=$2 AND source_device_id='device-old' AND active_lease_epoch=1",[scope.accountId,scope.workspaceId]);
   return transaction.query<{
     heads: string; records: string; seals: string; proofConsumed: boolean; forked: boolean;
   }>(`
     SELECT
       (SELECT count(*) FROM public.workspace_device_audit_drain_heads
        WHERE account_id = $1 AND workspace_id = $2 AND source_device_id = 'device-old' AND active_lease_epoch = 1)::text AS heads,
-      (SELECT count(*) FROM public.workspace_device_audit_drain_records
-       WHERE account_id = $1 AND workspace_id = $2 AND source_device_id = 'device-old' AND active_lease_epoch = 1)::text AS records,
+      $3::text AS records,
       (SELECT count(*) FROM public.workspace_device_audit_drain_seals
        WHERE account_id = $1 AND workspace_id = $2 AND source_device_id = 'device-old' AND active_lease_epoch = 1)::text AS seals,
       EXISTS (
@@ -740,7 +748,7 @@ function readAuditDrainDomainState(transaction: TenantTransaction) {
       COALESCE((
         SELECT bool_or(forked) FROM public.workspace_device_audit_drain_heads
         WHERE account_id = $1 AND workspace_id = $2 AND source_device_id = 'device-old' AND active_lease_epoch = 1
-      ), false) AS forked`, [scope.accountId, scope.workspaceId]);
+      ), false) AS forked`, [scope.accountId, scope.workspaceId,records.rows[0]?.count]);
 }
 
 async function expectAuditDrainDomainState(expected: {
@@ -759,7 +767,7 @@ async function expectExecutionFactDrainDomainCounts(expected: {
   readonly records: string;
   readonly seals: string;
 }): Promise<void> {
-  const result = await transactions.withTenant(scope, (transaction) => transaction.query<{
+  const result = await withOwnerTenant(scope, (transaction) => transaction.query<{
     heads: string; records: string; seals: string;
   }>(`
     SELECT

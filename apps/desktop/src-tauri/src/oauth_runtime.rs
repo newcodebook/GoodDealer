@@ -33,8 +33,21 @@ const LOGIN_TIMEOUT: Duration = Duration::from_mins(10);
 /// consume nor clear a newer attempt; `attempt` is `None` only while a callback is advancing it.
 struct ActiveLogin {
     generation: u64,
+    purpose: LoginPurpose,
     attempt: Option<DesktopOAuthAttempt>,
     cancel: Arc<Notify>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LoginPurpose {
+    SignIn,
+    ForcedTakeover,
+}
+
+#[derive(Clone, Copy)]
+struct CompletedReauthentication {
+    generation: u64,
+    credential: u64,
 }
 
 /// A bound loopback listener waiting for the browser, owned by its serving task.
@@ -54,30 +67,53 @@ enum CallbackOutcome {
 
 pub(crate) struct DesktopOAuthRuntime {
     authorization_origin: Option<String>,
-    identity: Option<DesktopDeviceIdentity>,
+    identity: Option<Arc<DesktopDeviceIdentity>>,
     active: Mutex<Option<ActiveLogin>>,
+    reauthenticated: Mutex<Option<CompletedReauthentication>>,
     generations: AtomicU64,
     session: Arc<NativeCloudSession>,
+}
+
+/// ADR-0032 S2d3: the device key signs only a drain proof transcript that names this device and
+/// key; any other transcript is refused inside `secure-host-core`, and no refusal text escapes.
+impl crate::device_switch_drain::DrainProofSigner for DesktopOAuthRuntime {
+    fn signing_key_id(&self) -> Option<&str> {
+        self.identity.as_deref().map(DesktopDeviceIdentity::key_id)
+    }
+
+    fn sign_drain_proof(&self, transcript: &[u8]) -> Option<String> {
+        self.identity
+            .as_ref()?
+            .sign_drain_proof_transcript(transcript)
+            .ok()
+    }
 }
 
 impl DesktopOAuthRuntime {
     pub(crate) fn new(
         cloud_origin: Option<&str>,
         authorization_origin: Option<&str>,
-        identity: Option<DesktopDeviceIdentity>,
+        identity: Option<Arc<DesktopDeviceIdentity>>,
         local_host: Arc<DesktopLocalHost>,
+        power: Option<gooddealer_secure_host_core::NativePowerGate>,
     ) -> Self {
         let device_id = identity
-            .as_ref()
+            .as_deref()
             .map(DesktopDeviceIdentity::device_id)
             .map(str::to_owned);
-        let session = Arc::new(NativeCloudSession::new(cloud_origin, device_id, local_host));
+        let session = Arc::new(NativeCloudSession::new(
+            cloud_origin,
+            device_id,
+            local_host,
+            power,
+        ));
         Self {
             authorization_origin: authorization_origin
                 .filter(|origin| valid_authorization_origin(origin))
                 .map(str::to_owned),
             identity,
             active: Mutex::new(None),
+            reauthenticated: Mutex::new(None),
             generations: AtomicU64::new(0),
             session,
         }
@@ -105,7 +141,60 @@ impl DesktopOAuthRuntime {
     /// still waiting is superseded rather than reported as busy, so a closed tab never strands
     /// the user.
     pub(crate) fn begin(&self) -> Result<(String, LoopbackLogin), NativeOAuthError> {
+        self.begin_purpose(LoginPurpose::SignIn)
+    }
+
+    pub(crate) fn begin_forced_takeover_reauthentication(
+        self: &Arc<Self>,
+        app: AppHandle,
+    ) -> Result<(), NativeOAuthError> {
+        let (authorization_url, login) = self.begin_purpose(LoginPurpose::ForcedTakeover)?;
+        let generation = login.generation;
+        let browser_app = app.clone();
+        tauri::async_runtime::spawn(Arc::clone(self).serve(app, login));
+        if browser_app
+            .opener()
+            .open_url(authorization_url, None::<&str>)
+            .is_err()
+        {
+            self.cancel(generation);
+            return Err(NativeOAuthError::TransportRejected);
+        }
+        let _ = browser_app.emit("desktop-authentication-status", self.status());
+        Ok(())
+    }
+
+    /// A local flow association, never a reauthentication proof. Cloud still validates its
+    /// one-use window. Refresh, superseding login and restart invalidate this exact fence.
+    pub(crate) fn forced_takeover_credential(&self) -> Result<u64, NativeOAuthError> {
+        let active = self
+            .active
+            .lock()
+            .map_err(|_| NativeOAuthError::Unavailable)?;
+        if active.is_some() {
+            return Err(NativeOAuthError::Busy);
+        }
+        let completed = self
+            .reauthenticated
+            .lock()
+            .map_err(|_| NativeOAuthError::Unavailable)?
+            .filter(|completed| completed.generation == self.generations.load(Ordering::Relaxed))
+            .ok_or(NativeOAuthError::CredentialRejected)?;
+        self.session
+            .with_target_bootstrap_session(Some(completed.credential), || Ok(()))
+            .map_err(|_| NativeOAuthError::CredentialRejected)?;
+        Ok(completed.credential)
+    }
+
+    fn begin_purpose(
+        &self,
+        purpose: LoginPurpose,
+    ) -> Result<(String, LoopbackLogin), NativeOAuthError> {
         let _attempt = self.session.begin_attempt()?;
+        *self
+            .reauthenticated
+            .lock()
+            .map_err(|_| NativeOAuthError::Unavailable)? = None;
         let origin = self
             .authorization_origin
             .as_deref()
@@ -116,8 +205,13 @@ impl DesktopOAuthRuntime {
             .ok_or(NativeOAuthError::Unavailable)?;
         self.session.prepare_authorization_recovery()?;
         let (listener, port) = oauth_loopback::bind().map_err(|_| NativeOAuthError::Unavailable)?;
-        let attempt = DesktopOAuthAttempt::begin(origin, identity, port)
-            .map_err(|_| NativeOAuthError::Unavailable)?;
+        let attempt = match purpose {
+            LoginPurpose::SignIn => DesktopOAuthAttempt::begin(origin, identity, port),
+            LoginPurpose::ForcedTakeover => {
+                DesktopOAuthAttempt::begin_forced_takeover_reauthentication(origin, identity, port)
+            }
+        }
+        .map_err(|_| NativeOAuthError::Unavailable)?;
         let authorization_url = attempt.authorization_url().to_string();
         let generation = self.generations.fetch_add(1, Ordering::Relaxed) + 1;
         let cancel = Arc::new(Notify::new());
@@ -127,6 +221,7 @@ impl DesktopOAuthRuntime {
             .map_err(|_| NativeOAuthError::Unavailable)?;
         if let Some(previous) = active.replace(ActiveLogin {
             generation,
+            purpose,
             attempt: Some(attempt),
             cancel: Arc::clone(&cancel),
         }) {
@@ -219,10 +314,36 @@ impl DesktopOAuthRuntime {
                 Ok(CallbackOutcome::Continue(authorization_url))
             }
             DesktopOAuthContinuation::Exchange(exchange) => {
-                self.session.exchange_authorization_code(exchange).await?;
+                let credential = self.session.exchange_authorization_code(exchange).await?;
+                self.associate_reauthentication(generation, credential)?;
                 Ok(CallbackOutcome::Completed)
             }
         }
+    }
+
+    fn associate_reauthentication(
+        &self,
+        generation: u64,
+        credential: u64,
+    ) -> Result<(), NativeOAuthError> {
+        let active = self
+            .active
+            .lock()
+            .map_err(|_| NativeOAuthError::Unavailable)?;
+        let login = active
+            .as_ref()
+            .filter(|login| login.generation == generation)
+            .ok_or(NativeOAuthError::CallbackRejected)?;
+        if login.purpose == LoginPurpose::ForcedTakeover {
+            *self
+                .reauthenticated
+                .lock()
+                .map_err(|_| NativeOAuthError::Unavailable)? = Some(CompletedReauthentication {
+                generation,
+                credential,
+            });
+        }
+        Ok(())
     }
 
     /// Answers browser requests on one attempt's listener until the attempt completes, fails,
@@ -387,6 +508,7 @@ mod tests {
             Some(PRODUCTION_ACCOUNT_ORIGIN),
             None,
             Arc::new(DesktopLocalHost::default()),
+            None,
         );
         assert_eq!(runtime.status(), NativeOAuthStatus::Unavailable);
         assert_eq!(runtime.begin().err(), Some(NativeOAuthError::Unavailable));
@@ -407,6 +529,76 @@ mod tests {
         ] {
             assert!(!valid_authorization_origin(invalid), "{invalid}");
         }
+    }
+
+    #[test]
+    fn only_current_dedicated_completion_records_reauthentication() {
+        let runtime = DesktopOAuthRuntime::new(
+            None,
+            None,
+            None,
+            Arc::new(DesktopLocalHost::default()),
+            None,
+        );
+        for (purpose, expected) in [
+            (LoginPurpose::SignIn, false),
+            (LoginPurpose::ForcedTakeover, true),
+        ] {
+            *runtime.active.lock().unwrap() = Some(ActiveLogin {
+                generation: 2,
+                purpose,
+                attempt: None,
+                cancel: Arc::new(Notify::new()),
+            });
+            *runtime.reauthenticated.lock().unwrap() = None;
+            assert_eq!(
+                runtime.associate_reauthentication(1, 9),
+                Err(NativeOAuthError::CallbackRejected)
+            );
+            assert!(runtime.reauthenticated.lock().unwrap().is_none());
+            runtime.associate_reauthentication(2, 9).unwrap();
+            assert_eq!(runtime.reauthenticated.lock().unwrap().is_some(), expected);
+            if let Some(completed) = *runtime.reauthenticated.lock().unwrap() {
+                assert_eq!((completed.generation, completed.credential), (2, 9));
+            }
+        }
+    }
+
+    #[test]
+    fn cancelled_or_failed_reauthentication_never_inherits_a_previous_login() {
+        let runtime = DesktopOAuthRuntime::new(
+            None,
+            None,
+            None,
+            Arc::new(DesktopLocalHost::default()),
+            None,
+        );
+        for cancel in [true, false] {
+            *runtime.active.lock().unwrap() = Some(ActiveLogin {
+                generation: 2,
+                purpose: LoginPurpose::ForcedTakeover,
+                attempt: None,
+                cancel: Arc::new(Notify::new()),
+            });
+            if cancel {
+                runtime.cancel(2);
+            } else {
+                runtime.finish(2);
+            }
+            assert_eq!(
+                runtime.forced_takeover_credential(),
+                Err(NativeOAuthError::CredentialRejected)
+            );
+        }
+        *runtime.reauthenticated.lock().unwrap() = Some(CompletedReauthentication {
+            generation: 1,
+            credential: 9,
+        });
+        runtime.generations.store(2, Ordering::Relaxed);
+        assert_eq!(
+            runtime.forced_takeover_credential(),
+            Err(NativeOAuthError::CredentialRejected)
+        );
     }
 
     #[test]

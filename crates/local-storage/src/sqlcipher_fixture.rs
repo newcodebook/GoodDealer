@@ -30,7 +30,7 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 
 #[test]
 fn bundled_sqlcipher_encrypts_fixture_database_and_wal() {
-    let directory = tempfile::tempdir().expect("temporary fixture directory");
+    let directory = crate::test_tempdir::tempdir().expect("temporary fixture directory");
     let database_path = directory.path().join("fixture.db");
     let wal_path = directory.path().join("fixture.db-wal");
 

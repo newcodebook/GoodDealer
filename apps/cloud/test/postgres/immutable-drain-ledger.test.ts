@@ -289,7 +289,7 @@ describe("PostgreSQL immutable Drain ledger authority", () => {
       { routine: "audit_recompute_workspace_device_drain_head(text,bigint)", app_allowed: false, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
       { routine: "device_consume_drain_proof(text,bytea,text,bigint,text)", app_allowed: true, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
       { routine: "device_read_just_consumed_drain_proof(text)", app_allowed: false, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
-      { routine: "execution_fact_drain_append_record(text,bigint,bigint,bytea,bytea,text,text)", app_allowed: true, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
+      { routine: "execution_fact_drain_append_record(text,bigint,bigint,bytea,bytea,text,text)", app_allowed: false, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
       { routine: "execution_fact_drain_install_accepted_seal(text)", app_allowed: true, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
       { routine: "execution_fact_drain_recompute_head(text,bigint)", app_allowed: false, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
       { routine: "workspace_mutation_drain_append_record(text,bigint,bigint,bytea)", app_allowed: true, public_allowed: false, security_definer: true, configuration: ["search_path=pg_catalog, public"] },
@@ -454,7 +454,7 @@ describe("PostgreSQL immutable Drain ledger authority", () => {
       ORDER BY c.relname`, [tables]);
     expect(state.rows).toHaveLength(tables.length);
     expect(state.rows.every((row) => row.owner === "gooddealer_cloud_owner"
-      && row.enabled && row.forced && row.can_select
+      && row.enabled && row.forced && row.can_select === !["execution_fact_drain_records","workspace_device_audit_drain_records"].includes(row.table)
       && !row.can_insert && !row.can_update && !row.can_delete && !row.can_truncate)).toBe(true);
   });
 });
@@ -476,14 +476,16 @@ async function seedDrainAuthority(): Promise<void> {
     [scope.accountId, sourceDeviceId, targetDeviceId]);
     await transaction.query(`INSERT INTO device_signing_keys
       (account_id, device_id, key_version, key_id, public_key, fingerprint, status)
-      VALUES ($1, $2, 1, 'immutable-ledger-key', $3, $4, 'active')`,
-    [scope.accountId, sourceDeviceId, Buffer.alloc(32, 3), Buffer.alloc(32, 4)]);
+      VALUES ($1, $2, 1, 'immutable-ledger-key', $3, $4, 'active'),
+        ($1, $5, 1, 'immutable-ledger-target-key', $6, $7, 'active')`,
+    [scope.accountId, sourceDeviceId, Buffer.alloc(32, 3), Buffer.alloc(32, 4), targetDeviceId,
+      Buffer.alloc(32, 6), Buffer.alloc(32, 7)]);
     await transaction.query(`INSERT INTO device_switch_workflows
       (account_id, workspace_id, workflow_id, purpose, mode, request_digest, idempotency_key, status,
        workflow_revision, from_device_id, to_device_id, bound_key_id, bound_key_version,
        bound_account_security_epoch, state_deadline)
       VALUES ($1, $2, $3, 'device_switch', 'normal', $4, 'immutable-ledger-idempotency', 'draining',
-        1, $5, $6, 'immutable-ledger-key', 1, 1, transaction_timestamp() + interval '1 hour')`,
+        1, $5, $6, 'immutable-ledger-target-key', 1, 1, transaction_timestamp() + interval '1 hour')`,
     [scope.accountId, scope.workspaceId, workflowId, Buffer.alloc(32, 5), sourceDeviceId, targetDeviceId]);
     await transaction.query(`INSERT INTO device_lease_epoch_allocations
       (account_id, workspace_id, workflow_id, lease_epoch, status, terminal_at)

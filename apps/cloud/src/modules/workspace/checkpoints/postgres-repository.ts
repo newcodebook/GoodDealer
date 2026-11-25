@@ -1,13 +1,14 @@
 import {
   WORKSPACE_SYNC_SCHEMA_VERSION,
   checkpointDescriptorSchema,
-  DOMAIN_ASSET_CHECKPOINT_PARTITION_ROWS,
-  domainAssetCheckpointPartitionId,
-  domainAssetProjectionSchema,
-  workspaceEntityDigestsSchema,
+  checkpointEntityDigestsSchema,
+  partitionWorkspaceCheckpointState,
+  workspaceCheckpointStateSchema,
   type CheckpointDescriptor,
-  type DomainAssetProjectionRow,
-  type WorkspaceEntityDigest,
+  type CheckpointDomainAsset,
+  type CheckpointDomainAssetTombstone,
+  type CheckpointEntityDigest,
+  type WorkspaceCheckpointState,
 } from "@gooddealer/protocol/workspace";
 
 import type { TenantTransaction } from "../../../db/index";
@@ -59,20 +60,20 @@ export class PostgresCheckpointRepository {
   async createBuilding(
     transaction: TenantTransaction,
     descriptorValue: unknown,
-    snapshotValue: unknown,
+    stateValue: unknown,
     entityDigestsValue: unknown,
   ): Promise<PersistentCheckpoint> {
     const descriptor = checkpointDescriptorSchema.parse(descriptorValue);
     assertWorkspace(descriptor.workspaceId, transaction.scope.workspaceId);
-    const snapshot = domainAssetProjectionSchema.parse(snapshotValue);
-    const entityDigests = workspaceEntityDigestsSchema.parse(entityDigestsValue);
+    const partitions = partitionWorkspaceCheckpointState(stateValue);
+    const entityDigests = checkpointEntityDigestsSchema.parse(entityDigestsValue);
     const digestBytes = decodeDigest(descriptor.checkpointDigest);
 
     const inserted = await transaction.query(
       `INSERT INTO workspace_checkpoints (
          account_id, workspace_id, checkpoint_id, schema_version, workspace_schema_version,
          through_server_revision, checkpoint_digest, capture_codec, capture_schema_version, status
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'domain-asset-projection-v1', 1, 'building')
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'workspace-checkpoint-state-v3', 3, 'building')
        ON CONFLICT (account_id, workspace_id, checkpoint_id) DO NOTHING`,
       [
         transaction.scope.accountId,
@@ -104,19 +105,17 @@ export class PostgresCheckpointRepository {
           descriptor.checkpointId,
           ordinal,
           entityDigest.entityType,
-          entityDigest.partitionId ?? "",
+          entityDigest.partitionId,
           entityDigest.partitionId,
           decodeDigest(entityDigest.digest),
         ],
       );
     }
-    for (const [index, row] of snapshot.entries()) {
-      await insertSnapshotRow(
-        transaction,
-        descriptor.checkpointId,
-        domainAssetCheckpointPartitionId(Math.floor(index / DOMAIN_ASSET_CHECKPOINT_PARTITION_ROWS)),
-        row,
-      );
+    for (const { partitionId, rows } of partitions.assets) {
+      for (const row of rows) await insertAssetRow(transaction, descriptor.checkpointId, partitionId, row);
+    }
+    for (const { partitionId, rows } of partitions.tombstones) {
+      for (const row of rows) await insertTombstoneRow(transaction, descriptor.checkpointId, partitionId, row);
     }
     return { descriptor, status: "building", rowVersion: 1 };
   }
@@ -139,25 +138,42 @@ export class PostgresCheckpointRepository {
     return row === undefined ? null : parseCheckpointRow(row, transaction.scope.workspaceId);
   }
 
-  async readSnapshot(
+  /**
+   * Reads the stored state strictly; the caller recomputes its digests before trusting it. Rows are
+   * re-validated by the protocol schema, which also refuses an id stored both live and deleted.
+   */
+  async readState(
     transaction: TenantTransaction,
     checkpointId: string,
-  ): Promise<readonly DomainAssetProjectionRow[]> {
+  ): Promise<WorkspaceCheckpointState> {
     assertIdentifier(checkpointId, "checkpoint id");
-    const result = await transaction.query<SnapshotRow>(
-      `SELECT entity_id, note, portfolio_id, tags, target_price_currency, target_price_amount
+    const assets = await transaction.query<SnapshotRow>(
+      `SELECT entity_id, entity_generation::text AS entity_generation, note, portfolio_id, tags,
+              target_price_currency, target_price_amount
        FROM workspace_checkpoint_domain_assets
        WHERE account_id = $1 AND workspace_id = $2 AND checkpoint_id = $3
        ORDER BY entity_id COLLATE "C"`,
       [transaction.scope.accountId, transaction.scope.workspaceId, checkpointId],
     );
-    return domainAssetProjectionSchema.parse(result.rows.map(snapshotRowValue));
+    const tombstones = await transaction.query<TombstoneRow>(
+      `SELECT entity_id, entity_generation::text AS entity_generation,
+              deleted_server_revision::text AS deleted_server_revision,
+              extract(epoch FROM deleted_at)::text AS deleted_at_epoch
+       FROM workspace_checkpoint_domain_asset_tombstones
+       WHERE account_id = $1 AND workspace_id = $2 AND checkpoint_id = $3
+       ORDER BY entity_id COLLATE "C"`,
+      [transaction.scope.accountId, transaction.scope.workspaceId, checkpointId],
+    );
+    return workspaceCheckpointStateSchema.parse({
+      assets: assets.rows.map(snapshotRowValue),
+      tombstones: tombstones.rows.map(tombstoneRowValue),
+    });
   }
 
   async readEntityDigests(
     transaction: TenantTransaction,
     checkpointId: string,
-  ): Promise<readonly WorkspaceEntityDigest[]> {
+  ): Promise<readonly CheckpointEntityDigest[]> {
     assertIdentifier(checkpointId, "checkpoint id");
     const result = await transaction.query<{
       ordinal: number;
@@ -174,7 +190,7 @@ export class PostgresCheckpointRepository {
     result.rows.forEach((row, index) => {
       if (row.ordinal !== index) throw new TypeError("checkpoint digest ordinals are not contiguous");
     });
-    return workspaceEntityDigestsSchema.parse(result.rows.map((row) => ({
+    return checkpointEntityDigestsSchema.parse(result.rows.map((row) => ({
       entityType: row.entity_type,
       partitionId: row.partition_id,
       digest: encodeDigest(row.digest),
@@ -380,6 +396,7 @@ interface CheckpointRow {
 
 interface SnapshotRow {
   readonly entity_id: string;
+  readonly entity_generation: string;
   readonly note: string | null;
   readonly portfolio_id: string | null;
   readonly tags: string[];
@@ -387,15 +404,20 @@ interface SnapshotRow {
   readonly target_price_amount: string | null;
 }
 
+interface TombstoneRow {
+  readonly entity_id: string;
+  readonly entity_generation: string;
+  readonly deleted_server_revision: string;
+  readonly deleted_at_epoch: string;
+}
+
 function parseCheckpointRow(row: CheckpointRow, workspaceId: string): PersistentCheckpoint {
   if (!isCheckpointStatus(row.status)) throw new TypeError("stored checkpoint status is malformed");
-  // M021 keeps historical v1 rows readable while the public checkpoint contract remains v2.
-  const schemaVersion = row.schema_version === 1 || row.schema_version === WORKSPACE_SYNC_SCHEMA_VERSION
-    ? WORKSPACE_SYNC_SCHEMA_VERSION
-    : row.schema_version;
+  // Migration 202611140004 admits only version 3 rows; anything else is never reinterpreted.
+  if (row.schema_version !== WORKSPACE_SYNC_SCHEMA_VERSION) throw new TypeError("stored checkpoint version is unsupported");
   return {
     descriptor: checkpointDescriptorSchema.parse({
-      schemaVersion,
+      schemaVersion: row.schema_version,
       checkpointId: row.checkpoint_id,
       workspaceId,
       workspaceSchemaVersion: parsePositiveSafeInteger(row.workspace_schema_version, "workspace schema version"),
@@ -410,6 +432,7 @@ function parseCheckpointRow(row: CheckpointRow, workspaceId: string): Persistent
 function snapshotRowValue(row: SnapshotRow): unknown {
   return {
     entityId: row.entity_id,
+    entityGeneration: parseStoredPositive(row.entity_generation, "checkpoint entity generation"),
     note: row.note,
     portfolioId: row.portfolio_id,
     tags: row.tags,
@@ -419,28 +442,80 @@ function snapshotRowValue(row: SnapshotRow): unknown {
   };
 }
 
-async function insertSnapshotRow(
+function tombstoneRowValue(row: TombstoneRow): unknown {
+  return {
+    entityId: row.entity_id,
+    entityGeneration: parseStoredPositive(row.entity_generation, "checkpoint tombstone generation"),
+    deletedServerRevision: parseStoredPositive(row.deleted_server_revision, "checkpoint tombstone revision"),
+    deletedAt: epochToCanonicalUtc(row.deleted_at_epoch),
+  };
+}
+
+/**
+ * A stored deletion time is exact whole seconds (the wire carries canonical UTC seconds). A
+ * fractional epoch would mean the stored instant has no canonical encoding, so it fails closed
+ * instead of being truncated into a different time.
+ */
+function epochToCanonicalUtc(value: string): string {
+  const match = /^(0|[1-9][0-9]{0,15})(?:\.0+)?$/u.exec(value);
+  if (match === null) throw new TypeError("stored checkpoint deletion time is not whole seconds");
+  const seconds = Number(match[1]);
+  if (!Number.isSafeInteger(seconds)) throw new TypeError("stored checkpoint deletion time is malformed");
+  return new Date(seconds * 1_000).toISOString().replace(/\.000Z$/u, "Z");
+}
+
+function parseStoredPositive(value: string, label: string): number {
+  if (typeof value !== "string" || !/^[1-9][0-9]{0,15}$/u.test(value)) throw new TypeError(`stored ${label} is malformed`);
+  return parsePositiveSafeInteger(value, label);
+}
+
+async function insertAssetRow(
   transaction: TenantTransaction,
   checkpointId: string,
   partitionId: string,
-  row: DomainAssetProjectionRow,
+  row: CheckpointDomainAsset,
 ): Promise<void> {
   await transaction.query(
     `INSERT INTO workspace_checkpoint_domain_assets (
-       account_id, workspace_id, checkpoint_id, entity_id, partition_id, note, portfolio_id, tags,
-       target_price_currency, target_price_amount
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+       account_id, workspace_id, checkpoint_id, entity_id, partition_id, entity_generation, note,
+       portfolio_id, tags, target_price_currency, target_price_amount
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
       transaction.scope.accountId,
       transaction.scope.workspaceId,
       checkpointId,
       row.entityId,
       partitionId,
+      row.entityGeneration,
       row.note,
       row.portfolioId,
       row.tags,
       row.targetPrice?.currency ?? null,
       row.targetPrice?.amount ?? null,
+    ],
+  );
+}
+
+async function insertTombstoneRow(
+  transaction: TenantTransaction,
+  checkpointId: string,
+  partitionId: string,
+  row: CheckpointDomainAssetTombstone,
+): Promise<void> {
+  await transaction.query(
+    `INSERT INTO workspace_checkpoint_domain_asset_tombstones (
+       account_id, workspace_id, checkpoint_id, entity_id, partition_id, entity_generation,
+       deleted_server_revision, deleted_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)`,
+    [
+      transaction.scope.accountId,
+      transaction.scope.workspaceId,
+      checkpointId,
+      row.entityId,
+      partitionId,
+      row.entityGeneration,
+      row.deletedServerRevision,
+      row.deletedAt,
     ],
   );
 }

@@ -102,7 +102,9 @@ export class DesktopTokenRefreshService {
     } finally {
       transactionCredential.fill(0);
     }
-    if (!leased.ensured) return { rotated: false, reason: "authorization_unavailable" };
+    // Eligible Standby sessions can exchange read-only authority without allocating a Lease;
+    // only an ineligible device prevents code/session issuance or refresh.
+    if (leased.outcome === "refused") return { rotated: false, reason: "authorization_unavailable" };
     const generation = prepared.preparation.expectedGeneration + 1;
     const access = deriveDesktopRefreshResultToken(
       "access", identified.accountId, input.refreshToken, requestId.data, generation,

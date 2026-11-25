@@ -15,6 +15,22 @@ Native Desktop Local Host aggregate for the authoritative encrypted workspace an
 - Coordinates credential custody with `../secure-host-core` without transferring secrets or backup authority.
 - Exchanges secret-free sync mutations and recovery inputs through protocol and Cloud-client boundaries.
 
+## Internal ownership
+
+`src/desktop_local_host/mod.rs` owns one database/runtime state, authorization publication and lock
+order. Private `authorization`, `business`, `sync`, `provider`, `backup_workflow`, `native_backup`
+and `recovery` modules implement capability-specific transitions against that same state. Crypto,
+source projection, restore and continuity remain in the same private owner tree. The crate-root
+public API exposes only the aggregate and purpose-specific contracts; dependents cannot name these modules or obtain a writer, key or file handle.
+Test composition lives in `test_support` and cross-capability regression tests in `tests`.
+
+`desktop_local_host::target_bootstrap` owns target setup discovery, the exact confirmed termination
+intent and reconciliation. Its five crate-root `DesktopTargetBootstrap*` contracts expose only
+closed views or opaque exchanges to the Native coordinator. Fixed-purpose custody persists the
+control record even on a Standby installation without a business database; it never creates an
+empty workspace or restores execution permission. `execution_context` separately owns fresh
+signed time admission and durable evidence anchors.
+
 ## Change Guide
 
 - Put local business, sync, schema, and backup invariants in this crate rather than Desktop adapters.
@@ -29,7 +45,7 @@ Owns the SQLCipher key and Active Workspace that are authoritative for Desktop b
 
 - MUST: Keep one workspace identity per encrypted database and enable SQLite foreign keys.
 - MUST: Commit business state, field versions, and Outbox rows atomically.
-- MUST: Keep Provider account identity and every credential version local-only.
+- MUST: Keep Provider account identity and credential material in Native custody; business tables contain only opaque local connection metadata and generation proofs.
 - MUST: Create the Cloudflare connection anchor and prepare its activation intent in one immediate transaction; immediately before Keychain entry, atomically commit `prewrite_inspection_started` and deny credential use. Only exact-base inspection may then commit the write marker and eventually burn/confirm a generation.
 - MUST: Treat every orphaned prewrite inspection, failed exact-base marker, or unpersisted custody contradiction as sticky remediation; never restore active use from a later matching Keychain read.
 - MUST: Separate user desired state, Provider observed state, and Cloud replica candidates.
@@ -37,7 +53,7 @@ Owns the SQLCipher key and Active Workspace that are authoritative for Desktop b
 - MUST: Use explicit tombstones; omission and an empty replica never delete local rows.
 - MUST: Bound JSON, backup retention metadata, and append-heavy observation access paths in DDL.
 - MUST: Build backup data only from the already-open Host-owned SQLCipher connection, project a deterministic complete set of allowlisted business roots, and restore old content as fresh current-database mutation history without importing authority or sync-control floors.
-- MUST: Keep the design-stage schema in one reviewable migration snapshot; after the first production release, migration history becomes append-only and immutable.
+- MUST: Treat applied migrations as immutable (the runner rejects any checksum drift) and add schema changes as new append-only migrations; squashing the history into one snapshot before the first production release is a deliberate reset that needs an ADR.
 
 ## Boundaries
 
@@ -45,17 +61,17 @@ Owns the SQLCipher key and Active Workspace that are authoritative for Desktop b
 - Does NOT handle: exposing paths, keys, SQL, Provider accounts, or credentials to the Renderer. (see: `../../apps/desktop/src-tauri`)
 - Does NOT handle: using Cloud PostgreSQL as a Desktop Repository. (see: `../../docs/DATABASE_SCHEMA.md`)
 - Does NOT handle: granting a Provider capability merely because an operation table can represent it. (see: `../../packages/client-core/src/connections`)
-- Does NOT handle: Cloud identity, Provider execution, or Renderer/Tauri transport. Backup authority, GDBK/KEK, native handle/journal, projection/candidate, and current-database restore are owned here; passphrase, cross-device, Cloud-hosted backup, and old-database pointer replacement are intentionally absent. (see: `src/backup`)
+- Does NOT handle: Cloud identity, Provider execution, or Renderer/Tauri transport. Backup authority, GDBK/KEK, native handle/journal, projection/candidate, and current-database restore are owned here; portable offline backup and cross-device cloud recovery remain required implementation work under ADR-0023; installation-bound backup does not fulfill them. (see: `src/desktop_local_host`)
 
 ## Adversarial Surfaces
 
 - **sqlcipher-key-and-path-injection**: Only Host composition supplies the path, key, and workspace; IPC has no selectors. Verified by: `../../apps/desktop/src/app/native-policy.test.ts`.
-- **cross-workspace-row-injection**: Root tables structurally reference the singleton workspace; rogue workspace rows fail at insertion and the manifest rejects schema drift. Verified by: `src/active_workspace/business/mod.rs` and `src/migrations/mod.rs` tests.
-- **provider-secret-replication**: Provider identity and credentials exist only in local tables; DomainAsset Outbox payloads must parse the exact entity schema and recursively reject forbidden identity or credential keys. Verified by: `src/active_workspace/business/mod.rs` tests.
+- **cross-workspace-row-injection**: Root tables structurally reference the singleton workspace; rogue workspace rows fail at insertion and the manifest rejects schema drift. Verified by: `src/active_workspace/business/tests/` and `src/migrations/mod.rs` tests.
+- **provider-secret-replication**: Provider identity and credentials remain in Native custody; DomainAsset Outbox payloads must parse the exact entity schema and recursively reject forbidden identity or credential keys. Verified by: `src/active_workspace/business/tests/` tests.
 - **prewrite-custody-crash**: Ordinary `prepared` alone proves Keychain was never entered. Provision prewrite atomically sets `transition_pending`; mismatch cancellation discards staged evidence and sets `remediation_required` without ledger/head/root advance, while orphan recovery is always sticky remediation. Verified by: `src/active_workspace/business/cloudflare_credential.rs` tests.
-- **non-atomic-local-commit**: Business state, field versions, tags, and Outbox use one immediate transaction. Verified by: `src/active_workspace/business/mod.rs` tests.
-- **implicit-replica-deletion**: Empty replica input is a no-op and deletion requires a tombstone. Verified by: `src/active_workspace/business/mod.rs` tests.
-- **backup-secret-or-floor-import**: The owner verifies strict GDBK/KEK binding and projects only allowlisted business roots; Provider identity/credentials, OAuth/session/authority and sync-control rows are excluded. Guarded restore creates fresh mutations/outbox in the current database and preserves all current floors. Product availability still waits for qualified native picker/handle/KEK custody, an independent monotonic anchor, true create-only rebootstrap slot custody, safe active-database move detection, and target-platform fault evidence. Verified by: `src/backup` tests and `../../docs/VERIFICATION.md`.
+- **non-atomic-local-commit**: Business state, field versions, tags, and Outbox use one immediate transaction. Verified by: `src/active_workspace/business/tests/` tests.
+- **implicit-replica-deletion**: Empty replica input is a no-op and deletion requires a tombstone. Verified by: `src/active_workspace/business/tests/` tests.
+- **backup-secret-or-floor-import**: The owner verifies strict GDBK/KEK binding and projects only allowlisted business roots; Provider identity/credentials, OAuth/session/authority and sync-control rows are excluded. Guarded restore creates fresh mutations/outbox in the current database and preserves all current floors. Product availability still waits for qualified native picker/handle/KEK custody, an independent monotonic anchor, true create-only rebootstrap slot custody, safe active-database move detection, and target-platform fault evidence. Verified by: `src/desktop_local_host` tests and `../../docs/VERIFICATION.md`.
 
 ## Open Questions
 
@@ -89,6 +105,94 @@ reader is a test compatibility seam. These reads expose the safe `assetVersion` 
 sequence and use wire schema version 3. Edit/delete mutations perform lookup-first idempotent
 replay, CAS against that version, and atomically update desired state, field versions, tombstones,
 projection, and secret-free outbox rows. These changes require no schema migration.
+The asset library's totals follow its search prefix, except the expiring count: it opens the
+renewals desk, which lists the whole workspace, so it is always the workspace-wide count of the
+rows that desk lists. A recorded expiry that is not a real `YYYY-MM-DD` calendar date fails the
+asset's detail and every asset library read, whatever the page or search: any page could show it,
+and the expiring count compares it as text.
+
+`BusinessDatabase::read_dns_health` follows the same workspace and window rules (at most 200 rows)
+and joins each asset with its Zone binding and the latest committed Cloudflare Zone observation.
+A Cloudflare observation applies only while the asset is unbound, detached or bound to Cloudflare;
+an asset bound to another platform shows as unobserved rather than borrowing that observation.
+The read takes the asset library's search prefix, and besides the page returns the workspace-wide
+asset, observed and warning counts (a warning is an observation that is not an available,
+confirmed, active Zone) so the Renderer never
+derives metrics from one page. It returns observed facts only — Zone label/status, authoritative nameservers, DNSSEC status and
+per-type record counts — never record values, connection IDs, Provider resource IDs or a
+delegation/record/ownership verdict. Labels with control characters fail the whole read. Every
+bound or observed asset in the workspace is validated on each read, not only the page's rows, so a
+bad binding or observation the counts include fails every page and search instead of hiding on a
+page nobody reads.
+
+`BusinessDatabase::read_sales` uses the same window rules (at most 200 rows), but its rows are listed
+domains: it takes the latest confirmed marketplace listing observation per (asset, marketplace),
+omitting `unlisted` ones, and merges each asset's markets into one row — the markets, a status
+(`unknown` while any market's evidence is unavailable or unconfirmed, `conflict` when two markets
+report different definite states) and the price only when every market agrees on it by value. A
+read scans the listings once in domain order, so the page and the workspace-wide active count and
+exact listed value (none when prices span currencies, an active domain has no single price, or the
+sum exceeds 16 whole digits) come from the same merge, and a bad row on any page still fails the
+read. The merged desk is kept for the listing generation it was read at (`sales_listing_generation`,
+which triggers advance whenever a listing observation, the marketplace run or target status
+confirming it, or its asset's deletion changes, with `PRAGMA data_version`), so later pages, and
+reads after any other write (a note, a DNS record, a registrar or DNS observation run), are sliced
+from it; a write to those inputs here or any commit from another connection makes the next read
+merge again. Each desk row keeps its markets as a bit set over the
+launch platforms and its status as a one-byte enum. Observation, run and Provider version
+identifiers stay in the Host. Marketplaces outside
+ADR-0027's launch list and malformed prices fail the whole read.
+Every read that reports a Provider observation — sales, renewals, and the asset library and
+domain detail registrar and listing count — keeps only observations confirmed by a completed run
+(`succeeded` or `partial`) whose target for that asset succeeded (`observation_runs::confirmed`), so
+a run still in flight never reports evidence or hides an older confirmed observation.
+
+`BusinessDatabase::read_batch_operations` uses the same window rules and lists operation plans newest
+first: title, kind, plan and operation phases, risk, item and distinct target counts, the ADR-0027
+platform kinds of bound connections, planned counts by inclusion and execution mode, and each
+item's latest attempt status once an operation exists. Plan, item, operation, attempt, connection
+and Provider request identifiers stay in the Host; titles with control characters, malformed kinds
+and unknown platforms fail the whole read.
+
+`BusinessDatabase::read_history` uses the same window rules and lists the local revision ledger
+(`sync_outbox`) newest first by local commit sequence: asset, edit or delete, commit time, sync
+state, the acknowledged server revision, and each edit's changed synced fields (`note`,
+`portfolioId`, `tags`, `targetPrice`). A field's previous value is the same field in the asset's
+preceding local revision only when that revision provably was the asset's state: it was neither
+conflicted nor rejected, and no server revision was applied between the two commits. Then
+unchanged fields are omitted; otherwise every recorded field is listed and `previousValue` is
+omitted (unknown, never `null`). Mutation, device, lease and payload digest identifiers stay in the
+Host; a recorded value an asset write could not have stored fails the whole read.
+
+`BusinessDatabase::read_manual_tasks` uses the same window rules and lists manual tasks oldest
+waiting first: plan items whose latest attempt is `manual_action_required`, grouped into one task
+per operation, connection and capability (a retry returns to the same task). Each task reports the
+plan title and kind, capability, the connection's ADR-0027 platform kind and label, risk, item
+count, waiting-since and latest observed result times, and its affected domains (exact count, at
+most 10,000 listed). Plan, item, operation, attempt, connection, Provider account and request
+identifiers stay in the Host; unknown platforms, control characters and malformed tokens fail the
+whole read. It carries no browser session, automation or authorization data.
+
+`BusinessDatabase::read_renewals` uses the same window rules and lists assets still to renew (not sold,
+dropped or archived) whose recorded expiry falls in `[date('now'), date('now', '+61 days'))` — the portfolio's expiring count —
+soonest first, with recorded auto-renew and the latest confirmed, available registrar observation's
+registrar name. It returns that `asOfDate` so the Renderer counts days from the Host's date, and whole-window
+auto-renew enabled/disabled counts so the desk reads one page at a time and still reports coverage
+for every expiring asset. No renewal price,
+term or plan is projected; registrar names that are empty, longer than 128 characters or contain
+control, bidirectional or invisible formatting characters fail the whole read — the same
+`valid_registrar_name` rule as asset rows and the Renderer's `registrarNameSchema`. The rule covers
+every expiring asset, not only the page's: each read checks the distinct names of all available
+registrar observations, and only when one is invalid does it resolve each expiring asset's shown
+name to decide whether the desk would show it. A recorded expiry that is not a valid `YYYY-MM-DD`
+date but sorts into the window as text fails the read the same way.
+
+`BusinessDatabase::read_settings` returns at most 64 non-deleted Provider connections with their
+label, lifecycle, validation and credential-use state and declared roles (`registrar`, `dns`,
+`marketplace`). Connection, credential and account identifiers stay in the Host. No capability is
+ADR-0027 qualified yet, so every role is reported `unavailable` with `qualification_pending`.
+Connections on any of the eight ADR-0027 platforms are listed; unknown or duplicate roles,
+Provider kinds outside ADR-0027 and control-character labels fail the read.
 Pending outbox reads validate the recorded operation: edit/upsert payloads use the full asset
 projection while delete payloads use the exact `{entityId, operation}` shape; delete also marks
 `lifecycleStatus` pending in field versions in the same transaction.
@@ -193,9 +297,15 @@ credential generation from committed verified Zone observations. Unavailable evi
 generations, tombstoned assets, inactive/remediation credentials, immutable conflicts, exhausted
 counters and a rejected Host fence roll back without binding, metadata or Outbox writes. First
 commit advances the Host generation once; exact replay advances neither counters nor generation and
-may report the current generation. Binding persists a local association only; asset creation,
-Provider API writes, full Grant/Lease capability gates, revocation and controlled native/Zone
-qualification remain pending.
+may report the current generation. Binding persists a local association only. Asset creation, Grant/Lease gates and credential
+revocation are implemented; Cloudflare writes and controlled native/Zone qualification remain
+separate delivery work. Current composition is listed in `../../docs/CURRENT_IMPLEMENTATION.md`.
+
+The append-only storage-integrity migration adds write-time triggers: a binding must name its
+connection's platform, a bound connection's platform cannot change, and `domain_assets.expires_on`
+must be `NULL` or a real `YYYY-MM-DD` date (`date()` round-trips it unchanged). Rows written before
+it are not rewritten, so the asset library, renewals and DNS health reads keep their whole-set
+checks and fail closed on such rows.
 
 ## Backup and Restore Contract
 
@@ -232,4 +342,31 @@ safe active-database move detection or custody VFS, durable filesystem behavior,
 evidence exist. Ordinary Keychain storage is not monotonic evidence, and preflight followed by upsert is not
 create-only. Therefore product backup, continuity, and rebootstrap remain
 `unavailable`. See
-`../../docs/adr/0023-installation-bound-gdbk-backup-and-honest-business-restore.md`.
+`../../docs/adr/0023-business-backup-and-recovery.md`.
+
+## Internal capability ownership
+
+`active_workspace/business/` keeps one database owner and private asset, provider observation,
+read, sync inbox/outbox, conflict, checkpoint, database, wire and repair implementations.
+`desktop_local_host` separates signed workspace authority from backup artifact state without
+changing its lock order or commit fences. The Native credential facade delegates to its private
+Cloudflare adapter; OS key stores live under `desktop_custody/`.
+
+Migration `202611180001` extends the existing resource-binding owner for connection-scoped Listing
+incarnations, retaining detached history and the DNS/registrar singleton constraints. It does not
+implement Provider listing execution; that requires Host admission and observed platform evidence.
+
+
+## Afternic durable delisting
+
+The private `business/afternic_delist` module reuses operation plans/items/attempts/results and adds
+immutable exact-GET reconciliation facts in migration `202611180004`. Host freezes a bounded
+inventory-backed preview, approves it once, and issues a non-serializable mutation claim only to the
+queued-to-running transaction winner. Restarted attempts only reconcile; exact absence, unlisted
+observation, detach and aggregate result commit together behind the publication fence. Renderer
+receives bounded plan/status DTOs, never credential or resource-binding internals.
+
+Complete execution/audit stream production and synchronization remains a prerequisite for handoff
+after Provider execution; the temporary empty-stream path must refuse recorded delist attempts.
+See [current implementation](../../docs/CURRENT_IMPLEMENTATION.md) for remaining source and
+external-qualification gaps.

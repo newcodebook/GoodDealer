@@ -2,18 +2,20 @@
 
 ## Role
 
-Native non-storage security boundary for Desktop identity custody, authorization verification, and Provider observation.
+Native non-storage security boundary for Desktop identity custody, authorization verification, and purpose-specific Provider I/O.
 
 ## Owns
 
 - Native OAuth, device identity, refresh-token custody, and purpose-specific Grant and Lease verification.
 - Cloudflare credential custody, hardened read-only Provider transport, and sanitized Zone/DNS observation.
+- Afternic credential custody and the private official-API Service; Native composes inventory and delisting with local-storage plans.
+- Safe OS power admission, backed by the two private Windows/macOS notification modules allowed by ADR-0006.
 
 ## Touchpoints
 
 - Receives complete Host-issued plans from `../local-storage` without taking local database or backup ownership.
 - Is composed only by native Desktop code under `../../apps/desktop/src-tauri`.
-- Consumes fixed Cloud authorization and Cloudflare network boundaries without exposing secrets to Renderer code.
+- Consumes fixed Cloud authorization and fixed platform-specific network boundaries without exposing secrets to Renderer code.
 
 ## Change Guide
 
@@ -23,7 +25,7 @@ Native non-storage security boundary for Desktop identity custody, authorization
 
 ## Purpose
 
-`gooddealer-secure-host-core` owns the non-storage native capabilities: native Desktop OAuth and device-identity custody, purpose-specific Desktop authorization signature verification, and read-only Cloudflare Zone/DNS observation. Their state, credentials, audiences, purposes, fences, and transports are intentionally disjoint. No capability can admit or convert authority held by another. The SQLCipher database key and every local backup capability belong to the `gooddealer-local-storage` Desktop Local Host aggregate.
+`gooddealer-secure-host-core` owns the non-storage native capabilities: native Desktop OAuth and device-identity custody, purpose-specific Desktop authorization signature verification, read-only Cloudflare Zone/DNS observation, and Afternic Provider I/O. Their state, credentials, audiences, purposes, fences, and transports are intentionally disjoint. No capability can admit or convert authority held by another. The SQLCipher database key and every local backup capability belong to the `gooddealer-local-storage` Desktop Local Host aggregate.
 
 ## Principles
 
@@ -34,17 +36,17 @@ Native non-storage security boundary for Desktop identity custody, authorization
 - MUST: Bound and strictly parse Provider data before publication; discard the whole observation after any request, page, decode, validation, or fence failure.
 - MUST: Keep the GoodDealer-private Cloudflare Service as the only runtime owner of Zone/DNS endpoint, Provider wire, credentials, transport, errors, and domain mapping.
 - MUST: Keep PKCE verifier/state and access tokens in Native memory, store only the validated refresh token plus its pending rotation request identity in one purpose-isolated OS credential record, and expose neither through Renderer IPC or diagnostics.
-- MUST: Keep the stable device ID, Key ID and Ed25519 seed in a separate OS credential item; sign only the fixed Desktop login-proof transcript and never expose a generic signing primitive.
+- MUST: Keep the stable device ID, Key ID and Ed25519 seed in a separate OS credential item; sign only declared device-purpose transcripts, including login and handoff drain, and never expose a generic signing primitive.
 - MUST: Parse the build-pinned Grant/Lease public-key registry strictly and require both purposes; rotation uses an overlapping allowlist in a signed/notarized Desktop release before Cloud switches signing keys.
 
 ## Boundaries
 
-- Does NOT handle: Caller-selected network authority; the sole Provider stack fixes HTTPS at `api.cloudflare.com`, exact GET-only Zone/DNS paths, four record types with at most nine pages per type and 37 total requests, no redirect, no environment proxy, explicitly disabled reqwest retries, platform hostname verification, and bounded time. (see: src/cloudflare_provider.rs)
+- Does NOT handle: Caller-selected network authority; the Cloudflare stack fixes HTTPS at `api.cloudflare.com`, exact GET-only Zone/DNS paths, four record types with at most nine pages per type and 37 total requests, no redirect, no environment proxy, explicitly disabled reqwest retries, platform hostname verification, and bounded time. (see: src/cloudflare_provider.rs)
 - Does NOT handle: Unbounded Provider data; response bytes, requests, records, content, JSON nodes, and JSON depth all have fixed caps. (see: src/cloudflare_provider.rs)
 - Does NOT handle: Production-selectable test authority or real-provider qualification; controlled transport scripts exist only under private `cfg(test)` code. (see: src/cloudflare_provider.rs)
 - Does NOT handle: Reuse of OAuth session, credential, cookie-audience, or generic Host state as Cloudflare authority. Native capture and purpose-specific Keychain custody are the only credential sources. (see: src/cloudflare_capture.rs, src/cloudflare_keychain.rs)
 - Does NOT handle: Generic Provider execution or private request/response/transport types crossing the Host boundary. (see: src/cloudflare_provider.rs)
-- Does NOT handle: Any local backup authority, GDBK parsing/sealing, Backup KEK custody or rollback anchor, native backup handle/journal, backup projection/candidate, or current-database restore. These are private to `gooddealer-local-storage`; no backup dependency or bridge crosses between the sibling crates. (see: `../../docs/adr/0023-installation-bound-gdbk-backup-and-honest-business-restore.md`)
+- Does NOT handle: Any local backup authority, GDBK parsing/sealing, Backup KEK custody or rollback anchor, native backup handle/journal, backup projection/candidate, or current-database restore. These are private to `gooddealer-local-storage`; no backup dependency or bridge crosses between the sibling crates. (see: `../../docs/adr/0023-business-backup-and-recovery.md`)
 
 ## Adversarial Surfaces
 
@@ -71,7 +73,7 @@ Native non-storage security boundary for Desktop identity custody, authorization
 - **DesktopRefreshRequestId** (defined in: src/desktop_oauth.rs): unpredictable, redacted identity durably paired with the presented refresh token until one logical rotation reaches a known result. Consumers: `../../apps/desktop/src-tauri/src/oauth_runtime.rs`.
 - **CloudflareCredentialProvisionPlan / CloudflareCredentialObservationPlan** (defined in: src/cloudflare_keychain.rs and src/cloudflare_provider.rs): Borrow-only interfaces through which the private Tauri orchestrator forwards Host-owned public tuples without constructing an owned all-fields DTO.
 - **CloudflareEndpoint** (defined in: src/cloudflare_provider.rs): Private GoodDealer-owned Zone/DNS endpoint selector; the same module owns the sole hardened transport and Provider wire definitions.
-- **CloudflareProviderClient** (defined in: src/cloudflare_provider.rs): Public closed Provider reader whose only production inputs are native-captured or complete-tuple-checked Keychain credentials; its request, response, method, and transport types remain crate-private. Consumer: `../../apps/desktop/src-tauri/src/provider_credential_orchestrator.rs`.
+- **CloudflareProviderClient** (defined in: src/cloudflare_provider.rs): Public closed Provider reader whose only production inputs are native-captured or complete-tuple-checked Keychain credentials; its request, response, method, and transport types remain crate-private. Consumer: `../../apps/desktop/src-tauri/src/provider_credential_orchestrator/cloudflare.rs`.
 - **VerifiedLocalWorkspaceBindingParams** (defined in: src/local_workspace_binding.rs): Single validated constructor input for server-verified workspace authority, avoiding positional epoch, digest, and deadline confusion. Consumers: `../../apps/desktop/src-tauri/src/command_handlers.rs`, `../../apps/desktop/src-tauri/src/oauth_runtime.rs`.
 
 ## Open Questions
@@ -84,4 +86,18 @@ This crate has no backup implementation or backup dependency. It neither exposes
 authority, containers, keys, rollback anchors, file handles, journals, projections, candidates, or restore
 operations. The complete backup boundary is documented by
 `../local-storage/README.md` and
-`../../docs/adr/0023-installation-bound-gdbk-backup-and-honest-business-restore.md`.
+`../../docs/adr/0023-business-backup-and-recovery.md`.
+
+
+## Afternic execution and power admission
+
+Afternic keeps account identity, key/secret, fixed API paths and raw responses in Native. The desktop
+orchestrator accepts only local-storage's exact connection and one-shot delist claim, performs GET
+preflight and DELETE, then reconciles through GET. Plans, attempts, results and binding changes stay
+with the sole local-storage writer. Source composition does not grant real-provider qualification.
+
+Power registration owns OS callbacks on the main thread and exports only safe epoch/commit guards.
+Only `src/native_power/windows.rs` and `src/native_power/macos.rs` admit unsafe registration/teardown;
+see [ADR-0006](../../docs/adr/0006-runtime-and-security-boundaries.md). Current power fencing covers
+the delist runner/approval, not every older connection flow. Target-source compilation and Linux
+unit tests do not replace Windows/macOS registration, sleep/wake or full-application qualification.

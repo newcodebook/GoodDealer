@@ -33,16 +33,24 @@ export type {
 
 export {
   DEVICE_MANAGEMENT_SCHEMA_VERSION,
+  DEVICE_SWITCH_REQUEST_VIEW_SCHEMA_VERSION,
   activeDeviceLeaseStatusSchema,
   cloudScopeSchema,
   deviceAuthorityProjectionSchema,
   deviceBindingListSchema,
   deviceBindingSummarySchema,
+  deviceListRequestSchema,
   devicePlatformSchema,
   deviceRemovalRequestSchema,
   deviceRoleSchema,
+  deviceSelfReportSchema,
+  deviceSwitchDrainRequestSchema,
+  deviceSwitchLookupRequestSchema,
+  deviceSwitchRejectionCodeSchema,
   deviceSwitchRequestSchema,
   deviceSwitchRequestViewSchema,
+  normalHandoffReceiptSchema,
+  deviceSwitchResponseSchema,
 } from "./device-management";
 export type {
   ActiveDeviceLeaseStatus,
@@ -50,11 +58,18 @@ export type {
   DeviceAuthorityProjection,
   DeviceBindingList,
   DeviceBindingSummary,
+  DeviceListRequest,
   DevicePlatform,
   DeviceRemovalRequest,
   DeviceRole,
+  DeviceSelfReport,
+  DeviceSwitchDrainRequest,
+  DeviceSwitchLookupRequest,
+  DeviceSwitchRejectionCode,
   DeviceSwitchRequest,
   DeviceSwitchRequestView,
+  NormalHandoffReceipt,
+  DeviceSwitchResponse,
 } from "./device-management";
 
 export { deviceOperationSchema } from "./operations";
@@ -62,6 +77,7 @@ export type { DeviceOperation } from "./operations";
 
 export {
   BOOTSTRAP_STEP_SCHEMA_VERSION,
+  bootstrapStepNonceSchema,
   bootstrapStepRequestSchema,
   bootstrapStepResultSchema,
   encodeBootstrapStepRequestDigestInput,
@@ -74,14 +90,87 @@ export type { BootstrapStepRequest, BootstrapStepResult } from "./bootstrap-step
 
 export {
   DESKTOP_AUTHORIZATION_GRANT_OPERATION_ID,
+  DESKTOP_AUTHORIZATION_GRANT_ROLE_EXCHANGE_SCHEMA_VERSION,
   DESKTOP_AUTHORIZATION_GRANT_SCHEMA_VERSION,
   DESKTOP_AUTHORIZATION_GRANT_SIGNATURE_DOMAIN,
-  desktopAuthorizationGrantRequestSchema,
+  DESKTOP_COMMERCIAL_CAPABILITIES,
+  DESKTOP_STANDBY_GRANT_MAX_LIFETIME_SECONDS,
+  DESKTOP_STANDBY_GRANT_SCHEMA_VERSION,
+  DESKTOP_STANDBY_GRANT_SIGNATURE_DOMAIN,
+  desktopAuthorizationGrantRoleRequestSchema,
+  desktopAuthorizationGrantRoleResponseSchema,
   desktopAuthorizationGrantSchema,
+  desktopCommercialCapabilitySchema,
+  desktopCommercialCapabilitiesSchema,
+  desktopStandbyGrantSchema,
   encodeDesktopAuthorizationGrantSignatureTranscript,
+  encodeDesktopStandbyGrantSignatureTranscript,
 } from "./authorization-grant";
 export type {
   DesktopAuthorizationGrant,
-  DesktopAuthorizationGrantRequest,
+  DesktopAuthorizationGrantRoleRequest,
+  DesktopAuthorizationGrantRoleResponse,
   DesktopCommercialAuthority,
+  DesktopCommercialCapability,
+  DesktopStandbyGrant,
 } from "./authorization-grant";
+
+export {
+  DESKTOP_EXECUTION_CONTEXT_REQUEST_LIMIT_BYTES, DESKTOP_EXECUTION_CONTEXT_RESPONSE_LIMIT_BYTES,
+  DESKTOP_EXECUTION_CONTEXT_MAX_ROUND_TRIP_MS, DESKTOP_EXECUTION_CONTEXT_SIGNATURE_DOMAIN,
+  desktopExecutionContextRequestSchema, desktopExecutionContextSchema, desktopExecutionContextResponseSchema,
+  encodeDesktopExecutionContextSignatureTranscript, encodeDesktopExecutionAuthorizationDigestInput,
+  encodeDesktopExecutionContextEnvelope,
+} from "./execution-context";
+export type { DesktopExecutionContextRequest, DesktopExecutionContext, DesktopExecutionContextResponse } from "./execution-context";
+
+export { DEVICE_SWITCH_REQUEST_SCHEMA_VERSION, deviceSwitchRequestResolutionRequestSchema, deviceSwitchRequestResolutionResponseSchema } from "./device-management";
+export type { DeviceSwitchRequestResolutionRequest, DeviceSwitchRequestResolutionResponse } from "./device-management";
+
+export { deviceBootstrapStatusRequestSchema, deviceBootstrapStatusResponseSchema } from "./target-bootstrap";
+export type { DeviceBootstrapStatusRequest, DeviceBootstrapStatusResponse } from "./target-bootstrap";
+
+export {
+  DEVICE_BOOTSTRAP_INSTALLATION_LIMITS,
+  deviceBootstrapRejectionSchema,
+  deviceBootstrapClaimRequestSchema,
+  deviceBootstrapClaimSchema,
+  deviceBootstrapClaimResponseSchema,
+  deviceBootstrapStepRequestSchema,
+  deviceBootstrapStepResponseSchema,
+  deviceBootstrapCheckpointRequestSchema,
+  deviceBootstrapCheckpointPageSchema,
+  deviceBootstrapCheckpointResponseSchema,
+  encodeBootstrapCheckpointPageDigestInput,
+  deviceBootstrapActivationRequestSchema,
+  encodeBootstrapActivationRequestDigestInput,
+  deviceBootstrapActivationReceiptSchema,
+  deviceBootstrapActivationResponseSchema,
+  deviceBootstrapReceiptOperationSchema,
+  deviceBootstrapReceiptRequestSchema,
+  deviceBootstrapReceiptResponseSchema
+} from "./target-installation";
+export type {
+  DeviceBootstrapClaimRequest,
+  DeviceBootstrapClaim,
+  DeviceBootstrapClaimResponse,
+  DeviceBootstrapStepRequest,
+  DeviceBootstrapStepResponse,
+  DeviceBootstrapCheckpointRequest,
+  DeviceBootstrapCheckpointPage,
+  DeviceBootstrapCheckpointResponse,
+  DeviceBootstrapActivationRequest,
+  DeviceBootstrapActivationReceipt,
+  DeviceBootstrapActivationResponse,
+  DeviceBootstrapReceiptRequest,
+  DeviceBootstrapReceiptResponse
+} from "./target-installation";
+
+export {
+  forcedTakeoverRequestSchema, forcedTakeoverPreviewRequestSchema, forcedTakeoverPreviewResponseSchema,
+  forcedTakeoverWorkflowSchema, forcedTakeoverStatusRequestSchema, forcedTakeoverStatusResponseSchema,
+  forcedTakeoverResolveRequestSchema, forcedTakeoverResolveResponseSchema,
+  forcedTakeoverCancelIntentRequestSchema, forcedTakeoverCancelIntentResponseSchema,
+} from "./forced-takeover";
+export type { ForcedTakeoverRequest, ForcedTakeoverPreviewResponse, ForcedTakeoverWorkflow,
+  ForcedTakeoverStatusResponse, ForcedTakeoverResolveResponse, ForcedTakeoverCancelIntentResponse } from "./forced-takeover";

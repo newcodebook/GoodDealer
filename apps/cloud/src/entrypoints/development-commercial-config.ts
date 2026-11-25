@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { DESKTOP_COMMERCIAL_CAPABILITIES, desktopCommercialCapabilitiesSchema } from "@gooddealer/protocol/devices";
 
 import {
   createStripeTestProviderComposition,
@@ -7,8 +8,6 @@ import {
 } from "./commercial-providers";
 
 const MAXIMUM_CONFIGURATION_BYTES = 32_768;
-/** The only capability `desktopAuthorizationGrantSchema` admits. */
-const DESKTOP_GRANT_CAPABILITY = "cloudflare:dns:observe";
 
 /** Reads the root-managed Stripe test configuration without copying secrets into process.env. */
 export async function readStripeTestProviderComposition(
@@ -51,10 +50,11 @@ export function parseStripeTestProviderConfiguration(value: unknown): StripeTest
   if (!strictlyAscending(featureEntitlements)) {
     throw new TypeError("feature entitlements must be strictly ascending");
   }
-  // Every sold plan must be able to authorize the Desktop Grant; a policy without its capability
-  // would sell entitlements that sign in but can never obtain runtime authority.
-  if (!featureEntitlements.includes(DESKTOP_GRANT_CAPABILITY)) {
-    throw new TypeError("feature entitlements must include the Desktop Grant capability");
+  // A plan can authorize local business without Provider access. Writes, when explicitly
+  // configured, need their observation capability so every unknown result can be reconciled.
+  if (!desktopCommercialCapabilitiesSchema.safeParse(DESKTOP_COMMERCIAL_CAPABILITIES
+    .filter((capability) => featureEntitlements.includes(capability))).success) {
+    throw new TypeError("feature entitlements contain an invalid Provider capability dependency");
   }
   return {
     apiKey: secret(stripe.apiKey, /^(?:sk|rk)_test_[A-Za-z0-9_]+$/u, "Stripe test API key"),

@@ -93,6 +93,7 @@ function ports(readGeneration: number) {
   return {
     business: {
       status: vi.fn(async () => status(readGeneration)),
+      createDomainAsset: vi.fn(),
       editDomainAsset: vi.fn(),
       deleteDomainAsset: vi.fn(),
     },
@@ -105,6 +106,17 @@ function ports(readGeneration: number) {
       resolveConflict: vi.fn(async () => ({ schemaVersion: 1 as const, readGeneration: readGeneration, enqueuedForSync: true })),
     },
     sync: { status: vi.fn(async () => sync(readGeneration)) },
+    dns: { loadDnsHealth: vi.fn() },
+    settings: { loadSettings: vi.fn() },
+    sales: { loadSales: vi.fn() },
+    renewals: { loadRenewals: vi.fn() },
+    batches: { loadBatchOperations: vi.fn() },
+    history: { loadHistory: vi.fn() },
+    manualTasks: { loadManualTasks: vi.fn() },
+    afternicDelist: { status: vi.fn(async () => ({ schemaVersion: 1 as const, controlledAcceptance: null, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null })), preview: vi.fn(), approve: vi.fn() },
+    afternicListingWrite: { status: vi.fn(async () => ({ schemaVersion: 1 as const, controlledAcceptance: null, writeQualified: false, writeEntitled: false, executionAvailable: false, plans: [], detail: null })), preview: vi.fn(), approve: vi.fn() },
+    afternic: { status: vi.fn(async () => ({ schemaVersion: 1 as const, connections: [], controlledAcceptance: null, observeQualified: false, observeEntitled: false, capturable: false, laneState: "ready" as const, lastOperation: null })), connect: vi.fn(), refresh: vi.fn(), revoke: vi.fn() },
+    cloudflare: { status: vi.fn(), create: vi.fn(), activate: vi.fn(), refreshRegistrar: vi.fn(), retirementCandidates: vi.fn(async () => []), purge: vi.fn(), revoke: vi.fn() },
   };
 }
 

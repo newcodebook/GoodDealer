@@ -1,0 +1,37 @@
+.marketplace-batch, .marketplace-batch-form {
+  display: grid;
+  gap: var(--space-2);
+}
+.marketplace-batch { padding: var(--space-3); }
+.marketplace-batch h2, .marketplace-batch p, .marketplace-batch-dialog h3 { margin: 0; }
+.marketplace-batch-form button { justify-self: start; }
+.marketplace-batch textarea, .marketplace-batch select {
+  box-sizing: border-box;
+  max-inline-size: 46rem;
+  border: 1px solid var(--gd-line-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  color: var(--gd-text);
+  background: var(--gd-ink);
+  font: inherit;
+}
+.marketplace-batch textarea { min-block-size: 7rem; resize: vertical; font-family: var(--font-mono); }
+.marketplace-batch :is(textarea, select):focus-visible { outline: 2px solid var(--gd-blue); outline-offset: 2px; }
+.marketplace-batch :user-invalid, .marketplace-batch [aria-invalid="true"] { border-color: var(--gd-danger); }
+.marketplace-batch-table { overflow: auto; }
+.marketplace-batch-table table { inline-size: 100%; border-collapse: collapse; }
+.marketplace-batch-table :is(caption, th, td) { padding: var(--space-2); text-align: start; }
+.marketplace-batch-table :is(th, td) { border-block-end: 1px solid var(--gd-line); }
+.marketplace-batch-dialog {
+  inline-size: min(45rem, calc(100% - 2rem));
+  max-block-size: 80vh;
+  color: var(--gd-text);
+  background: var(--gd-ink);
+  border: 1px solid var(--gd-line-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+.marketplace-batch-dialog[open] { display: grid; gap: var(--space-3); }
+.marketplace-batch-dialog:modal { overscroll-behavior: contain; }
+.marketplace-batch-dialog::backdrop { background: rgb(0 0 0 / .6); overflow: hidden; overscroll-behavior: contain; }
+.marketplace-batch-actions { display: flex; flex-wrap: wrap; justify-content: end; gap: var(--space-2); }

@@ -28,11 +28,13 @@ import {
   type TrustedTimePort,
 } from "../src/modules/devices/index";
 
+function nonce(step: number | string): string { return createHash("sha256").update(`bootstrap-nonce-${step}`).digest("base64url"); }
+
 const ZERO_DIGEST = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const ENTITY_DIGEST = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
 
 const checkpoint: CheckpointDescriptor = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   checkpointId: "checkpoint-4",
   workspaceId: "workspace-1",
   workspaceSchemaVersion: 1,
@@ -42,12 +44,13 @@ const checkpoint: CheckpointDescriptor = {
 
 function mutation(serverRevision: number): SyncMutation {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mutationId: `mutation-${serverRevision}`,
     workspaceId: "workspace-1",
     workspaceSchemaVersion: 1,
     entityType: "domain_asset",
     entityId: "example.com",
+    entityGeneration: 1,
     operationKind: "upsert",
     baseServerRevision: serverRevision - 1,
     changedFields: [{ fieldPath: "tags", value: [`tag-${serverRevision}`] }],
@@ -70,18 +73,14 @@ function signedRequest(value: Omit<BootstrapStepRequest, "requestDigest">): Boot
 
 function pinRequest(overrides: Partial<Omit<BootstrapStepRequest, "requestDigest">> = {}): BootstrapStepRequest {
   return signedRequest({
-    schemaVersion: 1,
+    schemaVersion: 2,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "capability-1",
     stepNumber: 1,
-    stepNonce: "nonce-1",
+    stepNonce: nonce(1),
     expectedWorkflowRevision: 1,
     stepKind: "pin_checkpoint",
-    stepPayload: {
-      checkpointId: checkpoint.checkpointId,
-      checkpointThroughServerRevision: checkpoint.throughServerRevision,
-      checkpointDigest: checkpoint.checkpointDigest,
-    },
+    stepPayload: {},
     ...overrides,
   } as Omit<BootstrapStepRequest, "requestDigest">);
 }
@@ -97,11 +96,11 @@ function fetchRequest(input: {
 } = {}): BootstrapStepRequest {
   const stepNumber = input.stepNumber ?? 2;
   return signedRequest({
-    schemaVersion: 1,
+    schemaVersion: 2,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "capability-1",
     stepNumber,
-    stepNonce: input.nonce ?? `nonce-${stepNumber}`,
+    stepNonce: input.nonce ?? nonce(stepNumber),
     expectedWorkflowRevision: input.expectedRevision ?? 2,
     stepKind: "fetch_mutations",
     stepPayload: {
@@ -118,17 +117,17 @@ function fetchRequest(input: {
 
 function submitRequest(input: { targetServerRevision?: number; schemaVersion?: number; expectedRevision?: number } = {}): BootstrapStepRequest {
   return signedRequest({
-    schemaVersion: 1,
+    schemaVersion: 2,
     deviceSwitchRequestId: "switch-1",
     capabilityJti: "capability-1",
     stepNumber: 3,
-    stepNonce: "nonce-3",
+    stepNonce: nonce(3),
     expectedWorkflowRevision: input.expectedRevision ?? 3,
     stepKind: "submit_rebuild_digest",
     stepPayload: {
       targetServerRevision: input.targetServerRevision ?? 6,
       workspaceSchemaVersion: input.schemaVersion ?? 1,
-      entityDigests: [{ entityType: "domain_asset", partitionId: null, digest: ENTITY_DIGEST }],
+      entityDigests: [{ entityType: "domain_asset", partitionId: "p0000", digest: ENTITY_DIGEST }],
     },
   });
 }
@@ -143,7 +142,7 @@ function buildPage(request: Parameters<MutationPagePort["readPage"]>[1], chain =
     ? `bootstrap-after-${returnedThroughServerRevision}`
     : null;
   const draft = {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     workspaceId: "workspace-1",
     fromServerRevisionExclusive: request.fromServerRevisionExclusive,
     throughServerRevisionInclusive: request.throughServerRevisionInclusive,
@@ -242,8 +241,9 @@ function createHarness(input: {
     workflow: aggregate,
     checkpoint: selectedCheckpoint,
     mutations: chain,
-    expectedEntityDigests: [{ entityType: "domain_asset", partitionId: null, digest: ENTITY_DIGEST }],
-    stepNonceFor: (stepNumber) => `nonce-${stepNumber}`,
+    checkpointEntityDigests: [{ entityType: "domain_asset", partitionId: "p0000", digest: ZERO_DIGEST }],
+    expectedEntityDigests: [{ entityType: "domain_asset", partitionId: "p0000", digest: ENTITY_DIGEST }],
+    stepNonceFor: (stepNumber) => nonce(stepNumber),
     capabilityVerifier: new BindingOnlyCapabilityVerifier(),
     checkpointCatalog,
     workspaceRevision: {
@@ -290,7 +290,7 @@ describe("BootstrapWorkflow", () => {
     expect(pin).toMatchObject({
       workflowRevision: 2,
       acceptedStepNumber: 1,
-      nextStepNonce: "nonce-2",
+      nextStepNonce: nonce(2),
     });
     const replay = await harness.orchestration.executeStep(harness.presentedCapability, pinRequest());
     expect(JSON.stringify(replay)).toBe(JSON.stringify(pin));
@@ -355,11 +355,11 @@ describe("BootstrapWorkflow", () => {
     await harness.orchestration.executeStep(harness.presentedCapability, pinRequest());
     expectCode(await harness.orchestration.executeStep(
       harness.presentedCapability,
-      pinRequest({ stepNonce: "other-nonce" }),
+      pinRequest({ stepNonce: nonce("other-nonce") }),
     ), "STEP_REPLAY_CONFLICT");
     expectCode(await harness.orchestration.executeStep(
       harness.presentedCapability,
-      fetchRequest({ nonce: "nonce-3" }),
+      fetchRequest({ nonce: nonce(3) }),
     ), "NONCE_MISMATCH");
     expectCode(await harness.orchestration.executeStep(
       harness.presentedCapability,
@@ -448,9 +448,9 @@ describe("BootstrapWorkflow", () => {
   it("A5/P16-INV-7/25 completes rebuild but stops before lease, scope, and cursor changes", async () => {
     const harness = createHarness();
     const pin = await harness.orchestration.executeStep(harness.presentedCapability, pinRequest());
-    expect(pin).toMatchObject({ nextStepNonce: "nonce-2" });
+    expect(pin).toMatchObject({ nextStepNonce: nonce(2) });
     const page = await harness.orchestration.executeStep(harness.presentedCapability, fetchRequest());
-    expect(page).toMatchObject({ nextStepNonce: "nonce-3" });
+    expect(page).toMatchObject({ nextStepNonce: nonce(3) });
     const terminal = await harness.orchestration.executeStep(harness.presentedCapability, submitRequest());
     expect(terminal).toMatchObject({ nextStepNonce: null, resultPayload: { accepted: true } });
     expect(harness.aggregate.rebuildVerified).toBe(true);
@@ -479,7 +479,7 @@ describe("BootstrapWorkflow", () => {
     await harness.orchestration.executeStep(harness.presentedCapability, submitRequest());
     vi.spyOn(harness.lifecycle, "attemptIssue").mockResolvedValue({ issued: true } as never);
 
-    await expect(harness.orchestration.activate()).rejects.toThrow("lease issuance success is disabled in P0-16");
+    await expect(harness.orchestration.activate()).rejects.toThrow("lease issuance success is disabled in the in-memory bootstrap workflow");
     expect(harness.retireCursor).toHaveBeenCalledOnce();
     expect(harness.retireCursor).toHaveBeenCalledWith(
       { accountId: "account-1", workspaceId: "workspace-1" },

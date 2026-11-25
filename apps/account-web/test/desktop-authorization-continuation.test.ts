@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseDesktopAuthorizationContinuation } from "../src/desktop-authorization-continuation";
+import { parseDesktopAuthorizationContinuation, requiresDesktopReauthentication } from "../src/desktop-authorization-continuation";
 
 const origin = "https://account.gooddealer.com";
 const authorize = "/v1/desktop-oauth/authorize?response_type=code&state=abc";
@@ -42,5 +42,25 @@ describe("Desktop authorization continuation", () => {
     expect(parseDesktopAuthorizationContinuation(`?${params.toString()}`, origin)).toBeNull();
     expect(parseDesktopAuthorizationContinuation(42, origin)).toBeNull();
     expect(parseDesktopAuthorizationContinuation(search(authorize), null)).toBeNull();
+  });
+
+  it("accepts only the exact reauthentication marker bound to its validated continuation", () => {
+    const target = `${authorize}&require_reauth=true`;
+    const input = `${search(target)}&reauth=required`;
+    expect(parseDesktopAuthorizationContinuation(input, origin)).toBe(target);
+    expect(requiresDesktopReauthentication(input, origin)).toBe(true);
+    expect(requiresDesktopReauthentication(search(target), origin)).toBe(false);
+    for (const invalid of [
+      `${search(target)}&reauth=false`, `${input}&reauth=required`,
+      `${search(authorize)}&reauth=required`, `${search(`${target}&require_reauth=true`)}&reauth=required`,
+      `${search("//evil.example/v1/desktop-oauth/authorize?require_reauth=true")}&reauth=required`,
+    ]) {
+      expect(parseDesktopAuthorizationContinuation(invalid, origin)).toBeNull();
+      expect(requiresDesktopReauthentication(invalid, origin)).toBe(false);
+    }
+  });
+
+  it("rejects opaque origins rather than matching two serialized null origins", () => {
+    expect(parseDesktopAuthorizationContinuation(search(authorize), "file:///account.html")).toBeNull();
   });
 });

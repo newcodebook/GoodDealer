@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { DesktopAuthorizationGrant } from "@gooddealer/protocol/devices";
+import type { DesktopAuthorizationGrant, DesktopAuthorizationGrantRoleResponse } from "@gooddealer/protocol/devices";
 
 import { rateLimitPolicy } from "../../src/entrypoints/adapter/rate-limit";
 import { createPublicHttp } from "../../src/entrypoints/http";
@@ -10,8 +10,8 @@ import { DESKTOP_AUTHORIZATION_GRANT_ROUTE } from "../../src/entrypoints/routes/
 import { StaticPublicSessionVerifier } from "../support/public-session";
 
 const grant: DesktopAuthorizationGrant = {
-  schemaVersion: 3,
-  typ: "gd.desktop-authorization-grant.v3",
+  schemaVersion: 4,
+  typ: "gd.desktop-authorization-grant.v4",
   iss: "https://accounts.gooddealer.com",
   aud: "gooddealer-desktop/local-business",
   kid: "grant-key-1",
@@ -40,12 +40,12 @@ const grant: DesktopAuthorizationGrant = {
   },
   scopes: ["workspace:mutate", "workspace:read"],
   commercialAuthority: {
-    schemaVersion: 1,
+    schemaVersion: 2,
     entitlementRevision: 2,
     entitlementProjectionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     state: "active",
     commercialExpiresAt: "2026-08-29T23:00:00Z",
-    capability: "cloudflare:dns:observe",
+    capabilities: ["cloudflare:dns:observe"],
   },
   signature: "grant-signature",
 };
@@ -57,7 +57,7 @@ describe("Desktop authorization Grant HTTP route", () => {
     await Promise.all(apps.splice(0).map(async (app) => app.close()));
   });
 
-  function create(issue = vi.fn(async (): Promise<DesktopAuthorizationGrant | null> => grant)) {
+  function create(issue = vi.fn(async (): Promise<DesktopAuthorizationGrantRoleResponse | null> => ({ schemaVersion: 5, role: "active", grant }))) {
     const app = createPublicHttp({
       sessions: new StaticPublicSessionVerifier([
         { sessionId: "web-session", accountId: "account-web", clientKind: "account_web" },
@@ -74,6 +74,7 @@ describe("Desktop authorization Grant HTTP route", () => {
       now: () => new Date("2026-08-29T00:00:00Z"),
       correlationIds: () => "grant-correlation",
       ports: {
+        desktopRouteAuthority: { async authorize() { return true; } },
         accountActivation: { activate: async () => null },
         desktopAuthorization: { issue },
         commercialCheckout: {
@@ -97,13 +98,13 @@ describe("Desktop authorization Grant HTTP route", () => {
       method: "POST",
       url: DESKTOP_AUTHORIZATION_GRANT_ROUTE,
       headers: { authorization: "Bearer desktop-access-token" },
-      payload: { schemaVersion: 3 },
+      payload: { schemaVersion: 5 },
     });
 
     expect(result.statusCode).toBe(200);
-    expect(result.json()).toEqual(grant);
+    expect(result.json()).toEqual({ schemaVersion: 5, role: "active", grant });
     expect(issue).toHaveBeenCalledWith(
-      { schemaVersion: 3 },
+      { schemaVersion: 5 },
       { accountId: "account-desktop", sessionId: "desktop-session", clientKind: "desktop" },
     );
   });
@@ -111,7 +112,7 @@ describe("Desktop authorization Grant HTTP route", () => {
   it("accepts the exact request body emitted by the production Desktop host", async () => {
     const body = readFileSync(
       new URL(
-        "../../../../packages/protocol/test-vectors/device-identity/valid/desktop-authorization-request.json",
+        "../../../../packages/protocol/test-vectors/standby-grant/valid/role-request.json",
         import.meta.url,
       ),
       "utf8",
@@ -125,7 +126,7 @@ describe("Desktop authorization Grant HTTP route", () => {
     });
     expect(result.statusCode).toBe(200);
     expect(issue).toHaveBeenCalledWith(
-      { schemaVersion: 3 },
+      { schemaVersion: 5 },
       { accountId: "account-desktop", sessionId: "desktop-session", clientKind: "desktop" },
     );
   });
@@ -136,7 +137,7 @@ describe("Desktop authorization Grant HTTP route", () => {
       method: "POST",
       url: DESKTOP_AUTHORIZATION_GRANT_ROUTE,
       headers: { authorization: "Bearer desktop-access-token" },
-      payload: { schemaVersion: 3, deviceId: "attacker-device" },
+      payload: { schemaVersion: 5, deviceId: "attacker-device" },
     });
 
     expect(result.statusCode).toBe(400);
@@ -154,7 +155,7 @@ describe("Desktop authorization Grant HTTP route", () => {
       method: "POST",
       url: DESKTOP_AUTHORIZATION_GRANT_ROUTE,
       headers: { cookie: "gd_session=web-session" },
-      payload: { schemaVersion: 3 },
+      payload: { schemaVersion: 5 },
     });
     expect(wrongClientResult.statusCode).toBe(404);
     expect(wrongClient.issue).not.toHaveBeenCalled();
@@ -164,7 +165,7 @@ describe("Desktop authorization Grant HTTP route", () => {
       method: "POST",
       url: DESKTOP_AUTHORIZATION_GRANT_ROUTE,
       headers: { authorization: "Bearer desktop-access-token" },
-      payload: { schemaVersion: 3 },
+      payload: { schemaVersion: 5 },
     });
     expect(deniedResult.statusCode).toBe(404);
     expect(wrongClientResult.json()).toEqual(deniedResult.json());

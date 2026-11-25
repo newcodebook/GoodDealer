@@ -12,12 +12,14 @@ flate2 = { version = "=1.1.10", default-features = false, features = ["rust_back
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 getrandom = "=0.4.3"
 hmac.workspace = true
+quick-xml = { version = "=0.42.0", features = ["serialize"] }
 reqwest = { version = "=0.13.5", default-features = false, features = ["native-tls", "stream"] }
 ring = "=0.17.14"
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
-tokio = { version = "=1.54.1", default-features = false, features = ["io-util", "macros", "net", "rt", "time"] }
+time = { version = "=0.3.55", features = ["parsing"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 url.workspace = true
 zeroize = "=1.9.0"
 
@@ -34,13 +36,30 @@ all = "deny"
 pedantic = "warn"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "=0.6.5", default-features = false, features = ["std"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSWorkspace"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSNotification", "NSOperation", "NSString", "block2"] }
+block2 = { version = "=0.6.2", default-features = false, features = ["std"] }
 fs2 = "=0.4.3"
 libc = "=0.2.189"
 rustix = { version = "=1.1.4", default-features = false, features = ["process", "std"] }
 security-framework = { version = "=3.7.0", default-features = false, features = ["OSX_10_15"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Security_Credentials"], default-features = false }
+winsafe = { version = "=0.0.29", default-features = false, features = ["gui"] }
+windows-native-keyring-store = { version = "=1.1.0", default-features = false }
+keyring-core = "=1.0.1"
+windows-permissions = "=0.2.4"
+winapi-util = "=0.1.11"
+winapi = { version = "=0.3.9", features = ["processthreadsapi"] }
+dirs = "=7.0.0"
+
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_Power", "Win32_UI_WindowsAndMessaging", "Win32_System_WindowsProgramming", "Wdk_System_SystemInformation"], default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+fs2 = "=0.4.3"
+gio = { version = "=0.18.4", default-features = false }
+gtk = { version = "=0.18.2", default-features = false }
+libc = "=0.2.189"
 secret-service = { version = "=5.2.0", default-features = false, features = ["rt-async-io-crypto-rust"] }
+rustix = { version = "=1.1.4", default-features = false, features = ["process", "std", "time"] }

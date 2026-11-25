@@ -10,13 +10,12 @@ import {
   type BootstrapStepResult,
 } from "@gooddealer/protocol/devices";
 import {
-  WORKSPACE_SYNC_SCHEMA_VERSION,
-  checkpointDescriptorSchema,
   encodeMutationPageDigestInput,
-  encodeWorkspaceEntityDigestsInput,
+  encodeCheckpointEntityDigestsInput,
 } from "@gooddealer/protocol/workspace";
 import { encodeDomainSeparatedWireValue } from "@gooddealer/protocol/wire";
 
+import { bootstrapDeadlineIsLive } from "./bootstrap-deadline";
 import { type TenantTransaction, type TenantTransactionRunner } from "../../db/index";
 import {
   BootstrapCapabilityVerifier,
@@ -52,7 +51,7 @@ export type BootstrapPersistenceAttempt =
 
 export class PostgresBootstrapStepService {
   constructor(private readonly dependencies: {
-    readonly transactions: TenantTransactionRunner;
+    readonly transactions?: TenantTransactionRunner;
     readonly verifier: BootstrapCapabilityVerifier;
     readonly accountSecurity: BootstrapAccountSecurityPort;
     readonly revisions: BootstrapRevisionPort;
@@ -78,10 +77,11 @@ export class PostgresBootstrapStepService {
       request.capabilityJti !== input.expectedCapability.jti) return conflict();
 
     try {
+      if (this.dependencies.transactions === undefined) throw new TypeError("tenant runner unavailable");
       return await this.dependencies.transactions.withTenant(input.scope, async (transaction) => {
         await transaction.query("SET LOCAL lock_timeout = '2s'");
         await transaction.query("SET LOCAL statement_timeout = '10s'");
-        return this.#executeOnce(transaction, admission.presentation, request);
+        return this.executeVerifiedLocked(transaction, admission.presentation, request);
       });
     } catch (error) {
       if (error instanceof BootstrapRefusal) return conflict();
@@ -89,12 +89,12 @@ export class PostgresBootstrapStepService {
     }
   }
 
-  async #executeOnce(
+  async executeVerifiedLocked(
     transaction: TenantTransaction,
     presentation: VerifiedBootstrapCapabilityPresentation,
     request: BootstrapStepRequest,
   ): Promise<BootstrapPersistenceAttempt> {
-    if (!this.dependencies.verifier.owns(presentation)) refuse();
+    if (!this.dependencies.verifier.owns(presentation) || !requestDigestMatches(request)) refuse();
     const security = await this.dependencies.accountSecurity.lockCurrent(transaction);
     if (security === null || security.status !== "normal" ||
       security.accountSecurityEpoch !== presentation.envelope.accountSecurityEpoch) refuse();
@@ -141,7 +141,7 @@ export class PostgresBootstrapStepService {
     }>(
       `SELECT jti, target_device_id, issued_at, expires_at, consumed_at,
               canonical_signed_envelope, signed_envelope_digest, ready_at,
-              transaction_timestamp() >= issued_at AND transaction_timestamp() < expires_at AS live
+              clock_timestamp() >= issued_at AND clock_timestamp() < expires_at AS live
        FROM device_bootstrap_capabilities
        WHERE account_id = $1 AND workspace_id = $2 AND workflow_id = $3 FOR UPDATE`,
       [transaction.scope.accountId, transaction.scope.workspaceId, request.deviceSwitchRequestId],
@@ -176,6 +176,7 @@ export class PostgresBootstrapStepService {
         !stored.rows[0].canonical_request.equals(canonicalRequest)) refuse();
       const result = bootstrapStepResultSchema.parse(decodeCanonicalJson(stored.rows[0].canonical_result));
       if (!stored.rows[0].canonical_result.equals(canonicalResultBytes(result))) refuse();
+      if (!await bootstrapDeadlineIsLive(transaction, request.deviceSwitchRequestId)) refuse();
       return { accepted: true, result, replay: true };
     }
     if (request.stepNumber !== parseInteger(authorityRow.next_step_number) ||
@@ -196,7 +197,7 @@ export class PostgresBootstrapStepService {
     this.dependencies.fault?.("after_step_ports");
     const nextStepNonce = request.stepKind === "submit_rebuild_digest" ? null : randomBytes(32).toString("base64url");
     const resultDraft = {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       workflowRevision: request.expectedWorkflowRevision + 1,
       acceptedStepNumber: request.stepNumber,
       nextStepNonce,
@@ -260,6 +261,7 @@ export class PostgresBootstrapStepService {
     );
     if (workflowUpdate.rowCount !== 1) refuse();
     this.dependencies.fault?.("before_commit");
+    if (!await bootstrapDeadlineIsLive(transaction, request.deviceSwitchRequestId)) refuse();
     return { accepted: true, result, replay: false };
   }
 
@@ -270,26 +272,18 @@ export class PostgresBootstrapStepService {
     capabilityExpiresAt: Date,
   ) {
     if (request.stepKind === "pin_checkpoint") {
-      const head = await this.dependencies.revisions.lock(transaction);
-      if (head === null) refuse();
-      const descriptor = checkpointDescriptorSchema.parse({
-        schemaVersion: WORKSPACE_SYNC_SCHEMA_VERSION,
-        workspaceId: transaction.scope.workspaceId,
-        workspaceSchemaVersion: head.workspaceSchemaVersion,
-        checkpointId: request.stepPayload.checkpointId,
-        throughServerRevision: request.stepPayload.checkpointThroughServerRevision,
-        checkpointDigest: request.stepPayload.checkpointDigest,
-      });
       const deadline = await transaction.query<{ expires_at: Date }>(
-        `SELECT least(transaction_timestamp() + interval '15 minutes', $1::timestamptz) AS expires_at`,
-        [capabilityExpiresAt.toISOString()],
+        `SELECT least(clock_timestamp() + interval '15 minutes', $1::timestamptz, state_deadline) AS expires_at
+         FROM device_switch_workflows WHERE account_id=$2 AND workspace_id=$3 AND workflow_id=$4`,
+        [capabilityExpiresAt.toISOString(), transaction.scope.accountId, transaction.scope.workspaceId, request.deviceSwitchRequestId],
       );
       const expiresAt = deadline.rows[0] === undefined ? undefined : canonicalSecond(deadline.rows[0].expires_at);
-      if (expiresAt === undefined) refuse();
-      const pinned = await this.dependencies.checkpoints.lockAvailableAndPin(transaction, {
-        workflowId: request.deviceSwitchRequestId, descriptor, expiresAt,
+      if (expiresAt === undefined || this.dependencies.checkpoints.ensureBootstrapCheckpointLocked === undefined) refuse();
+      const selected = await this.dependencies.checkpoints.ensureBootstrapCheckpointLocked(transaction, {
+        workflowId: request.deviceSwitchRequestId, expiresAt,
       });
-      if (pinned === null || pinned.checkpointDigest !== descriptor.checkpointDigest) refuse();
+      if (selected === null) refuse();
+      const pinned = selected.checkpoint;
       await transaction.query(
         `UPDATE device_bootstrap_authorities SET pinned_checkpoint_id = $4,
            pinned_checkpoint_through_server_revision = $5, pinned_checkpoint_digest = $6, pin_expires_at = $7,
@@ -298,11 +292,10 @@ export class PostgresBootstrapStepService {
          WHERE account_id = $1 AND workspace_id = $2 AND workflow_id = $3`,
         [transaction.scope.accountId, transaction.scope.workspaceId, request.deviceSwitchRequestId,
           pinned.checkpointId, pinned.throughServerRevision, Buffer.from(pinned.checkpointDigest, "base64url"),
-          expiresAt, head.serverRevision, head.workspaceSchemaVersion],
+          expiresAt, selected.targetServerRevision, selected.workspaceSchemaVersion],
       );
       return { stepKind: "pin_checkpoint" as const, resultPayload: {
-        checkpointId: pinned.checkpointId, checkpointThroughServerRevision: pinned.throughServerRevision,
-        checkpointDigest: pinned.checkpointDigest, pinExpiresAt: expiresAt,
+        ...selected, pinExpiresAt: expiresAt,
       } };
     }
     if (request.stepKind === "fetch_mutations") {
@@ -334,8 +327,8 @@ export class PostgresBootstrapStepService {
       throughServerRevisionInclusive: request.stepPayload.targetServerRevision,
       workspaceSchemaVersion: request.stepPayload.workspaceSchemaVersion,
     });
-    const canonical = Buffer.from(encodeWorkspaceEntityDigestsInput(entityDigests));
-    if (!canonical.equals(Buffer.from(encodeWorkspaceEntityDigestsInput(request.stepPayload.entityDigests)))) refuse();
+    const canonical = Buffer.from(encodeCheckpointEntityDigestsInput(entityDigests));
+    if (!canonical.equals(Buffer.from(encodeCheckpointEntityDigestsInput(request.stepPayload.entityDigests)))) refuse();
     const verifiedDigest = digest(canonical).toString("base64url");
     await transaction.query(
       `UPDATE device_bootstrap_authorities
@@ -345,7 +338,7 @@ export class PostgresBootstrapStepService {
         canonical, Buffer.from(verifiedDigest, "base64url")],
     );
     return { stepKind: "submit_rebuild_digest" as const, resultPayload: {
-      verifiedRevision: request.stepPayload.targetServerRevision, verifiedDigest, accepted: true as const,
+      verifiedRevision: request.stepPayload.targetServerRevision, workspaceSchemaVersion: request.stepPayload.workspaceSchemaVersion, verifiedDigest, accepted: true as const,
     } };
   }
 }
@@ -359,12 +352,12 @@ interface AuthorityRow {
   next_from_revision: string | null; next_cursor_presentation: string | null; row_version: string;
 }
 
-class BootstrapRefusal extends Error {}
+export class BootstrapRefusal extends Error {}
 function refuse(): never { throw new BootstrapRefusal("bootstrap authority conflict"); }
 function conflict(): BootstrapPersistenceAttempt { return { accepted: false, code: "BOOTSTRAP_CONFLICT" }; }
 function digest(value: Uint8Array): Buffer { return createHash("sha256").update(value).digest(); }
 function digestNonce(value: string): Buffer {
-  return digest(encodeDomainSeparatedWireValue("GOODDEALER-BOOTSTRAP-STEP-NONCE-V1", value));
+  return digest(encodeDomainSeparatedWireValue("GOODDEALER-BOOTSTRAP-STEP-NONCE-V2", value));
 }
 function requestDigestMatches(value: BootstrapStepRequest): boolean {
   return digest(encodeBootstrapStepRequestDigestInput(value)).toString("base64url") === value.requestDigest;

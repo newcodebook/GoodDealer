@@ -24,6 +24,16 @@ export interface BatchListProps {
   readonly jobs: readonly BatchJobSummary[];
   readonly onOpen?: (id: string) => void;
   readonly onCreateFromLibrary?: () => void;
+  /** "unavailable" until an operation capability is qualified; the list then explains why. */
+  readonly creationAvailability?: "available" | "unavailable";
+  /** ISO date the "completed today" count is measured from; defaults to today. */
+  readonly today?: string;
+}
+
+function localIsoDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 type PhaseFilter = "all" | "plan" | "running" | "completed" | "partially_failed" | "rolled_back";
@@ -36,18 +46,21 @@ function matchesFilter(phase: BatchPhase, filter: PhaseFilter): boolean {
 }
 
 /** Batch job list: phase ribbon, search and phase filter, and one row per orchestrated batch. */
-export function BatchList({ locale, jobs, onOpen, onCreateFromLibrary }: BatchListProps) {
+export function BatchList({ locale, jobs, onOpen, onCreateFromLibrary, creationAvailability = "available", today = localIsoDate(new Date()) }: BatchListProps) {
   const copy = getPresentationCopy(locale, "batchOperation");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<PhaseFilter>("all");
   const count = (predicate: (job: BatchJobSummary) => boolean) => jobs.filter(predicate).length;
   const running = count((job) => batchDetailMode(job.phase) === "run");
   const planned = count((job) => batchDetailMode(job.phase) === "plan");
-  const completed = count((job) => job.phase === "completed");
+  // Completion is a UTC instant; "today" is the viewer's local calendar day.
+  const completed = count((job) => job.phase === "completed" && job.completedAt !== null && localIsoDate(new Date(job.completedAt)) === today);
   const partial = count((job) => job.phase === "partially_failed");
   const rolledBack = count((job) => job.phase === "rolled_back");
   const needle = query.trim();
-  const rows = jobs.filter((job) => matchesFilter(job.phase, filter) && (needle === "" || job.title.includes(needle) || job.ruleLabel.includes(needle)));
+  const rows = jobs.filter((job) => matchesFilter(job.phase, filter) && (needle === "" || job.title.includes(needle) || (job.ruleLabel?.includes(needle) ?? false)));
+  // Facts the Host does not record render as a dash, never as invented labels.
+  const dash = <span className="batch-faint">—</span>;
 
   const filters: readonly { readonly value: PhaseFilter; readonly label: string }[] = [
     { value: "all", label: copy.allStatuses },
@@ -66,7 +79,7 @@ export function BatchList({ locale, jobs, onOpen, onCreateFromLibrary }: BatchLi
       render: (job) => (
         <span className="batch-two-line">
           <span className="batch-two-line-primary">{job.title}</span>
-          <span className="batch-two-line-secondary">{job.ruleLabel}</span>
+          {job.ruleLabel === null ? null : <span className="batch-two-line-secondary">{job.ruleLabel}</span>}
         </span>
       ),
     },
@@ -76,10 +89,12 @@ export function BatchList({ locale, jobs, onOpen, onCreateFromLibrary }: BatchLi
       label: copy.platformAccount,
       priority: "secondary",
       render: (job) => (
-        <span className="batch-two-line">
-          <span>{job.platform}</span>
-          <span className="batch-two-line-secondary">{job.account}</span>
-        </span>
+        job.platform === null ? dash : (
+          <span className="batch-two-line">
+            <span>{job.platform}</span>
+            {job.account === null ? null : <span className="batch-two-line-secondary">{job.account}</span>}
+          </span>
+        )
       ),
     },
     { key: "createdLabel", label: copy.created, width: 92, muted: true, priority: "supplementary" },
@@ -91,7 +106,7 @@ export function BatchList({ locale, jobs, onOpen, onCreateFromLibrary }: BatchLi
       render: (job) => {
         const mode = batchDetailMode(job.phase);
         if (mode === "plan") return <span className="batch-pending">{copy.awaitingExecution}</span>;
-        if (job.phase === "rolled_back" || job.phase === "cancelled") return <span className="batch-faint">{batchPhaseLabel(locale, job.phase)}</span>;
+        if (job.phase === "rolled_back" || job.phase === "cancelled" || job.phase === "expired") return <span className="batch-faint">{batchPhaseLabel(locale, job.phase)}</span>;
         const tone = batchPhaseTone(job.phase);
         return (
           <span className="batch-progress">
@@ -109,7 +124,7 @@ export function BatchList({ locale, jobs, onOpen, onCreateFromLibrary }: BatchLi
         if (job.plannedCounts !== null && batchDetailMode(job.phase) === "plan") {
           return <span className="batch-faint">{copy.automaticLabel} {job.plannedCounts.automatic} · {copy.manualLabel} {job.plannedCounts.manual} · {copy.conflict} {job.plannedCounts.conflict}</span>;
         }
-        if (job.resultCounts === null) return <span className="batch-faint">—</span>;
+        if (job.resultCounts === null) return dash;
         const chips = ([
           ["success", job.resultCounts.succeeded],
           ["warning", job.resultCounts.manual],
@@ -126,9 +141,10 @@ export function BatchList({ locale, jobs, onOpen, onCreateFromLibrary }: BatchLi
       key: "risk",
       label: copy.risk,
       width: 72,
-      render: (job) => job.highRisk ? <Badge tone="danger" mono={false}>{copy.highRisk}</Badge> : <span className="batch-faint">—</span>,
+      render: (job) => job.highRisk ? <Badge tone="danger" mono={false}>{copy.highRisk}</Badge> : dash,
     },
-    { key: "open", label: "", width: 40, align: "right", render: () => <ChevronRightIcon size={14} className="batch-faint" /> },
+    // Rows only show an open affordance when a detail view exists for them.
+    ...(onOpen === undefined ? [] : [{ key: "open", label: "", width: 40, align: "right" as const, render: () => <ChevronRightIcon size={14} className="batch-faint" /> }]),
   ];
 
   return (
@@ -161,8 +177,9 @@ export function BatchList({ locale, jobs, onOpen, onCreateFromLibrary }: BatchLi
             />
           </>
         )}
-        right={onCreateFromLibrary === undefined ? null : <Button size="sm" variant="primary" onClick={onCreateFromLibrary}>{copy.createFromLibrary}</Button>}
+        right={onCreateFromLibrary === undefined || creationAvailability === "unavailable" ? null : <Button size="sm" variant="primary" onClick={onCreateFromLibrary}>{copy.createFromLibrary}</Button>}
       />
+      {creationAvailability === "unavailable" ? <p className="batch-list-notice gd-t-meta">{copy.creationUnavailable}</p> : null}
       <div className="batch-list-body">
         <Table<BatchJobSummary>
           {...shellTableLabels(locale)}

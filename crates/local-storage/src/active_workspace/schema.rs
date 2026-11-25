@@ -18,24 +18,693 @@ pub(crate) const DOMAIN_PROVIDER_BINDING_MIGRATION_OWNER: &str =
     "active-workspace/domain-provider-binding";
 pub(crate) const DOMAIN_PROVIDER_BINDING_MIGRATION_SQL: &str =
     include_str!("domain_provider_binding.sql");
+pub(crate) const STORAGE_INTEGRITY_MIGRATION_ID: i64 = 202_611_050_001;
+pub(crate) const STORAGE_INTEGRITY_MIGRATION_OWNER: &str = "active-workspace/storage-integrity";
+pub(crate) const STORAGE_INTEGRITY_MIGRATION_SQL: &str = include_str!("storage_integrity.sql");
+pub(crate) const OUTBOX_INTEGRITY_MIGRATION_ID: i64 = 202_611_060_001;
+pub(crate) const OUTBOX_INTEGRITY_MIGRATION_OWNER: &str = "active-workspace/outbox-integrity";
+pub(crate) const OUTBOX_INTEGRITY_MIGRATION_SQL: &str = include_str!("outbox_integrity.sql");
+pub(crate) const OUTBOX_LOCAL_CREATIONS_MIGRATION_ID: i64 = 202_611_060_002;
+pub(crate) const OUTBOX_LOCAL_CREATIONS_MIGRATION_OWNER: &str =
+    "active-workspace/outbox-local-creations";
+pub(crate) const OUTBOX_LOCAL_CREATIONS_MIGRATION_SQL: &str =
+    include_str!("outbox_local_creations.sql");
+pub(crate) const SALES_LISTING_GENERATION_MIGRATION_ID: i64 = 202_611_080_001;
+pub(crate) const SALES_LISTING_GENERATION_MIGRATION_OWNER: &str =
+    "active-workspace/sales-listing-generation";
+pub(crate) const SALES_LISTING_GENERATION_MIGRATION_SQL: &str =
+    include_str!("sales_listing_generation.sql");
 pub(crate) const CLOUDFLARE_V1_MIGRATION_ID: i64 = 202_609_150_004;
 pub(crate) const CLOUDFLARE_V1_MIGRATION_OWNER: &str = "active-workspace/cloudflare-credential";
 pub(crate) const CLOUDFLARE_V1_MIGRATION_SQL: &str = include_str!("cloudflare_v1.sql");
-pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_EPOCH: &str = "P0_07_CREDENTIAL_SCHEMA_V2";
+pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_EPOCH: &str = "P0_07_CREDENTIAL_SCHEMA_V5";
 pub(crate) const CLOUDFLARE_CREDENTIAL_SCHEMA_FINGERPRINT: &str =
-    "0ada504c017543d9cc26b9e0832e7fdcf0ac29b329c8d1895c08cf1f517fe1ec";
+    "d35d58df1f5f7d7de787372e88284d75ecae75a381eb02ff7d6acba13aae196a";
 #[cfg(test)]
 pub(crate) const CLOUDFLARE_CREDENTIAL_TRIGGER_MANIFEST: &[&str] = &[
     "cloudflare_credential_intent_immutable",
     "cloudflare_credential_intent_phase_edges",
     "cloudflare_credential_ledger_no_delete",
     "cloudflare_credential_ledger_no_update",
+    "cloudflare_credential_retirement_blocks_intent_insert",
+    "cloudflare_credential_retirement_blocks_intent_update",
+    "cloudflare_credential_retirement_insert_shape",
+    "cloudflare_credential_retirement_monotonic",
+    "cloudflare_credential_retirement_no_delete",
+    "cloudflare_credential_retirement_no_live_intent",
 ];
 pub(crate) const CLOUDFLARE_V2_MIGRATION_ID: i64 = 202_609_150_005;
 pub(crate) const CLOUDFLARE_V2_MIGRATION_OWNER: &str = "active-workspace/cloudflare-observation";
 pub(crate) const CLOUDFLARE_V2_MIGRATION_SQL: &str = include_str!("cloudflare_v2.sql");
 #[cfg(test)]
 pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
+    (
+        "cloudflare_registrar_account_slots",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "credential_proof",
+            "state",
+            "request_id",
+            "request_device_id",
+            "request_lease_epoch",
+            "created_at",
+            "purged_at",
+        ],
+    ),
+    (
+        "cloudflare_registrar_account_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "observation_run_id",
+            "account_scope_digest",
+            "observed_count",
+            "imported_count",
+            "skipped_count",
+            "completed_at",
+        ],
+    ),
+    (
+        "spaceship_registrar_connections",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "credential_proof",
+            "state",
+            "scan_pending",
+            "created_at",
+            "purged_at",
+        ],
+    ),
+    (
+        "spaceship_registrar_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "observation_run_id",
+            "observed_count",
+            "imported_count",
+            "skipped_count",
+            "completed_at",
+        ],
+    ),
+    (
+        "spaceship_sellerhub_connections",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "credential_proof",
+            "state",
+            "created_at",
+            "purged_at",
+        ],
+    ),
+    (
+        "spaceship_sellerhub_pending_scans",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "device_id",
+            "lease_epoch",
+            "request_id",
+        ],
+    ),
+    (
+        "spaceship_sellerhub_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "observation_run_id",
+            "observed_count",
+            "imported_count",
+            "skipped_count",
+            "completed_at",
+        ],
+    ),
+    (
+        "sedo_marketplace_connections",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "credential_proof",
+            "state",
+            "created_at",
+            "purged_at",
+        ],
+    ),
+    (
+        "sedo_marketplace_pending_scans",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "device_id",
+            "lease_epoch",
+            "request_id",
+        ],
+    ),
+    (
+        "sedo_marketplace_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "observation_run_id",
+            "observed_count",
+            "imported_count",
+            "skipped_count",
+            "completed_at",
+        ],
+    ),
+    (
+        "aliyun_registrar_connections",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "credential_proof",
+            "state",
+            "scan_pending",
+            "created_at",
+            "purged_at",
+        ],
+    ),
+    (
+        "godaddy_registrar_connections",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "credential_proof",
+            "state",
+            "scan_pending",
+            "created_at",
+            "purged_at",
+        ],
+    ),
+    (
+        "porkbun_registrar_connections",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "credential_proof",
+            "state",
+            "scan_pending",
+            "created_at",
+            "purged_at",
+        ],
+    ),
+    (
+        "aliyun_registrar_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "observation_run_id",
+            "observed_count",
+            "imported_count",
+            "skipped_count",
+            "completed_at",
+        ],
+    ),
+    (
+        "godaddy_registrar_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "observation_run_id",
+            "observed_count",
+            "imported_count",
+            "skipped_count",
+            "completed_at",
+        ],
+    ),
+    (
+        "porkbun_registrar_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "observation_run_id",
+            "observed_count",
+            "imported_count",
+            "skipped_count",
+            "completed_at",
+        ],
+    ),
+    (
+        "atom_marketplace_connections",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "credential_proof",
+            "state",
+            "scan_pending",
+            "created_at",
+            "purged_at",
+        ],
+    ),
+    (
+        "atom_marketplace_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "observation_run_id",
+            "observed_count",
+            "imported_count",
+            "skipped_count",
+            "completed_at",
+            "standard_observed_count",
+        ],
+    ),
+    (
+        "atom_marketplace_pending_scans",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "device_id",
+            "lease_epoch",
+            "request_id",
+        ],
+    ),
+    (
+        "spaceship_registrar_pending_scans",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "device_id",
+            "lease_epoch",
+            "request_id",
+        ],
+    ),
+    (
+        "aliyun_registrar_pending_scans",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "device_id",
+            "lease_epoch",
+            "request_id",
+        ],
+    ),
+    (
+        "godaddy_registrar_pending_scans",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "device_id",
+            "lease_epoch",
+            "request_id",
+        ],
+    ),
+    (
+        "porkbun_registrar_pending_scans",
+        &[
+            "workspace_id",
+            "connection_id",
+            "incarnation_id",
+            "device_id",
+            "lease_epoch",
+            "request_id",
+        ],
+    ),
+    (
+        "porkbun_dns_reads",
+        &[
+            "workspace_id",
+            "observation_run_id",
+            "connection_id",
+            "entity_id",
+            "record_count",
+            "answered_elsewhere",
+            "completed_at",
+        ],
+    ),
+    (
+        "registrar_delegation_observations",
+        &[
+            "workspace_id",
+            "delegation_observation_id",
+            "entity_id",
+            "connection_id",
+            "nameservers_json",
+            "observed_at",
+        ],
+    ),
+    (
+        "afternic_ownership_review_preflights",
+        &[
+            "workspace_id",
+            "operation_id",
+            "plan_id",
+            "item_id",
+            "attempt_number",
+            "sequence",
+            "outcome",
+            "reason",
+            "observed_at",
+            "next_read_at",
+            "listing_observation_id",
+            "audit_event_id",
+        ],
+    ),
+    (
+        "afternic_ownership_review_items",
+        &[
+            "workspace_id",
+            "plan_id",
+            "item_id",
+            "domain",
+            "connection_id",
+            "connection_incarnation_id",
+            "credential_generation",
+            "credential_public_proof",
+            "entity_generation",
+            "parent_item_id",
+            "parent_request_digest",
+            "binding_digest",
+            "binding_generation",
+        ],
+    ),
+    (
+        "afternic_ownership_review_claims",
+        &[
+            "workspace_id",
+            "operation_id",
+            "plan_id",
+            "item_id",
+            "attempt_number",
+            "attempt_id",
+            "domain",
+            "connection_id",
+            "resource_binding_digest",
+            "binding_generation",
+            "resource_binding_evidence_digest",
+            "preflight_observation_evidence_digest",
+            "listing_observation_id",
+            "preflight_observation_digest",
+            "preflight_observed_at",
+            "claimed_at",
+            "retry_not_before",
+            "execution_fact_id",
+            "audit_event_id",
+        ],
+    ),
+    (
+        "afternic_ownership_review_reconciliations",
+        &[
+            "workspace_id",
+            "operation_id",
+            "plan_id",
+            "item_id",
+            "attempt_number",
+            "sequence",
+            "outcome",
+            "reason",
+            "observed_at",
+            "next_read_at",
+            "listing_observation_id",
+            "audit_event_id",
+        ],
+    ),
+    (
+        "afternic_controlled_acceptance_runs",
+        &[
+            "run_id",
+            "workspace_id",
+            "account_id",
+            "device_id",
+            "active_lease_epoch",
+            "credential_epoch",
+            "connection_id",
+            "connection_incarnation_id",
+            "credential_generation",
+            "credential_public_proof",
+            "expires_at",
+            "bound_at",
+        ],
+    ),
+    (
+        "initial_replica_installation_receipts",
+        &[
+            "workspace_id",
+            "workflow_id",
+            "target_device_id",
+            "target_server_revision",
+            "workspace_schema_version",
+            "replica_digest",
+            "installed_at",
+        ],
+    ),
+    (
+        "normal_handoff_requests",
+        &[
+            "workspace_id",
+            "source_device_id",
+            "source_lease_epoch",
+            "idempotency_key",
+            "target_device_id",
+            "request_json",
+            "created_at",
+            "answer_json",
+            "answered_at",
+        ],
+    ),
+    (
+        "execution_evidence_receipts",
+        &[
+            "workspace_id",
+            "source_device_id",
+            "active_lease_epoch",
+            "stream",
+            "sequence",
+            "event_id",
+            "envelope_digest",
+            "outcome",
+            "receipt_json",
+        ],
+    ),
+    (
+        "execution_evidence_stream_heads",
+        &[
+            "workspace_id",
+            "source_device_id",
+            "active_lease_epoch",
+            "stream",
+            "source_installation_digest",
+            "last_sequence",
+            "rolling_digest",
+            "audit_head_hash",
+            "producer_state",
+            "admission_generation",
+        ],
+    ),
+    (
+        "workspace_device_audit_outbox",
+        &[
+            "workspace_id",
+            "source_device_id",
+            "active_lease_epoch",
+            "audit_sequence",
+            "audit_event_id",
+            "source_installation_digest",
+            "chain_id",
+            "previous_hash",
+            "event_hash",
+            "envelope_json",
+            "canonical_envelope",
+            "envelope_digest",
+        ],
+    ),
+    (
+        "afternic_listing_approvals",
+        &[
+            "workspace_id",
+            "approved_operation_id",
+            "operation_id",
+            "plan_id",
+            "plan_hash",
+            "target_count",
+            "target_set_digest",
+            "source_device_id",
+            "active_lease_epoch",
+            "credential_epoch",
+            "signing_key_id",
+            "signing_key_version",
+            "source_installation_digest",
+            "approved_at",
+            "audit_event_id",
+            "action",
+        ],
+    ),
+    (
+        "afternic_listing_item_authorizations",
+        &[
+            "workspace_id",
+            "approved_operation_id",
+            "operation_id",
+            "plan_id",
+            "item_id",
+            "attempt_number",
+            "attempt_id",
+            "workflow_node_id",
+            "request_digest",
+            "envelope_json",
+            "envelope_digest",
+        ],
+    ),
+    (
+        "device_execution_fact_outbox",
+        &[
+            "workspace_id",
+            "source_device_id",
+            "active_lease_epoch",
+            "execution_fact_sequence",
+            "execution_fact_id",
+            "source_installation_digest",
+            "operation_id",
+            "item_id",
+            "attempt_number",
+            "attempt_id",
+            "audit_event_id",
+            "envelope_json",
+            "canonical_envelope",
+            "envelope_digest",
+        ],
+    ),
+    (
+        "afternic_delist_reconciliations",
+        &[
+            "workspace_id",
+            "operation_id",
+            "plan_id",
+            "item_id",
+            "attempt_number",
+            "sequence",
+            "request_digest",
+            "stage",
+            "outcome",
+            "reason",
+            "observed_at",
+            "next_read_at",
+            "observation_json",
+            "observation_digest",
+            "listing_observation_id",
+            "audit_event_id",
+        ],
+    ),
+    (
+        "afternic_listing_write_reconciliations",
+        &[
+            "workspace_id",
+            "operation_id",
+            "plan_id",
+            "item_id",
+            "attempt_number",
+            "sequence",
+            "request_digest",
+            "stage",
+            "outcome",
+            "reason",
+            "item_state",
+            "fields_matched",
+            "observed_at",
+            "next_read_at",
+            "observation_json",
+            "observation_digest",
+            "listing_observation_id",
+            "audit_event_id",
+        ],
+    ),
+    (
+        "cloudflare_registrar_pending_scans",
+        &[
+            "workspace_id",
+            "connection_id",
+            "connection_incarnation_id",
+            "credential_generation",
+            "device_id",
+            "lease_epoch",
+            "request_id",
+        ],
+    ),
+    (
+        "cloudflare_registrar_inventory_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "observation_run_id",
+            "connection_id",
+            "connection_incarnation_id",
+            "credential_generation",
+            "account_scope_digest",
+            "observed_count",
+            "imported_count",
+            "skipped_count",
+            "completed_at",
+        ],
+    ),
+    (
+        "afternic_inventory_scans",
+        &[
+            "workspace_id",
+            "scan_id",
+            "connection_id",
+            "credential_generation",
+            "observation_run_id",
+            "observed_count",
+            "imported_count",
+            "skipped_deleted_json",
+            "completed_at",
+            "freshness_anchor_run_id",
+        ],
+    ),
+    (
+        "afternic_listing_details",
+        &[
+            "workspace_id",
+            "listing_observation_id",
+            "provider_status",
+            "buynow_price",
+            "floor_price",
+            "minbid_price",
+            "hidden",
+            "provider_created_at",
+            "provider_updated_at",
+        ],
+    ),
+    (
+        "afternic_connection_publications",
+        &[
+            "workspace_id",
+            "connection_id",
+            "credential_generation",
+            "connection_incarnation_id",
+            "credential_public_proof",
+            "authority_snapshot_digest",
+            "publication_state",
+            "created_at",
+            "updated_at",
+            "purged_at",
+        ],
+    ),
     (
         "active_workspace_metadata",
         &[
@@ -164,6 +833,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "updated_at",
             "deleted_at",
             "local_commit_sequence",
+            "entity_generation",
         ],
     ),
     (
@@ -226,11 +896,11 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "revoked_at",
             "deleted_at",
             "connection_incarnation_id",
-            "credential_use_state",
             "active_credential_generation",
             "active_credential_scope_digest",
             "active_credential_zone_digest",
             "active_credential_public_proof",
+            "credential_use_state",
         ],
     ),
     (
@@ -252,6 +922,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "known_public_proof",
             "retired_at",
             "updated_at",
+            "retirement_requested_at",
         ],
     ),
     (
@@ -412,6 +1083,15 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "provider_version_token",
             "observation_availability",
             "evidence_status",
+            "confirmed",
+            "binding_connection_id",
+            "binding_resource_digest",
+            "binding_generation",
+            "atom_standard_asset_generation",
+            "sellerhub_asset_generation",
+            "sedo_asset_generation",
+            "sedo_for_sale",
+            "sedo_fixed_price",
         ],
     ),
     (
@@ -571,6 +1251,7 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "observed_at",
             "provider_version_token",
             "normalized_evidence_sha256",
+            "observed_asset_generation",
         ],
     ),
     (
@@ -654,7 +1335,14 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "delivery_attempt_fence",
             "wire_schema_version",
             "wire_mutation_digest",
+            "entity_generation",
+            "re_adds_deleted_revision",
         ],
+    ),
+    ("sales_listing_generation", &["singleton", "generation"]),
+    (
+        "sync_outbox_local_creations",
+        &["workspace_id", "mutation_id"],
     ),
     (
         "sync_outbox_fields",
@@ -703,6 +1391,59 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "sync_domain_asset_provisional_re_adds",
+        &[
+            "workspace_id",
+            "entity_id",
+            "deleted_generation",
+            "deleted_server_revision",
+            "mutation_id",
+        ],
+    ),
+    (
+        "sync_outbox_commit_time_marks",
+        &[
+            "workspace_id",
+            "mutation_id",
+            "prior_value_sha256",
+            "marked_at",
+        ],
+    ),
+    (
+        "storage_repair_receipts",
+        &[
+            "workspace_id",
+            "repair_kind",
+            "row_key",
+            "prior_value_sha256",
+            "repaired_at",
+        ],
+    ),
+    (
+        "sync_domain_asset_checkpoint_advances",
+        &[
+            "workspace_id",
+            "entity_id",
+            "from_generation",
+            "to_generation",
+            "checkpoint_server_revision",
+            "local_commit_sequence",
+        ],
+    ),
+    (
+        "sync_domain_asset_re_adds",
+        &[
+            "workspace_id",
+            "entity_id",
+            "deleted_generation",
+            "deleted_server_revision",
+            "re_add_mutation_id",
+            "re_add_server_revision",
+            "origin",
+            "local_commit_sequence",
+        ],
+    ),
+    (
         "sync_tombstones",
         &[
             "workspace_id",
@@ -717,6 +1458,8 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "order_server_revision",
             "order_source_device_id",
             "order_mutation_id",
+            "entity_generation",
+            "order_provenance",
         ],
     ),
     (
@@ -752,4 +1495,182 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
             "updated_at",
         ],
     ),
+    (
+        "normal_handoff_attempts",
+        &[
+            "workspace_id",
+            "request_id",
+            "source_device_id",
+            "target_device_id",
+            "source_lease_epoch",
+            "proof_id",
+            "proof_digest",
+            "issued_at",
+            "expires_at",
+        ],
+    ),
+    (
+        "normal_handoff_refusals",
+        &["workspace_id", "request_id", "code"],
+    ),
+    (
+        "normal_handoff_receipts",
+        &["workspace_id", "request_id", "released_at"],
+    ),
+    (
+        "device_handoff_barriers",
+        &[
+            "workspace_id",
+            "device_switch_request_id",
+            "began_at",
+            "active_lease_epoch",
+            "source_device_id",
+            "frozen_unresolved_count",
+        ],
+    ),
+    (
+        "sync_outbox_cloud_wire_versions",
+        &[
+            "workspace_id",
+            "mutation_id",
+            "wire_schema_version",
+            "wire_mutation_digest",
+            "recorded_at",
+        ],
+    ),
 ];
+
+pub(crate) const CLOUDFLARE_REVOKE_RETRY_MIGRATION_ID: i64 = 202_611_130_001;
+pub(crate) const CLOUDFLARE_REVOKE_RETRY_MIGRATION_OWNER: &str =
+    "active-workspace/cloudflare-revoke-retry";
+pub(crate) const CLOUDFLARE_REVOKE_RETRY_MIGRATION_SQL: &str =
+    include_str!("cloudflare_revoke_retry.sql");
+
+pub(crate) const CLOUDFLARE_RETIREMENT_MIGRATION_ID: i64 = 202_611_130_002;
+pub(crate) const CLOUDFLARE_RETIREMENT_MIGRATION_OWNER: &str =
+    "active-workspace/cloudflare-retirement";
+pub(crate) const CLOUDFLARE_RETIREMENT_MIGRATION_SQL: &str =
+    include_str!("cloudflare_retirement.sql");
+
+pub(crate) const SALES_LISTING_CONFIRMATION_MIGRATION_ID: i64 = 202_611_130_003;
+pub(crate) const SALES_LISTING_CONFIRMATION_MIGRATION_OWNER: &str =
+    "active-workspace/sales-listing-confirmation";
+pub(crate) const SALES_LISTING_CONFIRMATION_MIGRATION_SQL: &str =
+    include_str!("sales_listing_confirmation.sql");
+
+pub(crate) const ENTITY_GENERATION_MIGRATION_ID: i64 = 202_611_140_001;
+pub(crate) const ENTITY_GENERATION_MIGRATION_OWNER: &str = "active-workspace/entity-generation";
+pub(crate) const ENTITY_GENERATION_MIGRATION_SQL: &str = include_str!("entity_generation.sql");
+
+pub(crate) const CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_ID: i64 = 202_611_140_002;
+pub(crate) const CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_OWNER: &str =
+    "active-workspace/checkpoint-tombstone-provenance";
+pub(crate) const CHECKPOINT_TOMBSTONE_PROVENANCE_MIGRATION_SQL: &str =
+    include_str!("checkpoint_tombstone_provenance.sql");
+
+pub(crate) const SYNC_WIRE_V3_MIGRATION_ID: i64 = 202_611_140_003;
+pub(crate) const SYNC_WIRE_V3_MIGRATION_OWNER: &str = "active-workspace/sync-wire-v3";
+pub(crate) const SYNC_WIRE_V3_MIGRATION_SQL: &str = include_str!("sync_wire_v3.sql");
+
+pub(crate) const INBOX_RE_ADD_MIGRATION_ID: i64 = 202_611_140_004;
+pub(crate) const INBOX_RE_ADD_MIGRATION_OWNER: &str = "active-workspace/inbox-re-add";
+pub(crate) const INBOX_RE_ADD_MIGRATION_SQL: &str = include_str!("inbox_re_add.sql");
+
+pub(crate) const LOCAL_RE_ADD_MIGRATION_ID: i64 = 202_611_140_005;
+pub(crate) const LOCAL_RE_ADD_MIGRATION_OWNER: &str = "active-workspace/local-re-add";
+pub(crate) const LOCAL_RE_ADD_MIGRATION_SQL: &str = include_str!("local_re_add.sql");
+
+pub(crate) const REJECTED_LOCAL_DELETE_MIGRATION_ID: i64 = 202_611_140_006;
+pub(crate) const REJECTED_LOCAL_DELETE_MIGRATION_OWNER: &str =
+    "active-workspace/rejected-local-delete";
+pub(crate) const REJECTED_LOCAL_DELETE_MIGRATION_SQL: &str =
+    include_str!("rejected_local_delete.sql");
+
+pub(crate) const CHECKPOINT_GENERATION_ADVANCE_MIGRATION_ID: i64 = 202_611_160_001;
+pub(crate) const CHECKPOINT_GENERATION_ADVANCE_MIGRATION_OWNER: &str =
+    "active-workspace/checkpoint-generation-advance";
+pub(crate) const CHECKPOINT_GENERATION_ADVANCE_MIGRATION_SQL: &str =
+    include_str!("checkpoint_generation_advance.sql");
+
+pub(crate) const STORAGE_REPAIR_MIGRATION_ID: i64 = 202_611_160_002;
+pub(crate) const STORAGE_REPAIR_MIGRATION_OWNER: &str = "active-workspace/storage-repair";
+pub(crate) const STORAGE_REPAIR_MIGRATION_SQL: &str = include_str!("storage_repair.sql");
+
+pub(crate) const OUTBOX_COMMIT_TIME_MARKS_MIGRATION_ID: i64 = 202_611_160_003;
+pub(crate) const OUTBOX_COMMIT_TIME_MARKS_MIGRATION_OWNER: &str =
+    "active-workspace/outbox-commit-time-marks";
+pub(crate) const OUTBOX_COMMIT_TIME_MARKS_MIGRATION_SQL: &str =
+    include_str!("outbox_commit_time_marks.sql");
+
+pub(crate) const DEVICE_HANDOFF_BARRIER_MIGRATION_ID: i64 = 202_611_170_001;
+pub(crate) const DEVICE_HANDOFF_BARRIER_MIGRATION_OWNER: &str =
+    "active-workspace/device-handoff-barrier";
+pub(crate) const DEVICE_HANDOFF_BARRIER_MIGRATION_SQL: &str =
+    include_str!("device_handoff_barrier.sql");
+
+pub(crate) const OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_ID: i64 = 202_611_170_002;
+pub(crate) const OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_OWNER: &str =
+    "active-workspace/outbox-cloud-wire-versions";
+pub(crate) const OUTBOX_CLOUD_WIRE_VERSIONS_MIGRATION_SQL: &str =
+    include_str!("outbox_cloud_wire_versions.sql");
+
+pub(crate) const DEVICE_HANDOFF_BARRIER_EPOCH_MIGRATION_ID: i64 = 202_611_170_003;
+pub(crate) const DEVICE_HANDOFF_BARRIER_EPOCH_MIGRATION_OWNER: &str =
+    "active-workspace/device-handoff-barrier-epoch";
+pub(crate) const DEVICE_HANDOFF_BARRIER_EPOCH_MIGRATION_SQL: &str =
+    include_str!("device_handoff_barrier_epoch.sql");
+
+// Listing identity evolves through a forward migration; applied SQL remains immutable.
+pub(crate) const LISTING_PROVIDER_BINDING_MIGRATION_ID: i64 = 202_611_180_001;
+pub(crate) const LISTING_PROVIDER_BINDING_MIGRATION_OWNER: &str =
+    "active-workspace/listing-provider-binding";
+pub(crate) const LISTING_PROVIDER_BINDING_MIGRATION_SQL: &str =
+    include_str!("listing_provider_binding.sql");
+
+pub(crate) const NORMAL_HANDOFF_RECEIPT_MIGRATION_ID: i64 = 202_611_180_002;
+pub(crate) const NORMAL_HANDOFF_RECEIPT_MIGRATION_OWNER: &str =
+    "active-workspace/normal-handoff-receipt";
+pub(crate) const NORMAL_HANDOFF_RECEIPT_MIGRATION_SQL: &str =
+    include_str!("normal_handoff_receipt.sql");
+
+pub(crate) const AFTERNIC_LISTING_MIGRATION_ID: i64 = 202_611_180_003;
+pub(crate) const AFTERNIC_LISTING_MIGRATION_OWNER: &str = "active-workspace/afternic-listing";
+pub(crate) const AFTERNIC_LISTING_MIGRATION_SQL: &str = include_str!("afternic_listing.sql");
+
+pub(crate) const AFTERNIC_DELIST_MIGRATION_ID: i64 = 202_611_180_004;
+pub(crate) const AFTERNIC_DELIST_MIGRATION_OWNER: &str = "active-workspace/afternic-delist";
+pub(crate) const AFTERNIC_DELIST_MIGRATION_SQL: &str = include_str!("afternic_delist.sql");
+
+pub(crate) const EXECUTION_EVIDENCE_MIGRATION_ID: i64 = 202_611_190_001;
+pub(crate) const EXECUTION_EVIDENCE_MIGRATION_OWNER: &str = "active-workspace/execution-evidence";
+pub(crate) const EXECUTION_EVIDENCE_MIGRATION_SQL: &str = include_str!("execution_evidence.sql");
+
+pub(crate) const EXECUTION_EVIDENCE_RESULTS_MIGRATION_ID: i64 = 202_611_190_002;
+pub(crate) const EXECUTION_EVIDENCE_RESULTS_MIGRATION_OWNER: &str =
+    "active-workspace/execution-evidence-results";
+pub(crate) const EXECUTION_EVIDENCE_RESULTS_MIGRATION_SQL: &str =
+    include_str!("execution_evidence_results.sql");
+
+pub(crate) const EXECUTION_EVIDENCE_DELIVERY_MIGRATION_ID: i64 = 202_611_190_003;
+pub(crate) const EXECUTION_EVIDENCE_DELIVERY_MIGRATION_OWNER: &str =
+    "active-workspace/execution-evidence-delivery";
+pub(crate) const EXECUTION_EVIDENCE_DELIVERY_MIGRATION_SQL: &str =
+    include_str!("execution_evidence_delivery.sql");
+
+pub(crate) const NORMAL_HANDOFF_REQUEST_MIGRATION_ID: i64 = 202_611_190_004;
+pub(crate) const NORMAL_HANDOFF_REQUEST_MIGRATION_OWNER: &str =
+    "active-workspace/normal-handoff-request";
+pub(crate) const NORMAL_HANDOFF_REQUEST_MIGRATION_SQL: &str =
+    include_str!("normal_handoff_request.sql");
+
+pub(crate) const INITIAL_REPLICA_INSTALLATION_MIGRATION_ID: i64 = 202_611_190_005;
+pub(crate) const INITIAL_REPLICA_INSTALLATION_MIGRATION_OWNER: &str =
+    "active-workspace/initial-replica-installation";
+pub(crate) const INITIAL_REPLICA_INSTALLATION_MIGRATION_SQL: &str =
+    include_str!("initial_replica_installation.sql");
+
+pub(crate) const AFTERNIC_LISTING_WRITE_MIGRATION_ID: i64 = 202_611_190_006;
+pub(crate) const AFTERNIC_LISTING_WRITE_MIGRATION_OWNER: &str =
+    "active-workspace/afternic-listing-write";
+pub(crate) const AFTERNIC_LISTING_WRITE_MIGRATION_SQL: &str =
+    include_str!("afternic_listing_write.sql");

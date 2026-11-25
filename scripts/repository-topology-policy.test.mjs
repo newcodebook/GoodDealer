@@ -295,6 +295,7 @@ test("the production catalog covers the current repository inventory", () => {
   assert.deepEqual(localStorage.sourceRoots, ["examples", "src", "tests"]);
   assert.deepEqual(localStorage.publicEntrypoints, [
     entrypoint("lib", "src/lib.rs"),
+    entrypoint("build", "build.rs"),
     entrypoint("backup-evidence", "examples/backup_evidence.rs"),
     entrypoint("sqlcipher-evidence", "examples/sqlcipher_evidence.rs"),
     entrypoint("public-surface-test", "tests/public_surface.rs"),
@@ -303,8 +304,11 @@ test("the production catalog covers the current repository inventory", () => {
   assert.deepEqual(localStorage.externalDependencies, [
     "base64",
     "chacha20poly1305",
+    "dirs",
     "fs2",
     "getrandom",
+    "gtk",
+    "keyring-core",
     "libc",
     "ring",
     "rustix",
@@ -315,6 +319,11 @@ test("the production catalog covers the current repository inventory", () => {
     "serde_json",
     "sha2",
     "tempfile",
+    "winapi",
+    "winapi-util",
+    "windows-native-keyring-store",
+    "windows-permissions",
+    "winsafe",
     "zeroize",
   ]);
   assert.deepEqual(
@@ -328,6 +337,7 @@ test("the production catalog covers the current repository inventory", () => {
     "crates/secure-host-core/src/cloudflare_keychain.rs",
   );
   assert.deepEqual(desktopTauriHost.externalDependencies, [
+    "base64",
     "reqwest",
     "serde",
     "serde_json",
@@ -431,6 +441,17 @@ test("accepts the positive fixture inventory and literal dynamic import", (t) =>
     'export async function loadWire() { return import("@gooddealer/protocol/wire"); }\n',
   );
   assert.deepEqual(repositoryTopologyErrors({ root, topology }), []);
+});
+
+test("reads workspace roots only from the top-level packages block", (t) => {
+  const { root, topology } = useFixture(t);
+  writeFile(root, "pnpm-workspace.yaml",
+    "packages:\n  - apps/*\n  - packages/*\n\nauditConfig:\n  ignoreGhsas:\n    - GHSA-xxxx-xxxx-xxxx\n");
+  assert.deepEqual(repositoryTopologyErrors({ root, topology }), []);
+  writeFile(root, "pnpm-workspace.yaml", "packages:\n  - apps/*\n  - packages/**\n");
+  assert.match(policyErrorText(root, topology), /pnpm workspace pattern is unsupported by strict topology policy: packages\/\*\*/u);
+  writeFile(root, "pnpm-workspace.yaml", "auditConfig:\n  ignoreGhsas:\n    - apps/*\n");
+  assert.match(policyErrorText(root, topology), /pnpm-workspace\.yaml has no top-level packages block/u);
 });
 
 test("rejects an undeclared workspace unit", (t) => {

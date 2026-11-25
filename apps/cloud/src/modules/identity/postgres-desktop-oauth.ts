@@ -8,7 +8,7 @@ import type {
   IdentityCapabilityTransactionRunner,
 } from "../../db/index";
 import type { PublicPrincipal } from "../../entrypoints/ports/public-session";
-import type { DesktopOAuthLeasePort } from "../devices/postgres-desktop-login-lease";
+import type { DesktopOAuthLeasePort } from "../devices/index";
 import type { DeviceLoginChallenge, DeviceLoginProofPort } from "../devices/ports";
 import {
   inspectDesktopBearerToken,
@@ -23,7 +23,7 @@ import type { PostgresIdentityAuthenticationRepository } from "./postgres-authen
 
 export const DESKTOP_OAUTH_CLIENT_ID = "gooddealer-desktop" as const;
 /**
- * ADR-0026 / RFC 8252 §7.3 loopback redirect: the literal IPv4 loopback, the ephemeral port Desktop
+ * ADR-0011 / RFC 8252 §7.3 loopback redirect: the literal IPv4 loopback, the ephemeral port Desktop
  * bound for this attempt, and one fixed path. `localhost`, IPv6, https, userinfo, query, fragment,
  * and non-canonical ports are rejected so no resolver or other listener can receive the code.
  */
@@ -52,6 +52,7 @@ export class PostgresDesktopOAuthAuthorizationService {
 
   async authorize(input: {
     readonly principal: PublicPrincipal;
+    readonly requireReauthentication?: true;
     readonly deviceId: unknown;
     readonly clientId: unknown;
     readonly redirectUri: unknown;
@@ -67,12 +68,14 @@ export class PostgresDesktopOAuthAuthorizationService {
   }): Promise<
     | { readonly authorized: true; readonly code: string }
     | { readonly authorized: false }
+    | { readonly authorized: false; readonly reauthRequired: true }
     | { readonly authorized: false; readonly challengeRequired: true; readonly challenge: DeviceLoginChallenge }
   > {
     const deviceId = identifier.safeParse(input.deviceId);
     const keyId = identifier.safeParse(input.keyId);
     if (
-      input.principal.clientKind !== "account_web" || !deviceId.success || !keyId.success
+      (input.requireReauthentication !== undefined && input.requireReauthentication !== true)
+      || input.principal.clientKind !== "account_web" || !deviceId.success || !keyId.success
       || input.clientId !== DESKTOP_OAUTH_CLIENT_ID || !isDesktopOAuthRedirectUri(input.redirectUri)
       || input.codeChallengeMethod !== "S256" || !validChallenge(input.codeChallenge)
       || !validPublicKey(input.publicKey)
@@ -94,7 +97,7 @@ export class PostgresDesktopOAuthAuthorizationService {
       const accountSession = await transaction.query<{ enrollment_authorized_until: Date | null }>(
         `SELECT CASE
                   WHEN auth_method IN ('password', 'passkey')
-                    AND transaction_timestamp() < created_at + make_interval(secs => $4)
+                    AND clock_timestamp() < created_at + make_interval(secs => $4)
                   THEN created_at + make_interval(secs => $4)
                   ELSE NULL
                 END AS enrollment_authorized_until
@@ -122,6 +125,8 @@ export class PostgresDesktopOAuthAuthorizationService {
         enrollmentAuthorizedUntil !== null
         && !Number.isFinite(enrollmentAuthorizedUntil.getTime())
       ) return { authorized: false } as const;
+      if (input.requireReauthentication === true && enrollmentAuthorizedUntil === null)
+        return { authorized: false, reauthRequired: true } as const;
       if (input.proof === undefined) {
         const challenged = await this.devices.issueLoginChallenge(transaction, {
           accountId: input.principal.accountId,
@@ -159,14 +164,15 @@ export class PostgresDesktopOAuthAuthorizationService {
       });
       if (!verified.verified) return { authorized: false } as const;
       const code = issueDesktopBearerToken("authorization_code", input.principal.accountId);
-      const expiresAt = addSeconds(input.evaluatedAt, DESKTOP_AUTHORIZATION_CODE_TTL_SECONDS);
+      const reauthUntil = input.requireReauthentication === true ? enrollmentAuthorizedUntil : null;
+      const expiresAt = new Date(Math.min(addSeconds(input.evaluatedAt, DESKTOP_AUTHORIZATION_CODE_TTL_SECONDS).getTime(), reauthUntil?.getTime() ?? Infinity));
       await transaction.query(
         `INSERT INTO identity_desktop_authorization_codes
            (account_id, code_digest, device_id, client_id, redirect_uri, code_challenge,
-            account_security_epoch, issued_at, expires_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            account_security_epoch, issued_at, expires_at, forced_reauth_until)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [input.principal.accountId, code.credentialDigest, deviceId.data, DESKTOP_OAUTH_CLIENT_ID,
-          redirectUri, codeChallenge, epoch, input.evaluatedAt, expiresAt],
+          redirectUri, codeChallenge, epoch, input.evaluatedAt, expiresAt, reauthUntil],
       );
       return {
         authorized: true,
@@ -195,7 +201,9 @@ export class PostgresDesktopOAuthAuthorizationService {
       accountSecurityEpoch: result.accountSecurityEpoch,
       transactionCredential,
     });
-    return leased.ensured
+    // Eligible Standby sessions can exchange read-only authority without allocating a Lease;
+    // only an ineligible device prevents code/session issuance or refresh.
+    return leased.outcome !== "refused"
       ? { authorized: true, code: result.code }
       : { authorized: false };
   }
@@ -220,13 +228,15 @@ export class PostgresDesktopOAuthAuthorizationService {
       const result = await transaction.query<{
         device_id: string;
         account_security_epoch: string;
+        forced_reauth_until: Date | null;
       }>(
         `UPDATE identity_desktop_authorization_codes
             SET consumed_at = transaction_timestamp()
           WHERE account_id = $1 AND code_digest = $2 AND code_challenge = $3
             AND client_id = $4 AND redirect_uri = $5 AND consumed_at IS NULL
-            AND transaction_timestamp() >= issued_at AND transaction_timestamp() < expires_at
-          RETURNING device_id, account_security_epoch`,
+            AND clock_timestamp() >= issued_at AND clock_timestamp() < expires_at
+            AND (forced_reauth_until IS NULL OR clock_timestamp() < forced_reauth_until)
+          RETURNING device_id, account_security_epoch, forced_reauth_until`,
         [code.accountId, code.credentialDigest, challenge, DESKTOP_OAUTH_CLIENT_ID, redirectUri],
       );
       return result.rows.length === 1 ? result.rows[0] : undefined;
@@ -245,7 +255,9 @@ export class PostgresDesktopOAuthAuthorizationService {
       deviceId: reserved.device_id,
       accountSecurityEpoch: epoch,
     });
-    if (!leased.ensured) return { exchanged: false };
+    // Eligible Standby sessions can exchange read-only authority without allocating a Lease;
+    // only an ineligible device prevents code/session issuance or refresh.
+    if (leased.outcome === "refused") return { exchanged: false };
 
     const access = issueDesktopBearerToken("access", code.accountId);
     const refresh = issueDesktopBearerToken("refresh", code.accountId);
@@ -262,6 +274,7 @@ export class PostgresDesktopOAuthAuthorizationService {
       refreshJti: refresh.credentialDigest,
       deviceId: reserved.device_id,
       authMethod: "oauth_pkce",
+      forcedReauthenticationUntil: reserved.forced_reauth_until,
       rememberDevice: true,
       accessExpiresAt,
       refreshExpiresAt,

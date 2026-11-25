@@ -1,3 +1,11 @@
+import { registerTargetInstallationJsonBoundary } from "./adapter/target-installation-json";
+import { createTargetBootstrapInstallationRoutes } from "./routes/public/target-installation";
+import { createForcedTakeoverRoutes } from "./routes/public/forced-takeover";
+import type { ForcedTakeoverQueryPort } from "./ports/forced-takeover";
+import type { TargetBootstrapInstallationPort } from "./ports/target-installation";
+import { DesktopExecutionContextIssuer, PostgresDesktopExecutionContextService, type DesktopExecutionContextSigner } from "../modules/devices/index";
+import type { DesktopExecutionContextApplicationPort } from "./ports/execution-context";
+import type { ExecutionEvidenceApplicationPort } from "./ports/execution-evidence";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
@@ -18,16 +26,45 @@ import {
 } from "../modules/licensing/index";
 import {
   AccountActivationApplicationService,
+  PostgresIdentityAccountSecurityStatePort,
   type AccountActivationSubjectReaderPort,
 } from "../modules/identity/index";
 import { IdentityAccountSessionVerifier, type IdentitySessionVerificationReader } from "../modules/identity/index";
 import { PostgresDefaultWorkspaceTenantResolver } from "../modules/workspace/default-workspace/index";
 import { PostgresMutationAuthority } from "../modules/devices/postgres-mutation-authority";
-import { PostgresDesktopSyncAuthority } from "../modules/devices/postgres-sync-authority";
+import {
+  PostgresDeviceDrainTransition,
+  PostgresDeviceDirectory,
+  PostgresDeviceSwitchApplication,
+  PostgresDeviceSwitchDrain,
+  PostgresDeviceSwitchRequests,
+  PostgresDeviceSwitchRequestResolution,
+  PostgresTargetBootstrapControl,
+  PostgresTargetBootstrapInstallation,
+  PostgresForcedTakeover,
+  type BootstrapCapabilitySigner,
+  type BootstrapVerificationKeySource,
+  type ActiveDeviceLeaseSigner,
+  PostgresExecutionEvidenceAuthority,
+  PostgresHistoricalExecutionContext,
+} from "../modules/devices/index";
+import {
+  PostgresWorkspaceDeviceAuditDrainLedger,
+  PostgresDeviceAuditEvidenceReader,
+  PostgresDeviceAuditEvidenceService,
+} from "../modules/audit/index";
+import {
+  PostgresExecutionFactDrainLedger,
+  PostgresExecutionFactEvidenceReader,
+  PostgresExecutionFactEvidenceService,
+} from "../modules/execution-ledger/index";
+import { PostgresBootstrapCheckpointPort } from "../modules/workspace/checkpoints/index";
 import { PostgresWorkspaceCheckpointReader } from "../modules/workspace/checkpoints/postgres-reader";
 import { PostgresReaderCursorRepository } from "../modules/workspace/cursors/postgres-reader-cursor-repository";
 import { PostgresReaderCursorService } from "../modules/workspace/cursors/postgres-reader-cursor-service";
 import { PostgresWorkspaceMutationIngest } from "../modules/workspace/mutations/postgres-ingest-service";
+import { PostgresWorkspaceMutationReceiptReader } from "../modules/workspace/mutations/postgres-receipt-reader";
+import { PostgresMutationDrainLedger } from "../modules/workspace/mutations/index";
 import { PostgresReaderMutationPage } from "../modules/workspace/mutations/postgres-reader-page";
 import { PostgresWorkspaceMutationRepository } from "../modules/workspace/mutations/postgres-repository";
 import { PostgresWorkspaceRevisionRepository } from "../modules/workspace/revisions/postgres-repository";
@@ -39,6 +76,7 @@ import {
 } from "../modules/workspace/sync/cloudflare-observation";
 import { assignCorrelationId, correlationIdFor } from "./adapter/correlation";
 import {
+  PublicRouteAuthorizationError,
   rateLimitedRejection,
   sendAccountRejection,
   sendNotFound,
@@ -61,6 +99,11 @@ import {
 } from "./ports/desktop-authorization";
 import {
   DesktopAuthorizationGrantIssuer,
+  PostgresDesktopRouteAuthority,
+  PostgresDesktopSyncAuthority,
+  type DesktopRouteAuthorityPort,
+  DesktopStandbyGrantIssuer,
+  type DesktopStandbyGrantSigner,
   PostgresDesktopAuthorizationApplicationService,
   type ActiveDeviceLeaseVerifier,
   type DesktopAuthorizationGrantSigner,
@@ -75,13 +118,20 @@ import {
 } from "./ports/public-session";
 import {
   createPublicBusinessRoutes,
+  DEVICE_SWITCH_REQUEST_ROUTE,
+  DEVICE_SWITCH_CANCEL_ROUTE,
   publicBoundaryRoutes,
-  PublicRouteAuthorizationError,
 } from "./routes/public/boundary";
 
 export interface PublicApplicationPorts {
+  readonly forcedTakeover?: ForcedTakeoverQueryPort;
+  readonly targetBootstrapInstallation?: TargetBootstrapInstallationPort;
+  readonly desktopRouteAuthority: DesktopRouteAuthorityPort;
   readonly accountActivation: AccountActivationApplicationPort;
   readonly desktopAuthorization: DesktopAuthorizationApplicationPort;
+  readonly desktopExecutionContext?: DesktopExecutionContextApplicationPort;
+  readonly deviceAuditEvidence?: ExecutionEvidenceApplicationPort;
+  readonly executionFactEvidence?: ExecutionEvidenceApplicationPort;
   readonly commercialCheckout: CommercialCheckoutApplicationPort;
   readonly workspaceSync?: WorkspaceSyncApplicationPort;
   readonly cloudflareDnsObservation?: CloudflareDnsObservationIngressPort;
@@ -113,6 +163,11 @@ export interface PostgresCloudPublicHttpDependencies
   readonly allowSelectorOnlyIdentityTestHarness?: true;
   readonly activationSubjects: AccountActivationSubjectReaderPort;
   readonly desktopAuthorizationSigner: DesktopAuthorizationGrantSigner;
+  readonly desktopStandbySigner: DesktopStandbyGrantSigner;
+  readonly desktopExecutionContextSigner: DesktopExecutionContextSigner;
+  readonly bootstrapCapabilitySigner: BootstrapCapabilitySigner;
+  readonly bootstrapVerificationKeys: BootstrapVerificationKeySource;
+  readonly activeDeviceLeaseSigner: ActiveDeviceLeaseSigner;
   readonly activeDeviceLeaseVerifier: ActiveDeviceLeaseVerifier;
   readonly desktopAccessTokens: DesktopAccessTokenVerifierPort;
   readonly commercialCheckoutCatalog: CommercialCheckoutCatalog;
@@ -145,6 +200,11 @@ export function createPostgresCloudPublicHttp(
     allowSelectorOnlyIdentityTestHarness,
     activationSubjects,
     desktopAuthorizationSigner,
+    desktopStandbySigner,
+    desktopExecutionContextSigner,
+    bootstrapCapabilitySigner,
+    bootstrapVerificationKeys,
+    activeDeviceLeaseSigner,
     activeDeviceLeaseVerifier,
     commercialCheckoutCatalog,
     commercialCheckoutGateways,
@@ -163,6 +223,20 @@ export function createPostgresCloudPublicHttp(
     : new IdentityCapabilityTransactionRunner(accountApiPool, identityCapabilityIssuerPool);
   const authenticatedTransactions = identityTransactions ?? accountTransactions;
   const workspaces = new PostgresDefaultWorkspaceTenantResolver(authenticatedTransactions);
+  const forcedTakeover = identityTransactions === undefined ? undefined
+    : new PostgresForcedTakeover({ transactions: identityTransactions, workspaces });
+  const executionEvidence = identityTransactions === undefined ? undefined : (() => {
+    const authority = new PostgresExecutionEvidenceAuthority(identityTransactions, workspaces);
+    const contexts = new PostgresHistoricalExecutionContext();
+    return {
+      deviceAuditEvidence: new PostgresDeviceAuditEvidenceService(
+        authority, contexts, new PostgresExecutionFactEvidenceReader(),
+      ),
+      executionFactEvidence: new PostgresExecutionFactEvidenceService(
+        authority, contexts, new PostgresDeviceAuditEvidenceReader(),
+      ),
+    };
+  })();
   const desktopAuthorization = identityTransactions === undefined
     ? new DenyingDesktopAuthorizationApplicationPort()
     : new PostgresDesktopAuthorizationApplicationService(
@@ -170,6 +244,7 @@ export function createPostgresCloudPublicHttp(
       workspaces,
       new DesktopAuthorizationGrantIssuer(desktopAuthorizationSigner),
       activeDeviceLeaseVerifier,
+      new DesktopStandbyGrantIssuer(desktopStandbySigner),
     );
   let commercialCheckout: CommercialCheckoutApplicationPort = denyingCommercialCheckout;
   if (identityTransactions !== undefined && providerWorkerPool !== undefined) {
@@ -212,19 +287,58 @@ export function createPostgresCloudPublicHttp(
       }),
       readers,
       checkpoints: new PostgresWorkspaceCheckpointReader(tenantTransactions),
+      receipts: new PostgresWorkspaceMutationReceiptReader({ transactions: tenantTransactions, repository: mutations }),
     });
   })();
   return createCloudPublicHttp({
     ...http,
     ports: {
+      desktopRouteAuthority: new PostgresDesktopRouteAuthority(workspaces, new PostgresDesktopSyncAuthority(accountTransactions)),
       accountActivation: new AccountActivationApplicationService(
         pool,
         activationSubjects,
         workspaces,
       ),
       desktopAuthorization,
+      ...(forcedTakeover === undefined ? {} : { forcedTakeover }),
+      ...executionEvidence,
+      ...(identityTransactions === undefined ? {} : { targetBootstrapInstallation: new PostgresTargetBootstrapInstallation({
+        transactions: identityTransactions, workspaces, capabilitySigner: bootstrapCapabilitySigner,
+        capabilityKeys: bootstrapVerificationKeys, leaseSigner: activeDeviceLeaseSigner, leaseVerifier: activeDeviceLeaseVerifier,
+      }) }),
+      ...(identityTransactions === undefined ? {} : { targetBootstrap: new PostgresTargetBootstrapControl(identityTransactions, workspaces, new PostgresBootstrapCheckpointPort()) }),
+      ...(identityTransactions === undefined ? {} : { desktopExecutionContext: new PostgresDesktopExecutionContextService(identityTransactions, workspaces, new DesktopAuthorizationGrantIssuer(desktopAuthorizationSigner), activeDeviceLeaseVerifier, new DesktopExecutionContextIssuer(desktopExecutionContextSigner)) }),
       commercialCheckout,
       ...(workspaceSync === undefined ? {} : { workspaceSync }),
+      ...(workspaceSync === undefined || identityTransactions === undefined ? {} : {
+        // Composed with the sync data plane: the switch caller is resolved exactly as a sync
+        // caller is, from a Desktop session holding the workspace's current Lease.
+        deviceSwitchResolution: new PostgresDeviceSwitchRequestResolution(identityTransactions, workspaces),
+        deviceSwitch: (() => {
+          const tenantTransactions = new TenantTransactionRunner(pool);
+          const accountSecurity = new PostgresIdentityAccountSecurityStatePort();
+          const requests = new PostgresDeviceSwitchRequests({ transactions: tenantTransactions, accountSecurity });
+          return new PostgresDeviceSwitchApplication({
+            ...(forcedTakeover === undefined ? {} : { forced: forcedTakeover }),
+            workspaces,
+            authority: new PostgresDesktopSyncAuthority(accountTransactions),
+            requests,
+            drains: new PostgresDeviceSwitchDrain({
+              transactions: tenantTransactions,
+              requests,
+              transition: new PostgresDeviceDrainTransition(
+                tenantTransactions,
+                accountSecurity,
+                new PostgresMutationDrainLedger(),
+                new PostgresExecutionFactDrainLedger(),
+                new PostgresWorkspaceDeviceAuditDrainLedger(),
+              ),
+            }),
+          });
+        })(),
+      }),
+      // Standby may list bound devices; the directory independently requires Active for self-report.
+      ...(identityTransactions === undefined ? {} : { deviceDirectory: new PostgresDeviceDirectory(accountTransactions) }),
       ...(identityTransactions === undefined ? {} : {
         cloudflareDnsObservation: new PostgresCloudflareDnsObservationIngress({
           transactions: identityTransactions,
@@ -252,10 +366,18 @@ export function createPublicHttp(deps: PublicHttpDependencies): FastifyInstance 
     trustProxy: trustLoopbackProxy,
     ajv: { customOptions: { coerceTypes: false, removeAdditional: false } },
   });
+  const installationRoutes = createTargetBootstrapInstallationRoutes(
+    deps.ports.targetBootstrapInstallation, deps.ports.desktopRouteAuthority,
+  );
+  const forcedRoutes = createForcedTakeoverRoutes(deps.ports.forcedTakeover, deps.ports.desktopRouteAuthority);
+  registerTargetInstallationJsonBoundary(app, [
+    ...installationRoutes.map(route => route.path), ...forcedRoutes.map(route => route.path),
+    DEVICE_SWITCH_REQUEST_ROUTE, DEVICE_SWITCH_CANCEL_ROUTE,
+  ]);
   const preAuthLimiter = new InMemoryFixedWindowRateLimiter(deps.preAuthRateLimit);
   const sessionLimiter = new InMemoryFixedWindowRateLimiter(deps.sessionRateLimit);
   const desktopAccessTokens = deps.desktopAccessTokens ?? new DenyingDesktopAccessTokenVerifier();
-  const routes = [...publicBoundaryRoutes, ...createPublicBusinessRoutes(deps.ports)] as const;
+  const routes = [...publicBoundaryRoutes, ...createPublicBusinessRoutes(deps.ports), ...installationRoutes, ...forcedRoutes] as const;
 
   app.addHook("onRequest", async (request, reply) => {
     assignCorrelationId(request, reply, deps.correlationIds);

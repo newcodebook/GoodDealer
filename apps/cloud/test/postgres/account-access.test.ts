@@ -20,6 +20,8 @@ const now = new Date("2099-09-04T00:00:00Z");
 beforeAll(async () => { await runCloudMigrations(ownerPool, cloudMigrations); });
 beforeEach(async () => {
   await clearLicensingTestData(ownerPool);
+  // Immutable epoch boundaries are cleared only by owner fixture maintenance, never runtime DELETE.
+  await ownerPool.query("TRUNCATE identity_private.security_epoch_end_boundaries");
   // This suite may run after persistence suites that leave legitimate child
   // rows behind. Reset the workspace aggregate as one test-only unit so an
   // unrelated cursor cannot make account-access isolation order-dependent.

@@ -1,35 +1,59 @@
 {
-  "schemaVersion": 1,
-  "workflowRevision": 2,
+  "schemaVersion": 2,
+  "workflowRevision": 3,
   "acceptedStepNumber": 2,
-  "nextStepNonce": "bm9uY2UtMw",
+  "nextStepNonce": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+  "resultDigest": "mDgKNq63jxakvdjszeRmMuRjw8klw2hN-7r8MCNpyIo",
   "stepKind": "fetch_mutations",
   "resultPayload": {
     "mutationPage": {
-      "schemaVersion": 1,
-      "workspaceId": "workspace-a",
-      "fromServerRevisionExclusive": 4,
-      "throughServerRevisionInclusive": 6,
+      "schemaVersion": 3,
+      "workspaceId": "installation-workspace",
+      "fromServerRevisionExclusive": 5,
+      "throughServerRevisionInclusive": 7,
       "mutations": [
         {
-          "schemaVersion": 1,
-          "mutationId": "mutation-6",
-          "workspaceId": "workspace-a",
+          "schemaVersion": 3,
+          "workspaceId": "installation-workspace",
           "workspaceSchemaVersion": 1,
           "entityType": "domain_asset",
-          "entityId": "example.com",
-          "baseServerRevision": 4,
-          "changedFields": [{ "fieldPath": "note", "value": null }],
-          "sourceDeviceId": "device-a",
-          "activeLeaseEpoch": 2,
-          "deviceMutationSequence": 9,
-          "serverRevision": 6
+          "sourceDeviceId": "installation-source",
+          "activeLeaseEpoch": 1,
+          "mutationId": "installed-edit",
+          "entityId": "kept.test",
+          "entityGeneration": 2,
+          "operationKind": "upsert",
+          "baseServerRevision": 5,
+          "serverRevision": 7,
+          "deviceMutationSequence": 6,
+          "changedFields": [
+            {
+              "fieldPath": "note",
+              "value": "Edited on generation two"
+            }
+          ]
+        },
+        {
+          "schemaVersion": 3,
+          "workspaceId": "installation-workspace",
+          "workspaceSchemaVersion": 1,
+          "entityType": "domain_asset",
+          "sourceDeviceId": "installation-source",
+          "activeLeaseEpoch": 1,
+          "mutationId": "installed-delete",
+          "entityId": "removed.test",
+          "entityGeneration": 1,
+          "operationKind": "delete",
+          "deletedAt": "2029-12-31T23:59:00Z",
+          "baseServerRevision": 6,
+          "serverRevision": 7,
+          "deviceMutationSequence": 7,
+          "changedFields": []
         }
       ],
-      "returnedThroughServerRevision": 6,
+      "returnedThroughServerRevision": 7,
       "nextCursor": null,
-      "pageDigest": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+      "pageDigest": "MAkdmvzF1epsiIVTdS1UKYxMZMzBo9GWaDPk2d1fa3Q"
     }
-  },
-  "resultDigest": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+  }
 }

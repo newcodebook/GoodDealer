@@ -1,5 +1,6 @@
 import {
   hasMarketplaceActionGrant,
+  midpointWholeAmount,
   type CommerceMoney,
   type DealView,
   type ListingView,
@@ -18,6 +19,7 @@ import {
   ExternalLinkIcon,
   Input,
   MetricStrip,
+  Pagination,
   ProgressBar,
   Table,
   Tabs,
@@ -27,7 +29,7 @@ import {
 } from "@gooddealer/ui";
 import { useState } from "react";
 
-import { shellTableLabels } from "../../../app-shell";
+import { shellPaginationLabels, shellTableLabels } from "../../../app-shell";
 import { formatAssetMoney } from "../../portfolio";
 import { commissionPercent, dealStageProgress, offerBinDelta, parseCounterInput, transferConfirmationFor } from "./sales-desk-contract";
 import "./sales-desk.css";
@@ -39,6 +41,10 @@ export interface SalesDeskProps {
   readonly locale: Locale;
   readonly view: SalesDeskViewModel;
   readonly initialTab?: SalesDeskTab;
+  /** Requests another Host page of listings; only a view that carries `page` is paged. */
+  readonly onPageChange?: (startIndex: number, size: number) => void;
+  /** The view is the last page while the Host reads another page. */
+  readonly busy?: boolean;
   readonly onCreateListing?: () => void;
   readonly onListingAction?: (listing: ListingView, action: ListingRowAction) => void;
   /** Fires only after the binding acknowledgement; the Host builds the accept plan from this exact offer. */
@@ -63,6 +69,8 @@ export function SalesDesk({
   locale,
   view,
   initialTab = "offers",
+  onPageChange,
+  busy = false,
   onCreateListing,
   onListingAction,
   onAcceptOffer,
@@ -72,6 +80,7 @@ export function SalesDesk({
   onConfirmPayout,
 }: SalesDeskProps) {
   const copy = getPresentationCopy(locale, "salesDesk");
+  const { page } = view;
   const [tab, setTab] = useState<SalesDeskTab>(initialTab);
   const [accepting, setAccepting] = useState<OfferView | null>(null);
   const [acceptAck, setAcceptAck] = useState(false);
@@ -93,8 +102,13 @@ export function SalesDesk({
       case "pending": return <Badge tone="sync" mono={false}>{copy.listingPending}</Badge>;
       case "conflict": return <Badge tone="danger" mono={false}>{copy.listingConflict}</Badge>;
       case "sold": return <Badge tone="gold">{copy.sold}</Badge>;
+      case "reserved": return <Badge tone="warning" mono={false}>{copy.reserved}</Badge>;
+      case "suspended": return <Badge tone="warning" mono={false}>{copy.suspended}</Badge>;
+      case "unknown": return <Badge mono={false}>{copy.unconfirmed}</Badge>;
     }
   };
+  // Unobserved values render as a dash so they never read as a zero or a definite fact.
+  const dash = <span className="sales-faint">—</span>;
   const listingActions = (listing: ListingView) => {
     if (onListingAction === undefined) return null;
     const action = (kind: ListingRowAction, label: string, variant: "primary" | "ghost" = "ghost") =>
@@ -109,12 +123,12 @@ export function SalesDesk({
   const listingColumns: TableColumn<ListingView>[] = [
     { key: "domain", label: copy.domain, render: (listing) => mono(listing.domain, "sales-strong") },
     { key: "platforms", label: copy.platform, muted: true, priority: "secondary", render: (listing) => listing.platforms.length === 0 ? "—" : listing.platforms.join(" · ") },
-    // A published or sold BIN is a value result; a draft's BIN is still only a proposal.
-    { key: "bin", label: copy.bin, numeric: true, render: (listing) => mono(money(listing.bin), listing.status === "draft" ? "sales-strong" : "sales-gold") },
-    { key: "views", label: copy.browse, numeric: true, muted: true, width: 72, priority: "supplementary", render: (listing) => mono(formatNumber(locale, listing.views)) },
-    { key: "offers", label: copy.inquiry, numeric: true, width: 64, render: (listing) => mono(formatNumber(locale, listing.offerCount), listing.offerCount > 0 ? "sales-blue" : "sales-faint") },
+    // Only a published or sold BIN is a value result; every other state's BIN is not.
+    { key: "bin", label: copy.bin, numeric: true, render: (listing) => listing.bin === null ? dash : mono(money(listing.bin), listing.status === "active" || listing.status === "sold" ? "sales-gold" : "sales-strong") },
+    { key: "views", label: copy.browse, numeric: true, muted: true, width: 72, priority: "supplementary", render: (listing) => listing.views === null ? dash : mono(formatNumber(locale, listing.views)) },
+    { key: "offers", label: copy.inquiry, numeric: true, width: 64, render: (listing) => listing.offerCount === null ? dash : mono(formatNumber(locale, listing.offerCount), listing.offerCount > 0 ? "sales-blue" : "sales-faint") },
     { key: "status", label: copy.status, width: 88, render: listingStatus },
-    { key: "listed", label: copy.list, numeric: true, muted: true, width: 80, priority: "supplementary", render: (listing) => mono(listing.listedAtLabel) },
+    { key: "listed", label: copy.list, numeric: true, muted: true, width: 80, priority: "supplementary", render: (listing) => listing.listedAtLabel === null ? dash : mono(listing.listedAtLabel) },
     { key: "actions", label: "", width: 196, render: listingActions },
   ];
 
@@ -135,7 +149,7 @@ export function SalesDesk({
       <span className="sales-actions">
         {can("accept_offer") && onAcceptOffer !== undefined ? <Button size="sm" variant="primary" onClick={() => { setAcceptAck(false); setAccepting(offer); }}>{copy.accept}</Button> : null}
         {can("counter_offer") && onCounterOffer !== undefined ? (
-          <Button size="sm" onClick={() => { setCounterText(offer.counter?.amount ?? midpoint(offer)); setCountering(offer); }}>{copy.counter}</Button>
+          <Button size="sm" onClick={() => { setCounterText(offer.counter?.amount ?? midpoint(offer)); setCountering(offer); }}>{copy.counterAction}</Button>
         ) : null}
         {can("decline_offer") && onDeclineOffer !== undefined ? <Button size="sm" variant="ghost" onClick={() => onDeclineOffer(offer)}>{copy.decline}</Button> : null}
       </span>
@@ -208,15 +222,15 @@ export function SalesDesk({
   const closeTransfer = () => { setTransferring(null); setTransferAck(false); };
 
   return (
-    <section className="sales-desk" aria-label={copy.title}>
+    <section className="sales-desk" aria-label={copy.title} aria-busy={busy || undefined}>
       <MetricStrip
         label={copy.title}
         metrics={[
           { key: "listings", label: copy.listings, value: formatNumber(locale, view.metrics.activeListingCount) },
-          { key: "value", label: copy.listedValue, value: money(view.metrics.listedValue), tone: "gold" },
-          { key: "offers", label: copy.pendingOffers, value: formatNumber(locale, view.metrics.pendingOfferCount), tone: "warning" },
-          { key: "gmv", label: copy.dealValueThisMonth, value: money(view.metrics.monthGmv), tone: "gold" },
-          { key: "settling", label: copy.settling, value: formatNumber(locale, view.metrics.settlingDealCount), tone: "blue" },
+          { key: "value", label: copy.listedValue, ...(view.metrics.listedValue === null ? { value: "—", tone: "muted" as const } : { value: money(view.metrics.listedValue), tone: "gold" as const }) },
+          { key: "offers", label: copy.pendingOffers, ...(view.metrics.pendingOfferCount === null ? { value: copy.notAvailable, tone: "muted" as const } : { value: formatNumber(locale, view.metrics.pendingOfferCount), tone: "warning" as const }) },
+          { key: "gmv", label: copy.dealValueThisMonth, ...(view.metrics.monthGmv === null ? { value: copy.notAvailable, tone: "muted" as const } : { value: money(view.metrics.monthGmv), tone: "gold" as const }) },
+          { key: "settling", label: copy.settling, ...(view.metrics.settlingDealCount === null ? { value: copy.notAvailable, tone: "muted" as const } : { value: formatNumber(locale, view.metrics.settlingDealCount), tone: "blue" as const }) },
         ]}
       />
       <Toolbar
@@ -228,8 +242,8 @@ export function SalesDesk({
             onChange={(key) => setTab(key === "listings" || key === "deals" ? key : "offers")}
             items={[
               { key: "listings", label: copy.listings, count: view.metrics.activeListingCount },
-              { key: "offers", label: copy.offers, count: view.metrics.pendingOfferCount },
-              { key: "deals", label: copy.deals, count: view.metrics.settlingDealCount },
+              { key: "offers", label: copy.offers, ...(view.metrics.pendingOfferCount === null ? {} : { count: view.metrics.pendingOfferCount }) },
+              { key: "deals", label: copy.deals, ...(view.metrics.settlingDealCount === null ? {} : { count: view.metrics.settlingDealCount }) },
             ]}
           />
         )}
@@ -239,9 +253,35 @@ export function SalesDesk({
       />
       {readOnly ? <p className="sales-readonly gd-t-meta">{copy.readOnlyNotice}</p> : null}
       <div className="sales-body">
-        {tab === "listings" ? <Table<ListingView> {...tableLabels} label={copy.listings} rowKey="id" columns={listingColumns} rows={view.listings} emptyText={copy.noRows} maxHeight="100%" /> : null}
-        {tab === "offers" ? <Table<OfferView> {...tableLabels} label={copy.offers} rowKey="id" columns={offerColumns} rows={view.offers} emptyText={copy.noRows} maxHeight="100%" /> : null}
-        {tab === "deals" ? <Table<DealView> {...tableLabels} label={copy.deals} rowKey="id" columns={dealColumns} rows={view.deals} emptyText={copy.noRows} maxHeight="100%" /> : null}
+        {tab === "listings" ? (
+          <Table<ListingView>
+            {...tableLabels}
+            label={copy.listings}
+            rowKey="id"
+            columns={listingColumns}
+            rows={view.listings}
+            emptyText={copy.noRows}
+            maxHeight="100%"
+            {...(page === undefined ? {} : {
+              footer: (
+                <Pagination
+                  page={Math.floor(page.startIndex / page.size) + 1}
+                  pageSize={page.size}
+                  total={page.totalItems}
+                  busy={busy}
+                  labels={shellPaginationLabels(locale)}
+                  {...(onPageChange === undefined ? {} : {
+                    onPageChange: (next: number) => onPageChange((next - 1) * page.size, page.size),
+                    onPageSizeChange: (size: number) => onPageChange(0, size),
+                  })}
+                />
+              ),
+            })}
+          />
+        ) : null}
+        {tab !== "listings" && view.offerDealAvailability === "unavailable" ? <p className="sales-readonly gd-t-meta">{copy.offersDealsUnavailable}</p> : null}
+        {tab === "offers" && view.offerDealAvailability === "available" ? <Table<OfferView> {...tableLabels} label={copy.offers} rowKey="id" columns={offerColumns} rows={view.offers} emptyText={copy.noRows} maxHeight="100%" /> : null}
+        {tab === "deals" && view.offerDealAvailability === "available" ? <Table<DealView> {...tableLabels} label={copy.deals} rowKey="id" columns={dealColumns} rows={view.deals} emptyText={copy.noRows} maxHeight="100%" /> : null}
       </div>
 
       <Dialog
@@ -355,5 +395,5 @@ export function SalesDesk({
 
 /** Suggested counter halfway between the offer and BIN, rounded to whole units. */
 function midpoint(offer: OfferView): string {
-  return String(Math.round((Number(offer.offer.amount) + Number(offer.bin.amount)) / 2));
+  return midpointWholeAmount(offer.offer.amount, offer.bin.amount);
 }

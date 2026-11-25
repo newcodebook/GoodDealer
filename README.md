@@ -12,6 +12,11 @@ The concise capability map and dependencies live in the [roadmap](docs/ROADMAP.m
 acceptance and external-evidence rules live in [verification](docs/VERIFICATION.md). Those documents
 are linked rather than duplicated here.
 
+The latest investor workflow, twelve-platform scope, batch confirmation and portable recovery
+decisions are recorded in the [ADR index](docs/adr/README.md),
+with [official API findings](docs/PROVIDER_API_REVIEW.md). These targets are separate from
+the [current implementation](docs/CURRENT_IMPLEMENTATION.md).
+
 ## Principles
 
 - MUST: Keep each business capability in its owning runtime and trust domain, and compose it at an explicit application boundary only after its **local implementation gates** are met.
@@ -19,7 +24,8 @@ are linked rather than duplicated here.
 - MUST: Treat source, contracts, tests, configuration, and current documentation as one repository truth; fixtures, visual material, local reports, and tests do not establish external facts.
 - MUST: Commit business rows and secret-free Sync Outbox entries atomically in local SQLCipher; Cloud availability and ACK cannot decide local business commits.
 - MUST NOT: Sync third-party account identity, Provider Account ID, account labels, credential bindings, API keys, tokens, cookies, passwords, 2FA, or browser profiles.
-- MUST NOT: Add browser, writes, marketplace/registrar behavior, team/multi-workspace behavior, credential migration, CSV import, external mutations, or any compatibility/transition/fallback route to v1.
+- MUST: Implement the accepted domain-provider scope, including writes, registrar, marketplace and acquisition capabilities, through named contracts, authorization, confirmation and reconciliation. Current qualified capabilities and source integration are tracked separately; incomplete implementation or qualification does not reduce this scope.
+- MUST NOT: Infer technical scope or runtime authority from marketing or visual material. Current v1 exclusions are maintained in [product requirements](docs/PRODUCT_REQUIREMENTS.md); changes follow an explicit product/architecture decision rather than a stale exclusion copied into this file.
 
 ## Boundaries
 
@@ -54,33 +60,14 @@ within the accepted scope. See [verification](docs/VERIFICATION.md) for the exac
 
 ## Current repository state
 
-The current source does **not** support a customer-readiness claim:
+The production composition, its remaining implementation work, and source-of-truth registries are
+maintained in [current implementation](docs/CURRENT_IMPLEMENTATION.md). Desktop business screens,
+Host authorization, local transactions and asynchronous sync are composed; Provider qualification,
+production recovery and customer release remain work to complete. A development gap does not remove
+an accepted product requirement, and a local test does not establish external qualification.
 
-- Desktop Tauri registers 19 named commands spanning authorization-aware local business reads/writes,
-  conflict and sync status, fail-closed backup surfaces, Desktop authentication, and Cloudflare
-  activation/observation. The Renderer reaches these only through narrow adapters; it supplies no
-  database path, key, workspace selector, Provider account identity, unrestricted network target, or
-  Cloud Repository. The previous Desktop presentation layer was removed for a brand-driven rebuild:
-  the production root currently opens the workspace and follows authentication but composes no
-  business screens.
-- `local-storage` owns the production SQLCipher active workspace, local business transaction,
-  Provider-connection local-only storage, and secret-free Sync Outbox.
-- `secure-host-core` contains the Cloudflare Zone/DNS read Service, credential fence, hardened
-  fixed-authority transport, and GoodDealer-owned endpoint/wire definitions. Native owns one-time
-  Token intake and custody; the production Renderer exposes activation, status, recovery guidance,
-  and stored read-only DNS observation without receiving the Token or making Provider requests.
-- Cloud owns one literal ordered catalog with 22 migrations. The established M001–M017, M019 and
-  M020 sequence is followed by `202609140001-sync-v2-ledger`,
-  `202609150001-workspace-checkpoint-v2`, and
-  `202609150002-cloudflare-dns-observation`; there is no M018 compatibility migration. The
-  Cloudflare observation schema contains only the allowlisted business observation and connection
-  reference—third-party account bindings and credentials remain local-only. Source migrations and
-  local tests do not establish that a shared database has applied the catalog or that a Provider is
-  customer-operable.
-
-The production composition must preserve its explicit capability allowlist and refresh reachability
-evidence whenever commands, routes, adapters, or manifests change. Existing local modules and tests
-remain implementation evidence, not customer readiness.
+The [product discovery record](docs/PRODUCT_DISCOVERY.md) captures the owner's operating needs and
+open choices before scope or business-strategy decisions are changed.
 
 ## Runtime and design boundaries
 

@@ -1,5 +1,3 @@
-import type { BrowserAutomationGrantPort } from "../browser-automation/index";
-
 import {
   parseAssetProtectionIncidentViewModel,
   parseBatchOperationViewModel,
@@ -81,9 +79,6 @@ export interface ManualTaskCommandPort {
   requestTaskAction(command: ManualTaskCommand): Promise<unknown>;
   acceptResidualRisk(command: AcceptManualTaskRiskCommand): Promise<unknown>;
 }
-
-/** Operations consumes this public grant contract; browser-automation remains its authority owner. */
-export type ManualTaskBrowserGrantPort = BrowserAutomationGrantPort;
 
 export interface PlanReversalPort {
   planReversal(command: PlanReversalCommand): Promise<unknown>;

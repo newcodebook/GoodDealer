@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "deviceSwitchRequestId": "installation-workflow",
+  "capabilityJti": "installation-capability",
+  "stepNumber": 1,
+  "stepNonce": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+  "expectedWorkflowRevision": 1,
+  "requestDigest": "2jRmtOEsJ5N-jd2xayKj4Xtio0VIOzycKNpzSiI0U6Q",
+  "stepKind": "pin_checkpoint",
+  "stepPayload": {}
+}

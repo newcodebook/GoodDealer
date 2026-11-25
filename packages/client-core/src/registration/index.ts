@@ -5,20 +5,38 @@ import {
   canonicalMoneyViewSchema,
   dataFreshnessSchema,
 } from "../portfolio/index";
+import { registrarNameSchema } from "../portfolio/view-models";
+import { amountUnits, unitsAmount } from "../pricing/decimal-amount";
 
 export const renewalTermYearsSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
 
+/**
+ * One renewal row. Registrar and auto-renew are null when nothing records them; term and price are
+ * null while the plan is unavailable, because no qualified registrar capability quotes a renewal.
+ */
 export const renewalDeskItemSchema = z.object({
   id: z.string().min(1).max(128),
   domain: canonicalDomainNameSchema,
-  registrar: z.string().min(1).max(128),
+  registrar: registrarNameSchema.nullable(),
   expiresOn: z.iso.date(),
   daysRemaining: z.number().int(),
-  autoRenewEnabled: z.boolean(),
-  termYears: renewalTermYearsSchema,
-  annualPrice: canonicalMoneyViewSchema,
+  autoRenewEnabled: z.boolean().nullable(),
+  termYears: renewalTermYearsSchema.nullable(),
+  annualPrice: canonicalMoneyViewSchema.nullable(),
   selected: z.boolean(),
   status: z.enum(["due", "planned"]),
+}).strict();
+
+/**
+ * The Host page a list view shows. Without it the items are the whole desk; with it they are one
+ * page, and the counts cover every expiring asset so metrics never describe only the page.
+ */
+const renewalDeskPageSchema = z.object({
+  startIndex: z.number().int().nonnegative().max(1_000_000),
+  size: z.number().int().min(1).max(200),
+  totalItems: z.number().int().nonnegative().max(1_000_200),
+  autoRenewEnabledCount: z.number().int().nonnegative(),
+  autoRenewDisabledCount: z.number().int().nonnegative(),
 }).strict();
 
 const renewalDeskListViewSchema = z.object({
@@ -26,19 +44,22 @@ const renewalDeskListViewSchema = z.object({
   kind: z.literal("renewal_desk"),
   state: z.literal("list"),
   freshness: dataFreshnessSchema,
-  budget: canonicalMoneyViewSchema,
+  /** Whether renewal planning is executable; "unavailable" until its capability is qualified. */
+  planAvailability: z.enum(["available", "unavailable"]),
+  budget: canonicalMoneyViewSchema.nullable(),
   items: z.array(renewalDeskItemSchema).max(100_000),
   selectedCount: z.number().int().nonnegative(),
-  selectedTotal: canonicalMoneyViewSchema,
+  selectedTotal: canonicalMoneyViewSchema.nullable(),
+  page: renewalDeskPageSchema.optional(),
 }).strict().superRefine(validateRenewalSelection);
 
-const renewalConfirmationItemSchema = renewalDeskItemSchema.pick({
-  id: true,
-  domain: true,
-  registrar: true,
-  termYears: true,
-  annualPrice: true,
-});
+const renewalConfirmationItemSchema = z.object({
+  id: renewalDeskItemSchema.shape.id,
+  domain: canonicalDomainNameSchema,
+  registrar: registrarNameSchema,
+  termYears: renewalTermYearsSchema,
+  annualPrice: canonicalMoneyViewSchema,
+}).strict();
 
 const renewalDeskConfirmViewSchema = z.object({
   schemaVersion: z.literal(1),
@@ -165,17 +186,38 @@ function validateRenewalSelection(
   view: z.infer<typeof renewalDeskListViewSchema>,
   context: z.RefinementCtx,
 ): void {
-  const selected = view.items.filter((item) => item.selected && item.status === "due");
-  if (view.selectedCount !== selected.length) {
-    context.addIssue({ code: "custom", path: ["selectedCount"], message: "selected count must match due rows" });
-  }
   const ids = new Set(view.items.map((item) => item.id));
   const domains = new Set(view.items.map((item) => item.domain));
   if (ids.size !== view.items.length || domains.size !== view.items.length) {
     context.addIssue({ code: "custom", path: ["items"], message: "renewal items must be unique" });
   }
-  validateSameCurrency([view.budget, view.selectedTotal, ...view.items.map((item) => item.annualPrice)], context);
-  if (!moneyEqual(sumRenewalItems(selected), view.selectedTotal)) {
+  const { page } = view;
+  if (page !== undefined && (view.items.length > page.size || page.startIndex + view.items.length > page.totalItems
+    || page.autoRenewEnabledCount + page.autoRenewDisabledCount > page.totalItems)) {
+    context.addIssue({ code: "custom", path: ["page"], message: "renewal page must fit its totals" });
+  }
+  if (view.planAvailability === "unavailable") {
+    // Nothing can be selected, priced or budgeted until a renewal capability is qualified.
+    if (view.budget !== null || view.selectedTotal !== null || view.selectedCount !== 0
+      || view.items.some((item) => item.selected || item.termYears !== null || item.annualPrice !== null)) {
+      context.addIssue({ code: "custom", path: ["planAvailability"], message: "an unavailable plan carries no selection, term, price or budget" });
+    }
+    return;
+  }
+  const { budget, selectedTotal } = view;
+  const priced = view.items.flatMap((item) => item.annualPrice === null || item.termYears === null || item.registrar === null
+    ? []
+    : [{ ...item, annualPrice: item.annualPrice, termYears: item.termYears }]);
+  if (budget === null || selectedTotal === null || priced.length !== view.items.length) {
+    context.addIssue({ code: "custom", path: ["planAvailability"], message: "an available plan needs a registrar, term, price and budget" });
+    return;
+  }
+  const selected = priced.filter((item) => item.selected && item.status === "due");
+  if (view.selectedCount !== selected.length) {
+    context.addIssue({ code: "custom", path: ["selectedCount"], message: "selected count must match due rows" });
+  }
+  validateSameCurrency([budget, selectedTotal, ...priced.map((item) => item.annualPrice)], context);
+  if (!moneyEqual(sumRenewalItems(selected), selectedTotal)) {
     context.addIssue({ code: "custom", path: ["selectedTotal"], message: "selected total must equal item terms" });
   }
 }
@@ -193,27 +235,17 @@ function sumRenewalItems(
   items: readonly { readonly annualPrice: { readonly currency: string; readonly amount: string }; readonly termYears: number }[],
 ): { currency: string; amount: string } {
   const currency = items[0]?.annualPrice.currency ?? "USD";
-  const total = items.reduce((sum, item) => sum + decimalToUnits(item.annualPrice.amount) * BigInt(item.termYears), 0n);
-  return { currency, amount: unitsToDecimal(total) };
+  const total = items.reduce((sum, item) => sum + amountUnits(item.annualPrice.amount) * BigInt(item.termYears), 0n);
+  return { currency, amount: unitsAmount(total) };
 }
 
 function moneyEqual(left: { currency: string; amount: string }, right: { currency: string; amount: string }): boolean {
-  return left.currency === right.currency && decimalToUnits(left.amount) === decimalToUnits(right.amount);
+  return left.currency === right.currency && amountUnits(left.amount) === amountUnits(right.amount);
 }
 
 function subtractMoney(left: { amount: string }, right: { amount: string }): string {
-  return unitsToDecimal(decimalToUnits(left.amount) - decimalToUnits(right.amount));
+  return unitsAmount(amountUnits(left.amount) - amountUnits(right.amount));
 }
 
-function decimalToUnits(amount: string): bigint {
-  const [whole = "0", fraction = ""] = amount.split(".");
-  return BigInt(whole) * 100_000_000n + BigInt(fraction.padEnd(8, "0"));
-}
 
-function unitsToDecimal(units: bigint): string {
-  const negative = units < 0n;
-  const absolute = negative ? -units : units;
-  const whole = absolute / 100_000_000n;
-  const fraction = (absolute % 100_000_000n).toString().padStart(8, "0").replace(/0+$/u, "");
-  return `${negative ? "-" : ""}${whole}${fraction.length > 0 ? `.${fraction}` : ""}`;
-}
+export * from "./renewals-read";

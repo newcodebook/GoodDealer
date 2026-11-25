@@ -12,3 +12,8 @@ export * from "./desktop-token-refresh-service";
 export * from "./postgres-desktop-access-token-verifier";
 export * from "./postgres-desktop-oauth";
 export * from "./postgres-session-verification-reader";
+
+export { PostgresIdentityAccountSecurityStatePort } from "./account-security-state-port";
+
+export { PostgresForcedTakeoverReauthentication } from "./forced-takeover-reauthentication-port";
+export type { ForcedTakeoverReauthenticationPort } from "./forced-takeover-reauthentication-port";

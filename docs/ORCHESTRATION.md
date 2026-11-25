@@ -1,5 +1,11 @@
 # GoodDealer 多代理执行与收敛流程
 
+平台范围、实施优先级与批量确认按 [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)，
+恢复按 [ADR-0023](adr/0023-business-backup-and-recovery.md)
+及 [路线图](ROADMAP.md)执行。旧阶段顺序不是阻止高优先级市场旅程实施的前置条件。
+Provider 接入方式按 [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)执行，当前未找到官方支持的能力缺口全部通过
+具名平台自研私有 HTTP 适配开发解决，社区代码仅作参考，不能把下文对临时 fallback 的禁止扩张为只准官方 API。
+
 ## 目的与权威顺序
 
 本文件规定如何交付已接受范围内的变更，而不重新决定产品范围、运行策略或 Gate。它的目标是让
@@ -8,7 +14,7 @@
 
 按以下顺序读取事实和规则：
 
-1. `docs/adr/0013-…0018-…` 与 [决策登记](OPEN_DECISIONS.md) 是已接受的决定约束；它们不证明
+1. [ADR 主题索引](adr/README.md) 中的最终决策 是已接受的决定约束；它们不证明
    某能力已经组合、部署或可用。
 2. 当前源码和拥有模块的 README 是当前组合事实；若普通文档与源码冲突，更新普通文档，不能以
    旧说明、夹具或设计稿覆盖源码事实。
@@ -28,7 +34,7 @@
 | 字段 | 必须写明的内容 |
 | --- | --- |
 | 目标与允许声明 | 要实现的 [路线图](ROADMAP.md) 能力、可由本地证据支持的精确声明，以及不允许的可用性/发行声明。 |
-| 固定范围与非目标 | 域名 Provider 能力以 ADR-0024 的 capability manifest 为准；当前生产只读观察已组合，DNS/DNSSEC/Registrar/监控写入需逐项接线和资格化；非域名产品、浏览器和多工作区排除。 |
+| 固定范围与非目标 | 域名 Provider 能力以 ADR-0027 的 capability manifest 为准；当前生产只读观察已组合，DNS/DNSSEC/Registrar/监控写入需逐项接线和资格化；非域名产品、浏览器和多工作区排除。 |
 | 拥有 runtime 与信任域 | Desktop 展示、最小 Host/秘密保管、Cloud 身份/授权/API、持久化或连接器中的唯一负责人。 |
 | 合同与输入 | 已冻结的公开合同、声明导出、从 `unknown` 验证的位置、服务器端范围来源和错误/脱敏规则。 |
 | 源码现状 | 被检查的入口、当前未组合状态或已知范围缺陷；不得用目标设计替换该快照。 |
@@ -93,8 +99,8 @@ master → architect（仅跨边界设计）→ 有界构建者（可并行）�
 ## 不可协商的最终状态规则
 
 - **没有兼容或过渡路径。** 不创建或描述旧路由、双 session/data 路径、兼容 API、别名包、临时
-  adapter、迁移桥、提供商 fallback 或浏览器 fallback。它们不能作为到 v1 的“临时”路线；凭据
-  迁移同样不属于 v1。
+  adapter、迁移桥、未经声明的提供商 fallback 或浏览器 fallback。ADR-0027 允许同一平台 Service 内
+  按能力选择已核实的官方/私有协议实现，但不允许写入失败后隐式切换路径重放；凭据迁移不属于 v1。
 - **运行时夹具和视觉资料没有权威。** 夹具、gallery、样例数据、disabled 控件、视觉 callback 和
   `brand/` 只能作为展示/QA 参考，绝不进入生产 Desktop/UI 依赖图，不能授予授权、Host/Cloud 状态、
   提供商结果或验收证据。
@@ -104,19 +110,19 @@ master → architect（仅跨边界设计）→ 有界构建者（可并行）�
 - **没有凭空的视觉设计权威。** 设计参考可以被有意地移植为已公开的 UI/i18n 资源，但构建者不得
   发明未被任务或已拥有设计资料要求的视觉系统（no invented visual design），更不能把视觉决定
   当作产品、授权或外部事实。
-- **未获准能力仍失败关闭。** v1 没有浏览器、非域名 Provider 产品、团队/多工作区、CSV import
-  或凭据迁移；域名写入和 Registrar 能力只有在 manifest、审批、对账和资格完成后才可执行。
+- **未获准能力仍失败关闭。** v1 没有浏览器、非域名 Provider 产品、首发清单外平台、团队/多工作区、CSV import
+  或凭据迁移；域名写入、Registrar、交易市场和获取能力只有在 manifest、审批、对账和资格完成后才可执行。
 
 ## 当前源码范围与声明控制
 
-当前 Desktop Renderer production 入口使用窄本地业务、认证及 Cloudflare adapter。Tauri 已精确注册具名本地业务、
-备份、认证与 Cloudflare 命令，manifest/capability/adapter 策略测试拒绝清单漂移；Cloudflare 激活、
+当前 Desktop Renderer production 入口使用窄本地业务、认证、Cloudflare、Afternic、Atom、GoDaddy、Porkbun、Spaceship Registrar、Spaceship SellerHub、Sedo 与阿里云 Registrar adapter。Tauri 已精确注册具名本地业务、
+备份、认证与 Provider 命令，manifest/capability/adapter 策略测试拒绝清单漂移。独立备份通过一条有界 raw IPC 调用 Local Host，原生选择器、文件句柄、密钥与隔离 SQLCipher 数据集由该所有者处理。Cloudflare 激活、
 状态、观察和读取已进入 Renderer。Cloud 的公开业务 route 已有精确 allowlist，周期作业只允许 Licensing provider
 operation/inbox/reconciliation/due-authority/release。共享开发环境已部署 systemd self-hosted worker 和
 Stripe test-mode Provider；生产 worker、live Provider、全系统 V1 验收和发行仍未完成，因此产品
 readiness 声明仍不成立。
 
-`secure-host-core` 的私有 Cloudflare Zone/DNS 只读 Service 已组合进 Native ProviderLane，但 Host 组合
+`secure-host-core` 的私有 Cloudflare Zone/DNS/Registrar（含独立账户录入）、Afternic 库存与 Listing 写入、Atom 与 Sedo 卖家库存、GoDaddy、Porkbun（含 DNS 记录与注册局委派只读读取）、Spaceship 与阿里云 Registrar，以及 Spaceship SellerHub 挂牌读取、一口价变更与固定价上架，已组合进 Native ProviderLane。Host 组合
 不等于真实 Provider 资格。后续 Desktop 整合者必须扩展严格 Renderer adapter、保持显式
 capability allowlist，并重新检查入口、注册表和可达性；不得把未组合 feature、视觉资料或已删除
 connector 路径恢复为兼容、过渡或 fixture 路线。

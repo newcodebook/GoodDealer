@@ -12,7 +12,7 @@ use zeroize::{Zeroize as _, Zeroizing};
 use crate::desktop_device_identity::{DesktopDeviceIdentity, DesktopDeviceProofTranscript};
 
 const CLIENT_ID: &str = "gooddealer-desktop";
-/// ADR-0026: RFC 8252 loopback callback. Native binds the literal IPv4 loopback on an ephemeral
+/// ADR-0011: RFC 8252 loopback callback. Native binds the literal IPv4 loopback on an ephemeral
 /// port per attempt; Cloud repeats this exact URI in the challenge, transcript, and code exchange.
 const LOOPBACK_HOST: &str = "127.0.0.1";
 const LOOPBACK_CALLBACK_PATH: &str = "/oauth/callback";
@@ -66,6 +66,25 @@ pub struct DesktopOAuthAttempt {
 }
 
 impl DesktopOAuthAttempt {
+    /// Creates the fixed browser reauthentication intent used before forced takeover preview.
+    /// This flag requests a new server-validated login; it grants no takeover authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same configuration and randomness failures as [`Self::begin`].
+    pub fn begin_forced_takeover_reauthentication(
+        cloud_origin: &str,
+        identity: &DesktopDeviceIdentity,
+        callback_port: u16,
+    ) -> Result<Self, DesktopOAuthError> {
+        let mut attempt = Self::begin(cloud_origin, identity, callback_port)?;
+        attempt
+            .authorization_url
+            .query_pairs_mut()
+            .append_pair("require_reauth", "true");
+        Ok(attempt)
+    }
+
     /// Creates an S256 PKCE request for an already-bound native device.
     ///
     /// # Errors
@@ -617,18 +636,18 @@ fn clear_native_refresh() -> Result<(), DesktopOAuthError> {
         .map_err(secret_service_error)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn load_native_refresh() -> Result<Option<Vec<u8>>, DesktopOAuthError> {
     let _ = (KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
     Err(DesktopOAuthError::CredentialStoreUnavailable)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn store_native_refresh_bytes(_value: &[u8]) -> Result<(), DesktopOAuthError> {
     Err(DesktopOAuthError::CredentialStoreUnavailable)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn clear_native_refresh() -> Result<(), DesktopOAuthError> {
     Err(DesktopOAuthError::CredentialStoreUnavailable)
 }
@@ -703,6 +722,22 @@ fn valid_refresh_request_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
+#[cfg(windows)]
+fn load_native_refresh() -> Result<Option<Vec<u8>>, DesktopOAuthError> {
+    crate::windows_custody::load(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map_err(|_| DesktopOAuthError::CredentialStoreUnavailable)
+}
+#[cfg(windows)]
+fn store_native_refresh_bytes(value: &[u8]) -> Result<(), DesktopOAuthError> {
+    crate::windows_custody::store(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, value)
+        .map_err(|_| DesktopOAuthError::CredentialStoreUnavailable)
+}
+#[cfg(windows)]
+fn clear_native_refresh() -> Result<(), DesktopOAuthError> {
+    crate::windows_custody::delete(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map_err(|_| DesktopOAuthError::CredentialStoreUnavailable)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -726,6 +761,58 @@ mod tests {
             "S".repeat(43),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn forced_reauthentication_is_fixed_and_survives_device_proof() {
+        let identity = identity();
+        let attempt = DesktopOAuthAttempt::begin_forced_takeover_reauthentication(
+            "https://cloud.gooddealer.test/",
+            &identity,
+            PORT,
+        )
+        .unwrap();
+        let state = attempt
+            .authorization_url()
+            .query_pairs()
+            .find(|(key, _)| key == "state")
+            .unwrap()
+            .1
+            .into_owned();
+        assert_eq!(
+            attempt
+                .authorization_url()
+                .query_pairs()
+                .filter(|(key, _)| key == "require_reauth")
+                .map(|(_, value)| value.into_owned())
+                .collect::<Vec<_>>(),
+            ["true"]
+        );
+        let callback = Url::parse(&format!(
+            "{CALLBACK}?account_id=account-a&challenge_id=login-challenge-a&device_id=device-a&expires_at=2026-09-01T00%3A02%3A00Z&key_id=device-key-a&nonce_digest={}&state={state}",
+            "N".repeat(43)
+        )).unwrap();
+        let DesktopOAuthContinuation::Authorize {
+            authorization_url, ..
+        } = attempt.advance(&callback, &identity).unwrap()
+        else {
+            panic!("proof required")
+        };
+        assert_eq!(
+            authorization_url
+                .query_pairs()
+                .filter(|(key, _)| key == "require_reauth")
+                .map(|(_, value)| value.into_owned())
+                .collect::<Vec<_>>(),
+            ["true"]
+        );
+        assert!(
+            !DesktopOAuthAttempt::begin("https://cloud.gooddealer.test/", &identity, PORT)
+                .unwrap()
+                .authorization_url()
+                .query_pairs()
+                .any(|(key, _)| key == "require_reauth")
+        );
     }
 
     #[test]

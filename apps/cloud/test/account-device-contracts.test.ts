@@ -93,6 +93,6 @@ describe("Cloud account and device ingress", () => {
     expect(authSessionStatusSchema.safeParse(vector(accountVectors, "invalid/auth-session-unknown-field.json")).success).toBe(false);
     expect(entitlementProjectionSchema.safeParse(vector(accountVectors, "invalid/entitlement-projection-with-payment-watermark.json")).success).toBe(false);
     expect(deviceBindingListSchema.safeParse(vector(deviceVectors, "invalid/binding-list-three-bound.json")).success).toBe(false);
-    expect(deviceSwitchRequestSchema.safeParse(vector(deviceVectors, "invalid/switch-forced-without-reauth-proof.json")).success).toBe(false);
+    expect(deviceSwitchRequestSchema.safeParse(vector(deviceVectors, "invalid/switch-forced-without-source-epoch.json")).success).toBe(false);
   });
 });

@@ -1,0 +1,428 @@
+// @vitest-environment happy-dom
+import { parseCloudflareRegistrarAccountStatus, parseSedoMarketplaceStatus, type AliyunRegistrarStatus, type AtomMarketplaceStatus, type CloudflareRegistrarAccountStatus, type GoDaddyRegistrarStatus, type PorkbunRegistrarStatus, type SedoMarketplaceStatus, type SellerHubStatus, type SpaceshipRegistrarStatus } from "@gooddealer/client-core";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { expect, it, vi } from "vitest";
+import { AliyunRegistrarPanel, AtomMarketplacePanel, CloudflareRegistrarAccountPanel, GoDaddyRegistrarPanel, PorkbunRegistrarPanel, SedoMarketplacePanel, SellerHubPanel, SpaceshipRegistrarPanel } from "./account-inventory-panel";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+it("shows SellerHub as a role of the Spaceship connection without its own connect", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const connectionId = "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953";
+  const ready: SellerHubStatus = {
+    schemaVersion: 1, observeQualified: true, observeEntitled: true, capturable: true,
+    laneState: "ready", connections: [], lastOperation: null,
+  };
+  const saved: SellerHubStatus = {
+    ...ready,
+    connections: [{ connectionId, state: "active", scanPending: false,
+      lastScan: { observed: 2, imported: 2, skipped: 0, completedAt: "2026-11-20T00:00:00Z" } }],
+    lastOperation: { kind: "sellerhub_refresh", outcome: "confirmed" },
+  };
+  const status = vi.fn<() => Promise<SellerHubStatus>>().mockResolvedValueOnce(ready).mockResolvedValue(saved);
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const port = { status, submit };
+  const render = (writable: boolean) => root.render(<SellerHubPanel locale="zh-CN" port={port} writable={writable} onChanged={() => {}} />);
+  const connect = () => [...container.querySelectorAll("button")].find((node) => node.textContent?.startsWith("连接"));
+  const refresh = () => container.querySelector<HTMLButtonElement>('button[aria-label="刷新 SellerHub 挂牌 SellerHub"]');
+  try {
+    await act(async () => render(true));
+    expect(container.textContent).toContain("sellerhub:read");
+    expect(container.querySelector("input")).toBeNull();
+    expect(connect()).toBeUndefined();
+    await act(async () => root.render(<SellerHubPanel locale="zh-CN" port={port} writable onChanged={() => {}} key="saved" />));
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("SellerHub 归集结果已保存。");
+    await act(async () => refresh()!.click());
+    expect(submit).toHaveBeenNthCalledWith(1, { schemaVersion: 1, action: "refresh", connectionId });
+    await act(async () => render(false));
+    expect(connect()).toBeUndefined();
+    expect(refresh()).toBeNull();
+    expect(container.textContent).toContain("读取 2 个，新增 2 个，跳过 0 个。");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("connects once, reads the saved scan and preserves it after a later failed refresh", async () => {
+  vi.useFakeTimers();
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const initial: SpaceshipRegistrarStatus = {
+    schemaVersion: 1, laneState: "ready", observeEntitled: true, connectAvailable: true, observeQualified: true, capturable: true,
+    lastOperation: null, connections: [],
+  };
+  const id = "11111111-1111-4111-a111-111111111111";
+  const saved: SpaceshipRegistrarStatus = {
+    ...initial,
+    lastOperation: { kind: "spaceship_connect", outcome: "confirmed" },
+    connections: [{ connectionId: id, state: "active", scanPending: false,
+      lastScan: { observed: 4, imported: 3, skipped: 1, completedAt: "2026-11-20T00:00:00Z" } }],
+  };
+  const failed: SpaceshipRegistrarStatus = {
+    ...saved,
+    lastOperation: { kind: "spaceship_refresh", outcome: "provider_response_rejected" },
+  };
+  const port = {
+    submit: vi.fn(async () => undefined),
+    status: vi.fn<() => Promise<SpaceshipRegistrarStatus>>().mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce({ ...initial, laneState: "busy" })
+      .mockResolvedValueOnce(saved)
+      .mockResolvedValue(failed),
+  };
+  const onChanged = vi.fn();
+  const render = (writable: boolean) => root.render(<SpaceshipRegistrarPanel locale="zh-CN" port={port} writable={writable} onChanged={onChanged} />);
+  const button = (text: string) => [...container.querySelectorAll("button")].find((node) => node.textContent === text)!;
+  try {
+    await act(async () => render(true));
+    expect(container.querySelector("input")).toBeNull();
+    await act(async () => { button("连接 Spaceship").click(); button("连接 Spaceship").click(); });
+    expect(port.submit).toHaveBeenCalledExactlyOnceWith({ action: "connect", schemaVersion: 1 });
+    expect(button("连接 Spaceship").disabled).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(container.textContent).toContain("读取 4 个，新增 3 个，跳过 1 个。");
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    await act(async () => button("刷新注册域名").click());
+    expect(port.submit).toHaveBeenLastCalledWith({ action: "refresh", schemaVersion: 1, connectionId: id });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("未通过校验");
+    expect(container.textContent).toContain("读取 4 个，新增 3 个，跳过 1 个。");
+    await act(async () => render(false));
+    expect(button("连接 Spaceship")).toBeUndefined();
+    expect(button("断开连接")).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.useRealTimers();
+  }
+});
+
+
+it("uses the Aliyun port and customer copy with the same durable registrar panel", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const ready: AliyunRegistrarStatus = {
+    schemaVersion: 1, observeQualified: true, observeEntitled: true, capturable: true,
+    laneState: "ready", connections: [], lastOperation: null,
+  };
+  const saved: AliyunRegistrarStatus = {
+    ...ready,
+    connections: [{
+      connectionId: "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953", state: "active", scanPending: false,
+      lastScan: { observed: 2, imported: 2, skipped: 0, completedAt: "2026-11-20T00:00:00Z" },
+    }],
+    lastOperation: { kind: "aliyun_connect", outcome: "confirmed" },
+  };
+  const status = vi.fn<() => Promise<AliyunRegistrarStatus>>().mockResolvedValueOnce(ready).mockResolvedValue(saved);
+  try {
+    await act(async () => {
+      root.render(<AliyunRegistrarPanel locale="zh-CN" port={{ status, submit }} writable onChanged={() => {}} />);
+    });
+    const connect = [...container.querySelectorAll("button")].find((button) => button.textContent === "连接阿里云")!;
+    await act(async () => { connect.click(); });
+    expect(submit).toHaveBeenCalledWith({ schemaVersion: 1, action: "connect" });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("阿里云归集结果已保存");
+    expect(container.textContent).not.toContain("Spaceship");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("sends only the GoDaddy account intent and retains the saved result in read-only mode", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const connectionId = "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953";
+  const ready: GoDaddyRegistrarStatus = {
+    schemaVersion: 1, observeQualified: true, observeEntitled: true, capturable: true,
+    laneState: "ready", connections: [], lastOperation: null,
+  };
+  const saved: GoDaddyRegistrarStatus = {
+    ...ready,
+    connections: [{ connectionId, state: "active", scanPending: false,
+      lastScan: { observed: 2, imported: 2, skipped: 0, completedAt: "2026-11-20T00:00:00Z" } }],
+    lastOperation: { kind: "godaddy_connect", outcome: "confirmed" },
+  };
+  const status = vi.fn<() => Promise<GoDaddyRegistrarStatus>>().mockResolvedValueOnce(ready).mockResolvedValue(saved);
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const port = { status, submit };
+  const render = (writable: boolean) => root.render(<GoDaddyRegistrarPanel locale="zh-CN" port={port} writable={writable} onChanged={() => {}} />);
+  const connect = () => [...container.querySelectorAll("button")].find((node) => node.textContent === "连接 GoDaddy");
+  const refresh = () => container.querySelector<HTMLButtonElement>('button[aria-label="刷新注册域名 GoDaddy"]');
+  try {
+    await act(async () => render(true));
+    expect(container.querySelector("input")).toBeNull();
+    await act(async () => connect()!.click());
+    expect(submit).toHaveBeenNthCalledWith(1, { schemaVersion: 1, action: "connect" });
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("GoDaddy 归集结果已保存。");
+    await act(async () => refresh()!.click());
+    expect(submit).toHaveBeenNthCalledWith(2, { schemaVersion: 1, action: "refresh", connectionId });
+    await act(async () => render(false));
+    expect(connect()).toBeUndefined();
+    expect(refresh()).toBeNull();
+    expect(container.textContent).toContain("读取 2 个，新增 2 个，跳过 0 个。");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("sends only the Porkbun account intent and retains the saved result in read-only mode", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const connectionId = "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953";
+  const ready: PorkbunRegistrarStatus = {
+    schemaVersion: 1, observeQualified: true, observeEntitled: true, dnsObserve: { qualified: false, entitled: true },
+    capturable: true, laneState: "ready", connections: [], lastOperation: null,
+  };
+  const saved: PorkbunRegistrarStatus = {
+    ...ready,
+    connections: [{ connectionId, state: "active", scanPending: false,
+      lastScan: { observed: 2, imported: 2, skipped: 0, completedAt: "2026-11-20T00:00:00Z" } }],
+    lastOperation: { kind: "porkbun_connect", outcome: "confirmed" },
+  };
+  const status = vi.fn<() => Promise<PorkbunRegistrarStatus>>().mockResolvedValueOnce(ready).mockResolvedValue(saved);
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const port = { status, submit };
+  const render = (writable: boolean) => root.render(<PorkbunRegistrarPanel locale="zh-CN" port={port} writable={writable} onChanged={() => {}} />);
+  const connect = () => [...container.querySelectorAll("button")].find((node) => node.textContent === "连接 Porkbun");
+  const refresh = () => container.querySelector<HTMLButtonElement>('button[aria-label="刷新注册域名 Porkbun"]');
+  try {
+    await act(async () => render(true));
+    expect(container.querySelector("input")).toBeNull();
+    await act(async () => connect()!.click());
+    expect(submit).toHaveBeenNthCalledWith(1, { schemaVersion: 1, action: "connect" });
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("Porkbun 归集结果已保存。");
+    await act(async () => refresh()!.click());
+    expect(submit).toHaveBeenNthCalledWith(2, { schemaVersion: 1, action: "refresh", connectionId });
+    await act(async () => render(false));
+    expect(connect()).toBeUndefined();
+    expect(refresh()).toBeNull();
+    expect(container.textContent).toContain("读取 2 个，新增 2 个，跳过 0 个。");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("keeps the Porkbun DNS read unavailable until qualified and sends only the canonical domain", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const connectionId = "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953";
+  const unqualified: PorkbunRegistrarStatus = {
+    schemaVersion: 1, observeQualified: true, observeEntitled: true, dnsObserve: { qualified: false, entitled: true },
+    capturable: true, laneState: "ready", lastOperation: null,
+    connections: [{ connectionId, state: "active", scanPending: false,
+      lastScan: { observed: 1, imported: 1, skipped: 0, completedAt: "2026-11-24T00:00:00Z" } }],
+  };
+  const qualified: PorkbunRegistrarStatus = { ...unqualified, dnsObserve: { qualified: true, entitled: true } };
+  const answered: PorkbunRegistrarStatus = { ...qualified, lastOperation: { kind: "porkbun_dns_observe", outcome: "answered_elsewhere" } };
+  const status = vi.fn<() => Promise<PorkbunRegistrarStatus>>().mockResolvedValueOnce(unqualified)
+    .mockResolvedValueOnce(qualified).mockResolvedValue(answered);
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const render = () => root.render(<PorkbunRegistrarPanel locale="zh-CN" port={{ status, submit }} writable onChanged={() => {}} />);
+  const read = () => container.querySelector<HTMLButtonElement>('button[aria-label="读取 DNS 记录 Porkbun"]')!;
+  const input = () => container.querySelector<HTMLInputElement>("input")!;
+  try {
+    await act(async () => render());
+    expect(container.textContent).toContain("Porkbun DNS 记录读取尚未通过资格认证，暂不可用。");
+    // The shared domain field stays usable for the qualified inventory's delegation read.
+    expect(input().disabled).toBe(false);
+    expect(read().disabled).toBe(true);
+    await act(async () => [...container.querySelectorAll("button")].find((node) => node.textContent === "刷新状态")!.click());
+    expect(input().disabled).toBe(false);
+    expect(read().disabled).toBe(true);
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input(), " Example.COM ");
+      input().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => read().click());
+    expect(submit).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 1, action: "observe-dns", connectionId, domain: "example.com" });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("可能由其他 nameserver 应答");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("reads delegation only under the inventory's qualification and reports its own outcome", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const connectionId = "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953";
+  const unqualified: PorkbunRegistrarStatus = {
+    schemaVersion: 1, observeQualified: false, observeEntitled: true, dnsObserve: { qualified: false, entitled: true },
+    capturable: true, laneState: "ready", lastOperation: null,
+    connections: [{ connectionId, state: "active", scanPending: false,
+      lastScan: { observed: 1, imported: 1, skipped: 0, completedAt: "2026-11-24T00:00:00Z" } }],
+  };
+  const qualified: PorkbunRegistrarStatus = { ...unqualified, observeQualified: true };
+  const done: PorkbunRegistrarStatus = { ...qualified, lastOperation: { kind: "porkbun_delegation_observe", outcome: "confirmed" } };
+  const status = vi.fn<() => Promise<PorkbunRegistrarStatus>>().mockResolvedValueOnce(unqualified)
+    .mockResolvedValueOnce(qualified).mockResolvedValue(done);
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const render = () => root.render(<PorkbunRegistrarPanel locale="zh-CN" port={{ status, submit }} writable onChanged={() => {}} />);
+  const read = () => container.querySelector<HTMLButtonElement>('button[aria-label="读取委派 Porkbun"]')!;
+  const input = () => container.querySelector<HTMLInputElement>("input")!;
+  try {
+    await act(async () => render());
+    expect(input().disabled).toBe(true);
+    expect(read().disabled).toBe(true);
+    await act(async () => [...container.querySelectorAll("button")].find((node) => node.textContent === "刷新状态")!.click());
+    expect(read().disabled).toBe(true);
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input(), " Example.COM ");
+      input().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => read().click());
+    expect(submit).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 1, action: "observe-delegation", connectionId, domain: "example.com" });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("已保存注册局登记的 nameserver");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("shows Atom portfolio results and only sends bound seller inventory intents", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const connectionId = "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953";
+  const saved: AtomMarketplaceStatus = {
+    schemaVersion: 1, observeQualified: true, observeEntitled: true, capturable: true,
+    laneState: "ready", connections: [{ connectionId, state: "active", scanPending: false,
+      lastScan: { observed: 3, imported: 1, skipped: 0, completedAt: "2026-11-20T00:00:00Z",
+        standardReview: { observed: 2, sample: ["first.test", "second.test"] } } }],
+    lastOperation: { kind: "atom_connect", outcome: "confirmed" },
+  };
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const status = vi.fn<() => Promise<AtomMarketplaceStatus>>().mockResolvedValueOnce(saved)
+    .mockResolvedValue({ ...saved, connections: saved.connections.map((connection) => ({
+      ...connection, lastScan: { ...connection.lastScan!, standardReview: null },
+    })) });
+  try {
+    await act(async () => {
+      root.render(<AtomMarketplacePanel locale="zh-CN" port={{ status, submit }} writable onChanged={() => {}} />);
+    });
+    expect(container.querySelector("input")).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("Atom 卖家库存已保存。");
+    expect(container.textContent).toContain("最近一次扫描核对了 2 个已归集的 Standard 挂牌。");
+    expect(container.querySelector("details summary")?.textContent).toBe("查看本次扫描中的 2 个域名");
+    expect(container.querySelector("details")?.textContent).toContain("first.test");
+    const refresh = container.querySelector<HTMLButtonElement>('button[aria-label="刷新卖家库存 Atom"]')!;
+    await act(async () => { refresh.click(); });
+    expect(submit).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 1, action: "refresh", connectionId });
+    expect(container.textContent).toContain("没有可核对的 Standard 挂牌明细");
+    expect(container.querySelector("details")).toBeNull();
+    expect(container.textContent).toContain("读取 3 个，新增 1 个，跳过 0 个。");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("connects a Cloudflare account without a Zone, and refreshes only a published slot", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const connectionId = "11111111-1111-4111-a111-111111111111";
+  const summary: CloudflareRegistrarAccountStatus = {
+    schemaVersion: 1, laneState: "ready", observeQualified: true, observeEntitled: true, capturable: true,
+    lastOperation: null, connections: [{ connectionId, state: "prepared", lastScan: null, scanPending: false }],
+  };
+  const scan: CloudflareRegistrarAccountStatus = {
+    ...summary, lastOperation: { kind: "cloudflare_registrar_account_connect", outcome: "confirmed" },
+    connections: [{ connectionId, state: "active", scanPending: false,
+      lastScan: { observed: 2, imported: 1, skipped: 0, completedAt: "2026-11-20T00:00:00Z" } }],
+  };
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const status = vi.fn<() => Promise<CloudflareRegistrarAccountStatus>>().mockResolvedValueOnce(summary).mockResolvedValue(scan);
+  const button = (label: string) => [...container.querySelectorAll("button")].find((node) => node.textContent === label);
+  expect(parseCloudflareRegistrarAccountStatus(summary)).toEqual(summary);
+  expect(() => parseCloudflareRegistrarAccountStatus({ ...summary, accountId: "forbidden" })).toThrow();
+  try {
+    await act(async () => {
+      root.render(<CloudflareRegistrarAccountPanel locale="zh-CN" port={{ status, submit }} writable onChanged={() => {}} />);
+    });
+    expect(container.querySelector("input")).toBeNull();
+    expect(button("刷新注册域名")).toBeUndefined();
+    await act(async () => { button("连接 Cloudflare Registrar")!.click(); });
+    expect(submit).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 1, action: "connect" });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("归集结果已保存");
+    await act(async () => { button("刷新注册域名")!.click(); });
+    expect(submit).toHaveBeenLastCalledWith({ schemaVersion: 1, action: "refresh", connectionId });
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("opens Sedo's Native connection flow and retains the saved scan after scope is lost", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  let root = createRoot(container);
+  const connectionId = "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953";
+  const initial: SedoMarketplaceStatus = {
+    schemaVersion: 1, observeQualified: true, observeEntitled: true, capturable: true,
+    laneState: "ready", connections: [], lastOperation: null,
+  };
+  const saved: SedoMarketplaceStatus = {
+    ...initial,
+    connections: [{ connectionId, state: "active", scanPending: false,
+      lastScan: { observed: 2, imported: 1, skipped: 0, completedAt: "2026-11-20T00:00:00Z" } }],
+    lastOperation: { kind: "sedo_connect", outcome: "confirmed" },
+  };
+  const status = vi.fn<() => Promise<SedoMarketplaceStatus>>()
+    .mockResolvedValueOnce({ ...initial, observeQualified: false })
+    .mockResolvedValueOnce(initial)
+    .mockResolvedValueOnce(saved)
+    .mockResolvedValue({ ...saved, observeEntitled: false, lastOperation: null });
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const port = { status, submit };
+  const render = () => root.render(<SedoMarketplacePanel locale="zh-CN" port={port} writable onChanged={() => {}} />);
+  const button = (text: string) => [...container.querySelectorAll("button")].find((node) => node.textContent === text)!;
+  expect(parseSedoMarketplaceStatus(saved)).toEqual(saved);
+  expect(() => parseSedoMarketplaceStatus({
+    ...saved, connections: [{ ...saved.connections[0], username: "forbidden" }],
+  })).toThrow();
+  try {
+    await act(async () => render());
+    expect(button("连接 Sedo").disabled).toBe(true);
+    await act(async () => button("刷新状态").click());
+    expect(container.querySelector("input")).toBeNull();
+    await act(async () => button("连接 Sedo").click());
+    expect(submit).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 1, action: "connect" });
+    expect(container.textContent).toContain("Sedo 卖家库存已保存。");
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => render());
+    expect(container.textContent).toContain("读取 2 个，新增 1 个，跳过 0 个。");
+    expect(button("刷新 Sedo 库存").disabled).toBe(true);
+    expect(button("连接 Sedo").disabled).toBe(true);
+    expect(button("断开连接").disabled).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("offers the Spaceship connect when only the SellerHub role is entitled", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const status: SpaceshipRegistrarStatus = {
+    schemaVersion: 1, laneState: "ready", observeEntitled: false, connectAvailable: true, observeQualified: true,
+    capturable: true, lastOperation: null, connections: [],
+  };
+  const port = { status: vi.fn(async () => status), submit: vi.fn(async () => undefined) };
+  const connect = () => [...container.querySelectorAll("button")].find((node) => node.textContent === "连接 Spaceship")!;
+  try {
+    await act(async () => root.render(<SpaceshipRegistrarPanel locale="zh-CN" port={port} writable onChanged={() => {}} />));
+    expect(connect().disabled).toBe(false);
+    port.status.mockResolvedValue({ ...status, connectAvailable: false });
+    await act(async () => root.render(<SpaceshipRegistrarPanel locale="zh-CN" port={{ ...port }} writable onChanged={() => {}} />));
+    expect(connect().disabled).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});

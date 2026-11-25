@@ -15,3 +15,6 @@ apps/cloud/.vitest/
 .env
 .env.*
 !.env.example
+
+# Local acceptance asset checklist (non-secret, per machine).
+/local.env

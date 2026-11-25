@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  desktopAuthorizationGrantRequestSchema,
+  desktopAuthorizationGrantRoleRequestSchema,
   desktopAuthorizationGrantSchema,
   encodeDesktopAuthorizationGrantSignatureTranscript,
 } from "../src/devices/index";
@@ -36,8 +36,8 @@ const activeDeviceLease = {
 } as const;
 
 const desktopGrant = {
-  schemaVersion: 3,
-  typ: "gd.desktop-authorization-grant.v3",
+  schemaVersion: 4,
+  typ: "gd.desktop-authorization-grant.v4",
   iss: "https://accounts.gooddealer.com",
   aud: "gooddealer-desktop/local-business",
   kid: "grant-key-1",
@@ -47,22 +47,23 @@ const desktopGrant = {
   activeDeviceLease,
   scopes: ["workspace:mutate", "workspace:read"],
   commercialAuthority: {
-    schemaVersion: 1,
+    schemaVersion: 2,
     entitlementRevision: 9,
     entitlementProjectionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     state: "active",
     commercialExpiresAt: "2026-08-29T23:00:00Z",
-    capability: "cloudflare:dns:observe",
+    capabilities: ["cloudflare:dns:observe"],
   },
   signature: "fixture-grant-signature",
 } as const;
 
 const mutation = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   mutationId: "mutation-1",
   workspaceSchemaVersion: 1,
   entityType: "domain_asset",
   entityId: "example.test",
+  entityGeneration: 1,
   operationKind: "upsert",
   baseServerRevision: 0,
   changedFields: [{ fieldPath: "note", value: "local note" }],
@@ -73,8 +74,8 @@ const mutation = {
 
 describe("first-slice shared transport contract", () => {
   it("binds the personal default workspace to a strictly parsed active-device grant", () => {
-    expect(desktopAuthorizationGrantRequestSchema.parse({ schemaVersion: 3 })).toEqual({
-      schemaVersion: 3,
+    expect(desktopAuthorizationGrantRoleRequestSchema.parse({ schemaVersion: 5 })).toEqual({
+      schemaVersion: 5,
     });
     expect(desktopAuthorizationGrantSchema.parse(desktopGrant))
       .toMatchObject({ workspace: { workspaceId: "workspace-local" } });
@@ -86,7 +87,7 @@ describe("first-slice shared transport contract", () => {
       (value, byte) => BigInt.asUintN(64, (value ^ BigInt(byte)) * 0x100000001b3n),
       0xcbf29ce484222325n,
     );
-    expect([transcript.length, hash.toString(16)]).toEqual([1562, "86a8523c3848bf9a"]);
+    expect([transcript.length, hash.toString(16)]).toEqual([1572, "1b57f5da30e4785"]);
   });
 
   it("rejects V2 and malformed commercial authority without fallback", () => {
@@ -96,12 +97,12 @@ describe("first-slice shared transport contract", () => {
   });
 
   it.each([
-    { schemaVersion: 3, accountId: "account-1" },
-    { schemaVersion: 3, workspaceId: "workspace-1" },
-    { schemaVersion: 3, deviceId: "device-1" },
-    { schemaVersion: 3, credentialRef: "secret" },
+    { schemaVersion: 5, accountId: "account-1" },
+    { schemaVersion: 5, workspaceId: "workspace-1" },
+    { schemaVersion: 5, deviceId: "device-1" },
+    { schemaVersion: 5, credentialRef: "secret" },
   ])("rejects caller-selected authorization scope %#", (value) => {
-    expect(desktopAuthorizationGrantRequestSchema.safeParse(value).success).toBe(false);
+    expect(desktopAuthorizationGrantRoleRequestSchema.safeParse(value).success).toBe(false);
   });
 
   it("freezes tenant-neutral push, pull, checkpoint, and recovery operation names", () => {
@@ -114,18 +115,23 @@ describe("first-slice shared transport contract", () => {
   });
 
   it("accepts only tenant-neutral mutation push and progress requests", () => {
-    expect(workspaceMutationPushRequestSchema.parse({ schemaVersion: 2, mutations: [mutation] }))
-      .toEqual({ schemaVersion: 2, mutations: [mutation] });
+    expect(workspaceMutationPushRequestSchema.parse({ schemaVersion: 3, mutations: [mutation] }))
+      .toEqual({ schemaVersion: 3, mutations: [mutation] });
+    // Version 2 mutation wire is refused, never upgraded in place.
+    expect(workspaceMutationPushRequestSchema.safeParse({
+      schemaVersion: 2, mutations: [{ ...mutation, schemaVersion: 2 }],
+    }).success).toBe(false);
     expect(workspaceMutationPullRequestSchema.parse({
-      schemaVersion: 2,
+      schemaVersion: 3,
       afterServerRevision: 0,
       cursor: null,
       pageLimit: 64,
       confirm: null,
     })).toMatchObject({ afterServerRevision: 0, cursor: null });
-    expect(workspaceCheckpointReadRequestSchema.parse({ schemaVersion: 2 })).toEqual({
-      schemaVersion: 2,
+    expect(workspaceCheckpointReadRequestSchema.parse({ schemaVersion: 3 })).toEqual({
+      schemaVersion: 3,
     });
+    expect(workspaceCheckpointReadRequestSchema.safeParse({ schemaVersion: 2 }).success).toBe(false);
   });
 
   it.each([
@@ -134,7 +140,7 @@ describe("first-slice shared transport contract", () => {
     { ...mutation, providerAccountId: "provider-account" },
     { ...mutation, accessToken: "secret" },
   ])("rejects tenant, Provider identity, and secret fields from mutation wire items %#", (value) => {
-    expect(workspaceMutationPushRequestSchema.safeParse({ schemaVersion: 2, mutations: [value] }).success)
+    expect(workspaceMutationPushRequestSchema.safeParse({ schemaVersion: 3, mutations: [value] }).success)
       .toBe(false);
   });
 

@@ -4,26 +4,95 @@ import { extname, resolve } from "node:path";
 const commandName = "[a-z][a-z0-9_]*";
 const defaultRoot = resolve(import.meta.dirname, "..");
 const reviewedCommands = [
+  "afternic_connection_connect",
+  "afternic_connection_revoke",
+  "afternic_connection_status",
+  "afternic_delist_approve",
+  "afternic_delist_preview",
+  "afternic_delist_status",
+  "afternic_inventory_refresh",
+  "afternic_listing_plan_approve",
+  "afternic_listing_plan_preview",
+  "afternic_listing_plan_status",
+  "afternic_listing_write_approve",
+  "afternic_listing_write_preview",
+  "afternic_listing_write_status",
+  "aliyun_registrar_status",
+  "aliyun_registrar_submit",
+  "atom_marketplace_status",
+  "atom_marketplace_submit",
+  "atom_standard_delist_approve",
+  "atom_standard_delist_preview",
+  "atom_standard_delist_status",
   "cloudflare_connection_activate",
+  "cloudflare_connection_create",
+  "cloudflare_connection_purge",
+  "cloudflare_connection_revoke",
   "cloudflare_connection_status",
   "cloudflare_observation_read",
+  "cloudflare_registrar_account_status",
+  "cloudflare_registrar_account_submit",
+  "cloudflare_registrar_inventory_refresh",
+  "cloudflare_retirement_candidates",
   "cloudflare_zone_observe",
   "desktop_authentication_begin",
   "desktop_authentication_refresh",
   "desktop_authentication_status",
+  "device_directory_read",
+  "device_self_report",
+  "device_switch_advance",
+  "device_switch_cancel",
+  "device_switch_request",
+  "device_switch_status",
+  "forced_takeover_cancel",
+  "forced_takeover_confirm",
+  "forced_takeover_preview",
+  "forced_takeover_reauthenticate",
+  "forced_takeover_status",
+  "godaddy_registrar_status",
+  "godaddy_registrar_submit",
   "local_asset_library_read",
   "local_backup_artifact_select",
   "local_backup_export",
   "local_backup_restore_begin",
   "local_backup_restore_status",
+  "local_batch_operations_read",
   "local_business_status",
   "local_conflict_center_read",
   "local_conflict_resolve",
+  "local_device_lease_read",
+  "local_dns_health_read",
+  "local_domain_asset_create",
   "local_domain_asset_delete",
   "local_domain_asset_edit",
   "local_domain_asset_provider_bind",
   "local_domain_detail_read",
+  "local_history_read",
+  "local_manual_tasks_read",
+  "local_portable_backup",
+  "local_renewals_read",
+  "local_sales_read",
+  "local_settings_read",
+  "local_storage_repair",
   "local_sync_status",
+  "porkbun_registrar_status",
+  "porkbun_registrar_submit",
+  "sedo_marketplace_status",
+  "sedo_marketplace_submit",
+  "sellerhub_bin_price_approve",
+  "sellerhub_bin_price_preview",
+  "sellerhub_bin_price_status",
+  "sellerhub_create_approve",
+  "sellerhub_create_preview",
+  "sellerhub_create_status",
+  "sellerhub_status",
+  "sellerhub_submit",
+  "spaceship_registrar_status",
+  "spaceship_registrar_submit",
+  "target_bootstrap_cancel",
+  "target_bootstrap_status",
+  "target_installation_start",
+  "target_installation_status",
 ];
 const reviewedAdapterCommands = reviewedCommands.filter(
   (command) => !command.startsWith("local_backup_"),
@@ -122,17 +191,17 @@ function attributedCommandBlock(sources, command) {
 function hasRawBackupCommand(sources, command, aggregateMethod) {
   const source = attributedCommandBlock(sources, command);
   const body = rustFunctionBody(source, command);
+  const canImport = command === "local_portable_backup";
+  const syncState = canImport ? ",\\s*coordinator\\s*:\\s*State\\s*<\\s*'_,\\s*Arc\\s*<\\s*NativeCloudCoordinator\\s*>\\s*>\\s*" : "";
   const signature = new RegExp(
-    `fn\\s+${command}\\s*\\(\\s*request\\s*:\\s*tauri::ipc::Request\\s*<\\s*'_\\s*>\\s*,\\s*host\\s*:\\s*State\\s*<\\s*'_,\\s*Arc\\s*<\\s*DesktopLocalHost\\s*>\\s*>\\s*,?\\s*\\)`,
+    `fn\\s+${command}\\s*\\(\\s*request\\s*:\\s*tauri::ipc::Request\\s*<\\s*'_\\s*>\\s*,\\s*host\\s*:\\s*State\\s*<\\s*'_,\\s*Arc\\s*<\\s*DesktopLocalHost\\s*>\\s*>\\s*${syncState},?\\s*\\)`,
     "u",
   );
-  const exactBody = new RegExp(
-    `^let wire = bounded_request_wire\\(&request\\)\\?; let aggregate = Arc::clone\\(host\\.inner\\(\\)\\); tauri::async_runtime::spawn_blocking\\(move \\|\\| aggregate\\.${aggregateMethod}\\(&wire\\)\\) \\.await \\.map_err\\(\\|_\\| "BACKUP_STORAGE_REJECTED"\\.to_owned\\(\\)\\)\\? \\.map_err\\(map_desktop_backup_error\\)$`,
-    "u",
-  );
-  return signature.test(source)
-    && body !== ""
-    && exactBody.test(normalizeRust(body));
+  const call = `tauri::async_runtime::spawn_blocking(move || aggregate.${aggregateMethod}(&wire)) .await .map_err(|_| "BACKUP_STORAGE_REJECTED".to_owned())? .map_err(map_desktop_backup_error)`;
+  const exactBody = "let wire = bounded_request_wire(&request)?; let aggregate = Arc::clone(host.inner()); " + (canImport
+    ? `let result = ${call}?; if result.get("state").and_then(serde_json::Value::as_str) == Some("import_applied") { coordinator.wake_sync(); } Ok(result)`
+    : call);
+  return signature.test(source) && normalizeRust(body) === exactBody;
 }
 
 function normalizeRust(source) {
@@ -221,12 +290,28 @@ export function capabilityCommands(capability) {
   );
 }
 
-export function adapterCommands(source) {
-  return unique([...source.matchAll(new RegExp(`"(${commandName})"`, "g"))]
+export function adapterCommands(source, { literalInvocationsOnly = false } = {}) {
+  if (literalInvocationsOnly) {
+    return unique([...source.matchAll(new RegExp(
+      `\\binvoke(?:<[^>\\n]+>)?\\s*\\(\\s*["'](${commandName})["']`, "g",
+    ))].map((match) => match[1]));
+  }
+  // Business states share these command prefixes. Only literal invoke calls add
+  // executable commands; data strings must not expand the reviewed IPC surface.
+  const boundedInvocations = new Set([...source.matchAll(
+    /\binvoke(?:<[^>\n]+>)?\s*\(\s*["']((?:target_installation|forced_takeover)_[a-z0-9_]+)["']/g,
+  )].map((match) => match[1]));
+  const commands = [...source.matchAll(new RegExp(`"(${commandName})"`, "g"))]
     .map((match) => match[1])
     .filter((command) => command.startsWith("local_")
       || command.startsWith("desktop_authentication_")
-      || command.startsWith("cloudflare_")));
+      || command.startsWith("cloudflare_")
+      || command.startsWith("afternic_")
+      || command.startsWith("device_switch_")
+      || command.startsWith("target_bootstrap_")
+      || command.startsWith("device_directory_")
+      || command.startsWith("device_self_"));
+  return unique([...commands, ...boundedInvocations]);
 }
 
 export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
@@ -241,13 +326,29 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
   );
   const buildSource = requiredRegularFile(root, "apps/desktop/src-tauri/build.rs", errors);
   const mainSource = requiredRegularFile(root, "apps/desktop/src-tauri/src/main.rs", errors);
+  const executionContextSource = requiredRegularFile(root, "apps/desktop/src-tauri/src/execution_context_native.rs", errors);
   const capabilitySource = requiredRegularFile(
     root,
     "apps/desktop/src-tauri/capabilities/local-app.json",
     errors,
   );
-  const adapterPath = "apps/desktop/src/adapters/tauri/index.ts";
-  const adapterSource = requiredRegularFile(root, adapterPath, errors);
+  const adapterSources = [
+    "apps/desktop/src/adapters/tauri/index.ts",
+    "apps/desktop/src/adapters/tauri/afternic.ts",
+    "apps/desktop/src/adapters/tauri/afternic-delist.ts",
+    "apps/desktop/src/adapters/tauri/forced-takeover.ts",
+    "apps/desktop/src/adapters/tauri/afternic-listing-plan.ts",
+    "apps/desktop/src/adapters/tauri/afternic-listing-write.ts",
+    "apps/desktop/src/adapters/tauri/spaceship-registrar.ts",
+    "apps/desktop/src/adapters/tauri/sellerhub.ts",
+    "apps/desktop/src/adapters/tauri/aliyun-registrar.ts",
+    "apps/desktop/src/adapters/tauri/godaddy-registrar.ts",
+    "apps/desktop/src/adapters/tauri/porkbun-registrar.ts",
+    "apps/desktop/src/adapters/tauri/atom-marketplace.ts",
+    "apps/desktop/src/adapters/tauri/sedo-marketplace.ts",
+    "apps/desktop/src/adapters/tauri/cloudflare-registrar-account.ts",
+    "apps/desktop/src/adapters/tauri/portable-backup.ts",
+  ].map((path) => requiredRegularFile(root, path, errors));
   const desktopManifest = requiredRegularFile(root, "apps/desktop/src-tauri/Cargo.toml", errors);
   const backupIpcSource = requiredRegularFile(
     root,
@@ -258,8 +359,9 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
   if (
     buildSource === null ||
     mainSource === null ||
+    executionContextSource === null ||
     capabilitySource === null ||
-    adapterSource === null ||
+    adapterSources.some((source) => source === null) ||
     desktopManifest === null ||
     backupIpcSource === null ||
     errors.length > 0
@@ -288,7 +390,9 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     handler: handlerCommands(mainSource),
     attributed: attributedCommands(sources),
     capability: capabilityCommands(capability),
-    adapter: adapterCommands(adapterSource),
+    adapter: unique(adapterSources.flatMap((source, index) => adapterCommands(source, {
+      literalInvocationsOnly: index === 3 || index === 4 || index >= 6,
+    }))),
   };
   for (const [name, commands] of Object.entries(sets)) {
     const expected = name === "adapter" ? reviewedAdapterCommands : reviewedCommands;
@@ -318,7 +422,11 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
 
   const rustSource = sources.join("\n");
   if (
-    mainSource.match(/DesktopLocalHost::production\s*\(/gu)?.length !== 1 ||
+    mainSource.match(/execution_context_native::production_host\s*\(/gu)?.length !== 1 ||
+    /DesktopLocalHost::production\b/u.test(rustSource) ||
+    rustSource.match(/DesktopLocalHost::production_with_execution_context\s*\(/gu)?.length !== 1 ||
+    !/let host = DesktopLocalHost::production_with_execution_context\(root, native\)\?;/u.test(executionContextSource) ||
+    !/Ok\(host\)\s*$/u.test(rustFunctionBody(executionContextSource, "production_host")) ||
     !/app\.manage\s*\(\s*Arc::clone\s*\(\s*&local_host\s*\)\s*\)/u.test(mainSource)
   ) {
     errors.push("Desktop startup must construct and manage exactly one local-host aggregate");
@@ -340,6 +448,7 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
     ["local_backup_export", "export_backup"],
     ["local_backup_artifact_select", "inspect_backup"],
     ["local_backup_restore_begin", "restore_backup"],
+    ["local_portable_backup", "portable_backup"],
   ]) {
     if (!hasRawBackupCommand(sources, command, method)) {
       errors.push(`${command} must use bounded raw IPC and one blocking aggregate call`);
@@ -387,8 +496,8 @@ export function tauriCommandPolicyErrors({ root = defaultRoot } = {}) {
       errors.push(`Desktop local-host internals must not expose ${forbidden}`);
     }
   }
-  if (/gooddealer_local_storage::backup::/u.test(rustSource)) {
-    errors.push("Desktop must not deep-import the local-storage backup implementation");
+  if (/gooddealer_local_storage::(?:backup|desktop_local_host)::/u.test(rustSource)) {
+    errors.push("Desktop must not deep-import the local-storage Host implementation");
   }
   if (desktopManifest.includes("backup-test-adapter")) {
     errors.push("Desktop must not activate a backup test adapter feature");

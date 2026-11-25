@@ -56,7 +56,7 @@ Transport、Environment、任意 endpoint 或原始 Provider 错误。所有 Pro
   失效，失败投递按有界退避重试并进入 durable terminal state。密码恢复推进 Security Epoch 并撤销
   全部 Session；登录先撤销已呈现的有效旧 Session，退出撤销精确 family。
 - Desktop 设备 Ed25519 seed、Device ID 与 Key ID 使用独立 Keychain item。Cloud challenge 只持久化
-  nonce digest 和 Account Web session digest，并把账户、设备、key、PKCE、固定 client、本次 loopback redirect（ADR-0026）、
+  nonce digest 和 Account Web session digest，并把账户、设备、key、PKCE、固定 client、本次 loopback redirect（ADR-0011）、
   期限绑定进签名 transcript；首次 binding 仅接受五分钟内由密码/Passkey 创建的 Web 会话，且
   两段浏览器流程必须使用同一会话。challenge 验签/消费、首次 binding 与 OAuth code 写入位于
   同一账户事务。
@@ -86,7 +86,7 @@ Transport、Environment、任意 endpoint 或原始 Provider 错误。所有 Pro
 - Provider 凭据与账号/连接身份、数据库 key、OAuth/token/cookie/session、Lease/Grant/Ticket/
   ApprovedOperation、authority/entitlement 和 sync control/delivery 状态全部排除；
   `includePlatformCredentials=true` 始终返回 `BACKUP_CREDENTIALS_NOT_ALLOWED`。明文与临时/内容 key
-  只留在 Host/local-storage 有界借用和 zeroizing buffer；磁盘临时快照始终为 SQLCipher 密文。
+  只留在 Host/local-storage 有界借用和 zeroizing buffer；磁盘临时快照始终为 SQLCipher 密文，所在临时目录仅属主可访问（Unix 上 `0700` 并校验属主与权限，不符即失败关闭）。
 - Desktop Local Host 的目标 native composition 必须产生稳定 handle；所有者通过同一个 handle 拒绝 symlink/hard-link 异常、reparse、特殊
   文件、owner/mode/file-id/size 变化。导出协议使用 create-new、fsync、atomic no-clobber rename、目录 fsync
   和 `reserved -> writing -> fsynced -> renamed -> catalog_available` 两阶段日志。路径与 catalog
@@ -100,7 +100,7 @@ Transport、Environment、任意 endpoint 或原始 Provider 错误。所有 Pro
   manifest、Provider/Cloud/OAuth/session/authority 字段和反射型 parser 诊断不得进入 Renderer、日志或错误。
 
 详细合同见
-[ADR-0023](adr/0023-installation-bound-gdbk-backup-and-honest-business-restore.md)。GDBK 没有口令、
+[ADR-0023](adr/0023-business-backup-and-recovery.md)。以下安装绑定 GDBK v1 没有口令、
 跨设备或 Cloud 托管模式。源码与本地测试已覆盖严格格式、key/plaintext、binding/authority、
 time/generation、isolated candidate、restore replay、redaction 和注入式 handle/journal 故障路径；
 真实 native picker/stable-handle TOCTOU、安装级 KEK custody、独立 non-rollbackable continuity anchor、
@@ -120,7 +120,7 @@ Security 发射不创建额外持久化种类或链。审计通过规范字节�
 `signing_key_transition_id` 连接密钥边界。生产目标使用每个环境和审计目的独立、不可导出的
 自托管 OpenBao Transit key；审计服务只有指定键的签名权，Security Custodian 与 Platform Operations
 Owner 共同批准生命周期操作，且没有软件回退签名器。详见
-[ADR-0014](adr/0014-audit-signer-custody.md) 与
+[ADR-0021](adr/0021-self-hosted-openbao-transit-signing.md) 与
 [ADR-0021](adr/0021-self-hosted-openbao-transit-signing.md)。默认生产签名构造仍拒绝，尚无生产
 OpenBao cluster、key 或 workload identity。
 

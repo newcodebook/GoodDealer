@@ -39,11 +39,6 @@ import {
   type VerifiedDrainSealClaims,
 } from "./ports";
 import { DeviceSwitchWorkflow, isTerminal } from "./switch-workflow";
-import {
-  BootstrapCapabilityVerifier,
-  DenyingBootstrapVerificationKeySource,
-} from "./bootstrap-capability-verifier";
-import type { ActiveDeviceLeaseSigner } from "./postgres-bootstrap-activation";
 
 export { BootstrapFixtureService } from "./bootstrap-fixture";
 export { PostgresMutationAuthority } from "./postgres-mutation-authority";
@@ -102,6 +97,13 @@ export {
   PostgresDeviceDrainTransition,
 } from "./postgres-drain-transition";
 export { PostgresDesktopAuthorizationApplicationService } from "./postgres-desktop-authorization";
+export { PostgresDeviceSwitchDrain } from "./postgres-switch-drain";
+export { PostgresDeviceSwitchRequests } from "./postgres-switch-requests";
+export type { DeviceSwitchSubject } from "./postgres-switch-requests";
+export { PostgresDeviceDirectory } from "./postgres-device-directory";
+export type { DeviceDirectoryApplicationPort } from "./postgres-device-directory";
+export { PostgresDeviceSwitchApplication } from "./switch-application";
+export type { DeviceSwitchApplicationPort } from "./switch-application";
 export { PostgresDesktopLoginLease } from "./postgres-desktop-login-lease";
 export type {
   DesktopLoginLeaseEntitlementPort,
@@ -117,16 +119,6 @@ export {
   desktopDeviceProofTranscript,
 } from "./postgres-device-login-proof";
 
-/**
- * Production Bootstrap verification remains closed until its device trust-root source is
- * composed. Lease signing is explicit so a qualified purpose-specific signer can be injected.
- */
-export function createProductionBootstrapCryptoBoundary(leaseSigner: ActiveDeviceLeaseSigner) {
-  return Object.freeze({
-    verifier: new BootstrapCapabilityVerifier(new DenyingBootstrapVerificationKeySource()),
-    leaseSigner,
-  });
-}
 export type {
   DrainTransitionRejection,
   PostgresDrainFaultPoint,
@@ -382,7 +374,7 @@ export class DevicesFixtureService {
     if (target.status === "removed") return this.#reject("DEVICE_REMOVED");
     if (target.signingKeyStatus === "revoked") return this.#reject("DEVICE_NOT_BOUND");
     if (request.mode === "forced") {
-      const proofFailure = this.#reauthCheck(request.reauthProofId);
+      const proofFailure = this.#reauthCheck("fixture-forced-session");
       if (proofFailure !== null) return proofFailure;
     }
 
@@ -666,3 +658,31 @@ export class DevicesFixtureService {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+export { PostgresExpiredDeviceBootstrap } from "./postgres-expired-device-bootstrap";
+
+export { DesktopStandbyGrantIssuer, DESKTOP_STANDBY_GRANT_KEY_PURPOSE, type DesktopStandbyGrantSigner } from "./standby-grant-issuer";
+
+export { PostgresDesktopRouteAuthority, PostgresDesktopSyncAuthority } from "./postgres-sync-authority";
+export type { DesktopRouteAuthorityPort, DesktopSyncAuthorityPort } from "./postgres-sync-authority";
+
+export { DesktopExecutionContextIssuer, DESKTOP_EXECUTION_CONTEXT_KEY_PURPOSE } from "./execution-context-issuer";
+export type { DesktopExecutionContextSigner } from "./execution-context-issuer";
+export { PostgresDesktopExecutionContextService } from "./postgres-execution-context";
+export { PostgresHistoricalExecutionContext } from "./historical-execution-context";
+export type { HistoricalExecutionContextPort, HistoricalExecutionContextReference, HistoricalExecutionContextResult } from "./historical-execution-context";
+export { PostgresExecutionEvidenceAuthority } from "./execution-evidence-authority";
+export type { ExecutionEvidenceAuthorityPort, ExecutionEvidenceSource } from "./execution-evidence-authority";
+
+export { PostgresDeviceSwitchRequestResolution } from "./postgres-switch-request-resolution";
+
+export { PostgresTargetBootstrapControl } from "./postgres-target-bootstrap-control";
+
+export { BootstrapCapabilityIssuer, BOOTSTRAP_CAPABILITY_KEY_PURPOSE } from "./bootstrap-capability-issuer";
+export type { BootstrapCapabilitySigner } from "./bootstrap-capability-issuer";
+export type { BootstrapVerificationKeySource } from "./bootstrap-capability-verifier";
+
+export { PostgresTargetBootstrapInstallation } from "./postgres-target-bootstrap-installation";
+export { TrustedBootstrapVerificationKeySource } from "./bootstrap-capability-verifier";
+
+export { PostgresForcedTakeover } from "./postgres-forced-takeover";

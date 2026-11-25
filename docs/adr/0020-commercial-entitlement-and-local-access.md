@@ -1,8 +1,8 @@
-# ADR-0020：商业授权失效不得剥夺本地数据访问
+# ADR-0020：商业授权、本地访问与运营配置
 
 状态：Accepted
 
-## 决策
+## 权威与授权
 
 GoodDealer 将商业事实、服务器运行授权和本地数据访问视为三种不同权威。
 
@@ -12,8 +12,8 @@ GoodDealer 将商业事实、服务器运行授权和本地数据访问视为三
   裁决；`secure-host-core` 持有 OAuth/device/Provider 等非存储能力；Renderer 不能扩大任何能力。
 
 License Key 只能作为一次性兑换材料，不能成为 Desktop 的长期执行权威。所有能够扩大权限的
-服务器字段必须被目的限定的服务器签名覆盖，并绑定账号、个人默认工作区、设备、安全 Epoch、
-Lease Epoch、能力和期限。
+服务器字段必须被目的限定的服务器签名覆盖，并按授权类型绑定账号、个人默认工作区、设备、安全 Epoch、
+能力和期限。Active 执行授权绑定 Lease Epoch；不含 Lease 的 Standby 授权按 ADR-0032 绑定单调 epoch 地板。
 
 付款 webhook 是商业事实的触发器而不是直接权威。已启用的 provider adapter 必须先验证原始消息，
 再通过对应官方服务端 SDK 回查当前 Subscription、Checkout 或 Order，并用显式
@@ -22,7 +22,8 @@ product/plan allowlist 生成 provider-neutral 快照。固定期限付款与退
 依赖自由文本、客户端提交的账号或 webhook 中未经回查的字段推断权益。
 
 商业授权到期、暂停或退款后，已经在该 Host 上验证并绑定的本地工作区仍允许查看和受控导出，
-但不允许本地业务修改、同步或 Provider 外部操作。设备撤销、账号安全恢复或本地完整性失败属于
+但该商业只读能力不允许本地业务修改、同步或 Provider 外部操作。独立取得的 Standby 会话
+可按 ADR-0032 的封闭允许表读取同步副本，不要求有效商业权益。设备撤销、账号安全恢复或本地完整性失败属于
 安全锁定，不继承该商业只读能力；数据保持加密且不被删除，只能通过重新认证或受控恢复重新开放。
 
 ## 能力裁决
@@ -38,6 +39,24 @@ Host 计算的有效能力是服务器签名授权、设备与 Lease 状态、�
 
 商业只读只包含前两项。有效离线 Lease 可继续授权本地业务修改，但不能由客户端延长；同步需要
 Cloud transport，Provider 外部操作还必须满足操作自身的最小能力和副作用协议。
+
+### 具名 Provider 权限
+
+Active Grant v4 使用 `gd.desktop-authorization-grant.v4` 和
+`GOODDEALER-DESKTOP-AUTHORIZATION-GRANT-V4` 签名域。`commercialAuthority` v2 的
+`capabilities` 是当前锁定 Licensing 权威快照 `featureEntitlements` 与封闭能力集的精确交集：
+`afternic:marketplace:observe`、`afternic:marketplace:write`、`cloudflare:dns:observe`。
+集合按 ASCII 升序、无重复，允许空集合；空集合保留有效本地商业 scopes，但没有 Provider 权限。
+Afternic write 必须同时有 observe，否则受控配置和签发均拒绝，不自动补权。
+
+不得从计划名称、旧 Cloudflare 权限、平台名录或 Active 角色推导 Afternic 权限。
+运营只能通过受控配置和可信权益对账产生新的 revision/digest，不改写历史购买事实。
+Host 在每次网络边界和最终提交同时核对当前具名权限、连接代次和对应能力的独立资格。
+`provider:execute` 是分类概念，不能仅由 Active 角色向 Renderer 宣告可执行。
+
+Native 授权地板保存已验签的能力集合。相同商业 revision 或相同投影 digest 的权限与期限必须一致；
+新 revision 与新 digest 可以增加或撤销权限。旧地板记录只保留其当时明确授予的 Cloudflare singleton，
+不能推断新增权限；所有 epoch、签发时间和最后本机 Active epoch 的未知语义保持不变。
 
 ## 商业计划、退款与 Provider
 
@@ -77,3 +96,12 @@ unknown/manual 状态不表示完成，固定期限必须由 exact binding、同
 - Grant 与 Lease 的生产签名私钥不得进入普通 Cloud 应用进程；按
   [ADR-0021](0021-self-hosted-openbao-transit-signing.md) 使用自托管 OpenBao Transit，按 purpose
   分钥、固定版本、审计和轮换，并由 Cloud 使用独立受信公钥复验返回签名。
+
+## 独立恢复与运营空间
+
+离线独立备份在隔离数据集中查看与导出，不依赖旧安装绑定、登录或商业授权；不开放当前工作区写入、同步
+或 Provider 执行，按 [ADR-0023](0023-business-backup-and-recovery.md) 实施。
+
+当前价格不作为长期成本结论，也不成为 Native 或数据库的硬编码限制。Cloud Licensing 集中拥有
+计划、优惠、支付 Provider 映射和权益版本；运营变更需校验、授权、审计与回滚，历史订单及已购
+期限仍保留其购买时事实。先使用具体配置和既有端口，不新增推测性的通用规则引擎。

@@ -28,6 +28,7 @@ export interface RuntimeStatusPageProps {
   /** Starts browser sign-in again after a security lock. */
   readonly onSignInAgain?: () => void;
   readonly draining?: DrainingViewModel;
+  readonly onOpenBackup?: () => void;
 }
 
 function fill(template: string, values: Readonly<Record<string, string>>): string {
@@ -38,7 +39,7 @@ function fill(template: string, values: Readonly<Record<string, string>>): strin
  * Route-free status page. None of these states admits business data or actions, so the page shows
  * only the state, why it holds, and the single recovery action the state allows.
  */
-export function RuntimeStatusPage({ locale, kind, windowFrame, onRetry, onSignInAgain, draining }: RuntimeStatusPageProps) {
+export function RuntimeStatusPage({ locale, kind, windowFrame, onRetry, onSignInAgain, draining, onOpenBackup }: RuntimeStatusPageProps) {
   const copy = getCapabilityCopy(locale, "runtimeMode");
   const busy = kind === "opening" || kind === "activating" || kind === "draining" || kind === "startup_recovery";
   const locked = kind === "security_locked" || kind === "retryable_locked" || kind === "host_unavailable" || kind === "device_capacity";
@@ -83,6 +84,7 @@ export function RuntimeStatusPage({ locale, kind, windowFrame, onRetry, onSignIn
               {kind === "security_locked" && onSignInAgain !== undefined ? <Button variant="primary" onClick={onSignInAgain}>{copy.signInAgain}</Button> : null}
               {(kind === "retryable_locked" || kind === "host_unavailable") && onRetry !== undefined
                 ? <Button variant="primary" icon={<RefreshCwIcon size={14} />} onClick={onRetry}>{copy.retry}</Button> : null}
+              {onOpenBackup === undefined ? null : <Button variant="ghost" onClick={onOpenBackup}>{getCapabilityCopy(locale, "recovery").portableOpen}</Button>}
             </div>
           </div>
         </div>

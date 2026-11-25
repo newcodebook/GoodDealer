@@ -1,12 +1,12 @@
-import type { ConnectionSettingsItemViewModel } from "@gooddealer/client-core";
+import type { ConnectionSettingsItemViewModel, SettingsStorageIntegrity, StorageRepairKind } from "@gooddealer/client-core";
 
 export type SettingsSection = "connections" | "devices" | "license" | "sync" | "about";
 export const settingsSections: readonly SettingsSection[] = ["connections", "devices", "license", "sync", "about"];
 
 /**
- * Execution devices as the Host reports them. There is no composed settings contract yet, so
- * these shapes are Desktop-local and supplied by the design host. Sunset/LocalContinuation
- * artifacts are deliberately absent: they never appear in the everyday device list.
+ * Handoff presentation requires explicit Host-admitted targets in addition to device metadata.
+ * Production currently uses the redacted directory settings port without handoff admission.
+ * Sunset/LocalContinuation artifacts never appear in the everyday device list.
  */
 export interface DeviceRuntimeEntry {
   readonly id: string;
@@ -31,11 +31,32 @@ export interface LicenseView {
   readonly workspaceSummary: string;
 }
 
+/** Fields the Host does not report yet are null and render as unavailable, never as a placeholder. */
 export interface AboutView {
-  readonly version: string;
-  readonly dataDirectory: string;
-  readonly revisionBase: number;
+  readonly version: string | null;
+  readonly dataDirectory: string | null;
+  readonly revisionBase: number | null;
+  /** Null when the Host has not reported it; the panel then says it is unavailable. */
+  readonly storageIntegrity: SettingsStorageIntegrity | null;
 }
+
+/** The integrity counts in the order the panel lists them, each with the read it affects. */
+export const storageIntegrityChecks = [
+  "malformedExpiries",
+  "invalidRegistrarObservations",
+  "rejectedDnsRows",
+  "rejectedListings",
+  "malformedOutboxRows",
+] as const satisfies readonly (keyof SettingsStorageIntegrity)[];
+
+/** What each repair does to the rows it covers (ADR-0019), shown before the user confirms it. */
+export const storageRepairEffectCopyKey = {
+  malformedExpiries: "repairEffectMalformedExpiries",
+  invalidRegistrarObservations: "repairEffectInvalidRegistrarObservations",
+  rejectedDnsRows: "repairEffectRejectedDnsRows",
+  rejectedListings: "repairEffectRejectedListings",
+  malformedOutboxRows: "repairEffectMalformedOutboxRows",
+} as const satisfies Readonly<Record<StorageRepairKind, string>>;
 
 /** The device that holds, or is releasing, the current lease. */
 export function leaseHolder(view: DeviceRuntimeView): DeviceRuntimeEntry | null {

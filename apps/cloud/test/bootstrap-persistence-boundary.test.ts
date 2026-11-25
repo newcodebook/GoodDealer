@@ -5,12 +5,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   BootstrapCapabilityVerifier,
+  TrustedBootstrapVerificationKeySource,
   type BootstrapVerificationKeySource,
 } from "../src/modules/devices/bootstrap-capability-verifier";
-import {
-  createProductionBootstrapCryptoBoundary,
-} from "../src/modules/devices/index";
-import { DenyingActiveDeviceLeaseSigner } from "../src/modules/devices/postgres-bootstrap-activation";
 import { deviceControlMigration } from
   "../src/modules/devices/migrations/202608200004-device-control";
 import { deviceCursorsMigration } from
@@ -44,14 +41,9 @@ const expected = {
 } as const;
 
 describe("Bootstrap persistence production boundary", () => {
-  it("keeps Bootstrap verification closed while requiring explicit Lease signing custody", async () => {
-    const leaseSigner = new DenyingActiveDeviceLeaseSigner();
-    const production = createProductionBootstrapCryptoBoundary(leaseSigner);
-    await expect(production.verifier.verify(capability, expected)).resolves.toEqual({
-      accepted: false,
-      code: "CAPABILITY_INVALID",
-    });
-    expect(production.leaseSigner).toBe(leaseSigner);
+  it("rejects a capability absent from the independently configured trust root", async () => {
+    const verifier = new BootstrapCapabilityVerifier(new TrustedBootstrapVerificationKeySource([]));
+    await expect(verifier.verify(capability, expected)).resolves.toEqual({ accepted: false, code: "CAPABILITY_INVALID" });
   });
 
   it("rejects accessor and custom-prototype input before querying a verification key", async () => {

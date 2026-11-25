@@ -13,7 +13,7 @@ export interface DesktopAuthorizationVerifierRegistry {
 }
 
 export interface DesktopAuthorizationVerifierRegistryKey {
-  readonly purpose: "grant_v3" | "active_device_lease_v1";
+  readonly purpose: "grant_v3" | "active_device_lease_v1" | "standby_grant_v1" | "execution_context_v1" | "bootstrap_capability_v1";
   readonly keyId: string;
   readonly publicKey: string;
 }
@@ -25,19 +25,31 @@ export interface DesktopAuthorizationVerifierRegistryKey {
 export function createDesktopAuthorizationVerifierRegistry(input: {
   readonly grantKeys: readonly Pick<OpenBaoTransitSigningKey, "kid" | "publicKeyPem">[];
   readonly leaseKeys: readonly Pick<OpenBaoTransitSigningKey, "kid" | "publicKeyPem">[];
+  readonly standbyKeys: readonly Pick<OpenBaoTransitSigningKey, "kid" | "publicKeyPem">[];
+  readonly contextKeys: readonly Pick<OpenBaoTransitSigningKey, "kid" | "publicKeyPem">[];
+  readonly bootstrapKeys: readonly Pick<OpenBaoTransitSigningKey, "kid" | "publicKeyPem">[];
 }): DesktopAuthorizationVerifierRegistry {
   const grantKeys = preparePurposeKeys(input.grantKeys, "grant_v3");
   const leaseKeys = preparePurposeKeys(input.leaseKeys, "active_device_lease_v1");
+  const standbyKeys = preparePurposeKeys(input.standbyKeys, "standby_grant_v1");
+  const contextKeys = preparePurposeKeys(input.contextKeys, "execution_context_v1");
+  const bootstrapKeys = preparePurposeKeys(input.bootstrapKeys, "bootstrap_capability_v1");
+  rejectCrossPurposeDuplicates([...grantKeys, ...leaseKeys, ...standbyKeys, ...contextKeys], bootstrapKeys);
+  rejectCrossPurposeDuplicates([...grantKeys, ...leaseKeys, ...standbyKeys], contextKeys);
   rejectCrossPurposeDuplicates(grantKeys, leaseKeys);
+  rejectCrossPurposeDuplicates([...grantKeys, ...leaseKeys], standbyKeys);
   return {
     schemaVersion: 1,
-    keys: [...grantKeys, ...leaseKeys],
+    keys: [...grantKeys, ...leaseKeys, ...standbyKeys, ...contextKeys, ...bootstrapKeys],
   };
 }
 
 export function serializeDesktopAuthorizationVerifierRegistry(input: {
   readonly grantKeys: readonly Pick<OpenBaoTransitSigningKey, "kid" | "publicKeyPem">[];
   readonly leaseKeys: readonly Pick<OpenBaoTransitSigningKey, "kid" | "publicKeyPem">[];
+  readonly standbyKeys: readonly Pick<OpenBaoTransitSigningKey, "kid" | "publicKeyPem">[];
+  readonly contextKeys: readonly Pick<OpenBaoTransitSigningKey, "kid" | "publicKeyPem">[];
+  readonly bootstrapKeys: readonly Pick<OpenBaoTransitSigningKey, "kid" | "publicKeyPem">[];
 }): string {
   return JSON.stringify(createDesktopAuthorizationVerifierRegistry(input));
 }

@@ -16,11 +16,27 @@ describe("Desktop native policy", () => {
     expect(handlers).toMatch(/fn local_business_status/u);
     expect(handlers).toMatch(/fn local_asset_library_read/u);
     expect(handlers).toMatch(/fn local_domain_detail_read/u);
+    expect(handlers).toMatch(/fn local_dns_health_read/u);
+    expect(handlers).toMatch(/fn local_settings_read/u);
+    expect(handlers).toMatch(/fn local_sales_read/u);
+    expect(handlers).toMatch(/fn local_renewals_read/u);
+    expect(handlers).toMatch(/fn local_batch_operations_read/u);
+    expect(handlers).toMatch(/fn local_history_read/u);
+    expect(handlers).toMatch(/fn local_manual_tasks_read/u);
     expect(main).not.toMatch(/local_portfolio_read/u);
     expect(handlers).toMatch(/fn local_domain_asset_edit/u);
+    expect(handlers).toMatch(/fn local_domain_asset_create/u);
+    expect(handlers).toMatch(/fn local_device_lease_read/u);
     expect(handlers).toMatch(/fn local_domain_asset_delete/u);
     expect(handlers).toMatch(/fn local_domain_asset_provider_bind/u);
+    expect(handlers).toMatch(/fn local_storage_repair/u);
+    expect(handlers).toMatch(/fn device_switch_request/u);
+    expect(handlers).toMatch(/fn device_switch_advance/u);
+    expect(handlers).toMatch(/fn device_switch_status/u);
+    expect(handlers).toMatch(/fn device_switch_cancel/u);
     expect(handlers).toMatch(/fn cloudflare_connection_activate/u);
+    expect(handlers).toMatch(/fn cloudflare_connection_create/u);
+    expect(handlers).toMatch(/fn cloudflare_connection_revoke/u);
     expect(handlers).toMatch(/fn cloudflare_connection_status/u);
     expect(handlers).toMatch(/fn cloudflare_observation_read/u);
     expect(handlers).toMatch(/fn cloudflare_zone_observe/u);
@@ -30,7 +46,7 @@ describe("Desktop native policy", () => {
     expect(oauth).toMatch(/fn desktop_authentication_refresh/u);
     expect(session).toMatch(/AuthorizationFailed/u);
     expect(session).toMatch(/AuthorizationRetryable/u);
-    const initialGrant = session.indexOf("fetch_and_activate_authorization(&credentials.access.token)");
+    const initialGrant = session.indexOf("fetch_and_activate_authorization(&credentials.access.token, expected_instance)");
     const initialRefreshStore = /self\s*\.refresh_credentials\s*\.store\(&credentials\.refresh\)/u.exec(session);
     expect(initialGrant).toBeGreaterThanOrEqual(0);
     expect(initialRefreshStore).not.toBeNull();
@@ -56,26 +72,95 @@ describe("Desktop native policy", () => {
       "core:window:allow-minimize",
       "core:window:allow-toggle-maximize",
       "core:window:allow-close",
+      "allow-afternic-connection-connect",
+      "allow-afternic-connection-revoke",
+      "allow-afternic-connection-status",
+      "allow-afternic-delist-approve",
+      "allow-afternic-delist-preview",
+      "allow-afternic-delist-status",
+      "allow-afternic-inventory-refresh",
+      "allow-spaceship-registrar-status",
+      "allow-spaceship-registrar-submit",
+      "allow-sellerhub-bin-price-approve",
+      "allow-sellerhub-bin-price-preview",
+      "allow-sellerhub-bin-price-status",
+      "allow-sellerhub-create-approve",
+      "allow-sellerhub-create-preview",
+      "allow-sellerhub-create-status",
+      "allow-sellerhub-status",
+      "allow-sellerhub-submit",
+      "allow-aliyun-registrar-status",
+      "allow-godaddy-registrar-status",
+      "allow-porkbun-registrar-status",
+      "allow-aliyun-registrar-submit",
+      "allow-godaddy-registrar-submit",
+      "allow-porkbun-registrar-submit",
+      "allow-cloudflare-registrar-account-status",
+      "allow-cloudflare-registrar-account-submit",
+      "allow-atom-marketplace-status",
+      "allow-atom-marketplace-submit",
+      "allow-atom-standard-delist-approve",
+      "allow-atom-standard-delist-preview",
+      "allow-atom-standard-delist-status",
+      "allow-sedo-marketplace-status",
+      "allow-sedo-marketplace-submit",
+      "allow-afternic-listing-plan-approve",
+      "allow-afternic-listing-plan-preview",
+      "allow-afternic-listing-plan-status",
+      "allow-afternic-listing-write-approve",
+      "allow-afternic-listing-write-preview",
+      "allow-afternic-listing-write-status",
       "allow-cloudflare-connection-activate",
+      "allow-cloudflare-connection-create",
+      "allow-cloudflare-connection-revoke",
+      "allow-cloudflare-connection-purge",
+      "allow-cloudflare-retirement-candidates",
       "allow-cloudflare-connection-status",
       "allow-cloudflare-observation-read",
       "allow-cloudflare-zone-observe",
+      "allow-cloudflare-registrar-inventory-refresh",
       "allow-local-backup-restore-status",
       "allow-local-backup-export",
       "allow-local-backup-artifact-select",
       "allow-local-backup-restore-begin",
+      "allow-local-portable-backup",
       "allow-local-business-status",
+      "allow-local-device-lease-read",
+      "allow-device-directory-read",
+      "allow-device-self-report",
       "allow-local-asset-library-read",
       "allow-local-domain-detail-read",
+      "allow-local-dns-health-read",
+      "allow-local-settings-read",
+      "allow-local-sales-read",
+      "allow-local-renewals-read",
+      "allow-local-batch-operations-read",
+      "allow-local-history-read",
+      "allow-local-manual-tasks-read",
       "allow-local-domain-asset-edit",
+      "allow-local-domain-asset-create",
       "allow-local-domain-asset-delete",
       "allow-local-domain-asset-provider-bind",
+      "allow-local-storage-repair",
       "allow-local-conflict-center-read",
       "allow-local-conflict-resolve",
       "allow-local-sync-status",
+      "allow-device-switch-request",
+      "allow-device-switch-advance",
+      "allow-device-switch-status",
+      "allow-device-switch-cancel",
+      "allow-target-bootstrap-status",
+      "allow-target-bootstrap-cancel",
+      "allow-target-installation-start",
+      "allow-target-installation-status",
       "allow-desktop-authentication-status",
       "allow-desktop-authentication-begin",
       "allow-desktop-authentication-refresh",
+      "allow-forced-takeover-reauthenticate",
+      "allow-forced-takeover-preview",
+      "allow-forced-takeover-confirm",
+      "allow-forced-takeover-status",
+      "allow-forced-takeover-cancel",
     ]);
     expect(existsSync(fileURLToPath(new URL("../../src-tauri/capabilities/remote-browser.json", import.meta.url)))).toBe(false);
   });

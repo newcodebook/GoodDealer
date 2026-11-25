@@ -8,10 +8,13 @@ import {
 } from "../db/index";
 import {
   PostgresDesktopLoginLease,
+  PostgresExpiredDeviceBootstrap,
   PostgresDeviceLoginProof,
   type ActiveDeviceLeaseSigner,
   type ActiveDeviceLeaseVerifier,
 } from "../modules/devices/index";
+import { PostgresDefaultWorkspaceTenantResolver } from "../modules/workspace/default-workspace/index";
+import { PostgresBootstrapCheckpointPort } from "../modules/workspace/checkpoints/index";
 import { PostgresEntitlementDeadlineReader } from "../modules/licensing/index";
 import {
   DESKTOP_OAUTH_CLIENT_ID,
@@ -79,6 +82,10 @@ export function createPostgresDesktopOAuthHttp(
     entitlement: new PostgresEntitlementDeadlineReader(authenticatedTransactions),
     signer: deps.activeDeviceLeaseSigner,
     verifier: deps.activeDeviceLeaseVerifier,
+    bootstrapExpiry: new PostgresExpiredDeviceBootstrap({
+      workspaces: new PostgresDefaultWorkspaceTenantResolver(transactions),
+      checkpoints: new PostgresBootstrapCheckpointPort(),
+    }),
   });
   return createDesktopOAuthHttp({
     sessions: new CloudPublicSessionVerifier(new IdentityAccountSessionVerifier(deps.identity)),
@@ -155,9 +162,14 @@ export function createDesktopOAuthHttp(deps: DesktopOAuthHttpDependencies): Fast
       codeChallengeMethod: query.code_challenge_method,
       keyId: query.key_id,
       publicKey: query.public_key,
+      ...(query.require_reauth === "true" ? { requireReauthentication: true as const } : {}),
       ...proof,
       evaluatedAt,
     });
+    if (!result.authorized && "reauthRequired" in result && result.reauthRequired
+      && query.require_reauth === "true") {
+      return reply.redirect(`/?continue=${encodeURIComponent(request.raw.url ?? "")}&reauth=required`, 302);
+    }
     if (!result.authorized && "challengeRequired" in result && result.challengeRequired) {
       const callback = new URL(query.redirect_uri);
       callback.searchParams.set("challenge_id", result.challenge.challengeId);
@@ -249,12 +261,17 @@ function parseAuthorizationQuery(value: unknown): {
   readonly state: string;
   readonly challenge_id?: string;
   readonly device_signature?: string;
+  readonly require_reauth?: "true";
 } | null {
   if (!isRecord(value)) return null;
   const baseKeys = [
     "response_type", "client_id", "redirect_uri", "code_challenge",
     "code_challenge_method", "device_id", "key_id", "public_key", "state",
   ];
+  if (Object.hasOwn(value, "require_reauth")) {
+    if (value.require_reauth !== "true") return null;
+    baseKeys.push("require_reauth");
+  }
   const initial = hasExactKeys(value, baseKeys);
   const proof = hasExactKeys(value, [...baseKeys, "challenge_id", "device_signature"]);
   if (!initial && !proof) return null;
@@ -278,6 +295,7 @@ function parseAuthorizationQuery(value: unknown): {
     key_id: value.key_id,
     public_key: value.public_key,
     state: value.state,
+    ...(value.require_reauth === "true" ? { require_reauth: "true" as const } : {}),
     ...(proof ? {
       challenge_id: value.challenge_id as string,
       device_signature: value.device_signature as string,

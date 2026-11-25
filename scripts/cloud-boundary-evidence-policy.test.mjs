@@ -14,6 +14,8 @@ import {
   sourceDeclaresHandWrittenJsonSchema,
   sourceDefinesExactAccountActivationBusinessRoute,
   sourceDefinesSafeAccountActivationRoute,
+  sourceDefinesSafeExecutionContextRoute,
+  sourceDefinesSafeExecutionEvidenceRoutes,
   sourceDefinesSafeBillingRoutes,
   sourceRegistersAdminBusinessRoute,
   sourceRegistersModuleRoute,
@@ -179,7 +181,7 @@ test("public business-route allowlist is exact and rejects an undeclared ninth r
       billingFirstPurchaseRefundStatusReadRequestSchema,
       billingFirstPurchaseRefundStatusReadResponseSchema,
     } from "@gooddealer/protocol/account";
-    import { desktopAuthorizationGrantRequestSchema, desktopAuthorizationGrantSchema } from "@gooddealer/protocol/devices";
+    import { desktopAuthorizationGrantRoleRequestSchema, desktopAuthorizationGrantRoleResponseSchema } from "@gooddealer/protocol/devices";
     export const ACCOUNT_ACTIVATION_ROUTE = "/v1/account/activation" as const;
     export const DESKTOP_AUTHORIZATION_GRANT_ROUTE = "/v1/devices/authorization-grant" as const;
     export const BILLING_CHECKOUT_ROUTE = "/v1/account/billing/checkout" as const;
@@ -197,12 +199,12 @@ test("public business-route allowlist is exact and rejects an undeclared ninth r
         invoke: async (request, principal) => ports.accountActivation.activate(request, principal),
       };
       const desktopAuthorizationRoute: PublicRoute<
-        DesktopAuthorizationGrantRequest,
-        DesktopAuthorizationGrant
+        DesktopAuthorizationGrantRoleRequest,
+        DesktopAuthorizationGrantRoleResponse
       > = {
         path: DESKTOP_AUTHORIZATION_GRANT_ROUTE,
-        request: desktopAuthorizationGrantRequestSchema,
-        response: desktopAuthorizationGrantSchema,
+        request: desktopAuthorizationGrantRoleRequestSchema,
+        response: desktopAuthorizationGrantRoleResponseSchema,
         authorize: (principal) => principal.clientKind === "desktop",
         invoke: async (request, principal) => ports.desktopAuthorization.issue(request, principal),
       };
@@ -278,6 +280,72 @@ test("public business-route allowlist is exact and rejects an undeclared ninth r
   );
 });
 
+test("execution context route fixes Active admission, bounded protocol and session-derived scope", () => {
+  const source = readFileSync(new URL("../apps/cloud/src/entrypoints/routes/public/boundary.ts", import.meta.url), "utf8");
+  assert.equal(sourceDefinesSafeExecutionContextRoute(source), true);
+  assert.equal(sourceDefinesExactAccountActivationBusinessRoute(source), true);
+  for (const [before, after] of [
+    ['deviceRole: "active", bodyLimit: DESKTOP_EXECUTION_CONTEXT_REQUEST_LIMIT_BYTES', 'deviceRole: "active_or_standby", bodyLimit: DESKTOP_EXECUTION_CONTEXT_REQUEST_LIMIT_BYTES'],
+    ["ports.desktopExecutionContext!.issue(value, principal)", "ports.desktopExecutionContext!.issue(value, value.accountId)"],
+    ["...contextRoutes,", ""],
+    ["request: desktopExecutionContextRequestSchema", "request: arbitrarySchema"],
+    ['"/v1/devices/execution-context"', '"/v1/devices/arbitrary-context"'],
+    ["bodyLimit: DESKTOP_EXECUTION_CONTEXT_REQUEST_LIMIT_BYTES", "bodyLimit: 1048576"],
+  ]) {
+    assert.notEqual(source.replace(before, after), source);
+    assert.equal(sourceDefinesSafeExecutionContextRoute(source.replace(before, after)), false);
+  }
+  const contextEnd = "return response;\n    },\n  }];";
+  for (const addition of [
+    ', { method: "POST", path: "/v1/unapproved", deviceRole: "active_or_standby" }',
+    ", {}",
+    ", ...unapprovedRoutes",
+    ", unapprovedRoute",
+  ]) {
+    const changed = source.replace(contextEnd, `return response;\n    },\n  }${addition}];`);
+    assert.notEqual(changed, source);
+    assert.equal(sourceDefinesSafeExecutionContextRoute(changed), false);
+    assert.equal(sourceDefinesExactAccountActivationBusinessRoute(changed), false);
+  }
+});
+
+test("execution evidence source fixes both streams, exact routes, role and principal", () => {
+  const source = readFileSync(new URL("../apps/cloud/src/entrypoints/routes/public/boundary.ts", import.meta.url), "utf8");
+  assert.equal(sourceDefinesSafeExecutionEvidenceRoutes(source), true);
+  assert.equal(sourceDefinesExactAccountActivationBusinessRoute(source), true);
+  for (const [before, after] of [
+    ['"/v1/device-audits/ingest"', '"/v1/arbitrary/ingest"'],
+    ["request: deviceAuditIngestRequestSchema", "request: arbitrarySchema"],
+    ["ports.executionFactEvidence!.ingest(value, principal)", "ports.executionFactEvidence!.ingest(value, value.principal)"],
+    ["ports.deviceAuditEvidence!.receipts(value, principal)", "ports.executionFactEvidence!.receipts(value, principal)"],
+    ["...deviceAuditEvidenceRoutes,", ""],
+  ]) {
+    const changed = source.replace(before, after);
+    assert.notEqual(changed, source);
+    assert.equal(sourceDefinesSafeExecutionEvidenceRoutes(changed), false);
+    assert.equal(sourceDefinesExactAccountActivationBusinessRoute(changed), false);
+  }
+  for (const name of ["deviceAuditEvidenceRoutes", "executionFactEvidenceRoutes"]) {
+    const start = source.indexOf(`const ${name}:`);
+    const end = source.indexOf("  ];", start);
+    for (const addition of ["{},", "...unapprovedRoutes,", "unapprovedRoute,"]) {
+      const changed = source.slice(0, end) + addition + source.slice(end);
+      assert.equal(sourceDefinesSafeExecutionEvidenceRoutes(changed), false);
+    }
+    const block = source.slice(start, end);
+    for (const [before, after] of [
+      ['deviceRole: "active"', 'deviceRole: "active_or_standby"'],
+      ['principal.clientKind === "desktop"', 'true'],
+      ["bodyLimit: 32_768", "bodyLimit: 1_048_576"],
+      ["if (response === null) throw", "if (false) throw"],
+    ]) {
+      const changedBlock = block.replace(before, after);
+      assert.notEqual(changedBlock, block);
+      assert.equal(sourceDefinesSafeExecutionEvidenceRoutes(source.slice(0, start) + changedBlock + source.slice(end)), false);
+    }
+  }
+});
+
 test("module route policy rejects framework, route, and network primitives", () => {
   assert.equal(sourceRegistersModuleRoute("export function project(value) { return value; }"), false);
   assert.equal(sourceRegistersModuleRoute('import Fastify from "fastify";'), true);
@@ -319,6 +387,8 @@ test("cloud boundary report observes real roots and fails closed on policy mutat
     const mutations = [
       { ...report, fixtureOnly: false },
       { ...report, accountActivationRouteSourceSafe: false },
+      { ...report, desktopExecutionContextRouteSourceSafe: false },
+      { ...report, executionEvidenceRoutesSourceSafe: false },
       report.accountActivationIntegrationRequired
         ? {
             ...report,

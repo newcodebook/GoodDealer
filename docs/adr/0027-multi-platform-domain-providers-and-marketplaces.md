@@ -1,0 +1,226 @@
+# ADR-0027：十二平台范围、批量工作流与 API 接入
+
+状态：Accepted
+
+## 产品范围与交付顺序
+
+首发平台为 **Cloudflare、Spaceship、Atom、Afternic、Namecheap、Dynadot、GoDaddy、Porkbun、Sedo、易名、阿里云、22.cn**。
+核心旅程是统一资产管理、批量上下架与自动所有权验证；易名、阿里云、22.cn 同时覆盖资产归集和交易上下架。
+市场优先级为 **Afternic → Atom → Spaceship SellerHub → Sedo → 易名 → 阿里云 → 22.cn**。
+注册商与 DNS 优先服务用户已有资产来源和验证依赖，不以完成所有注册商能力作为市场旅程开工前置。
+原有其他平台继续交付，不能因排序变化删除范围。
+
+同平台保留统一账户、角色与凭据生命周期，按用户旅程纵向交付，完整能力目录逐项追踪。
+开发阶段缺口不缩减目标，营销不定义技术架构。Windows 与 macOS 均完整支持连接、批量操作和恢复；
+原生拒绝分支是待实现项，不是排除系统的决定。Linux 按 ADR-0025 的独立边界处理。
+
+## 完整域名能力目录
+
+- **注册商**：注册、续费、恢复、转入、转出与授权码、转移锁、自动续费、联系人、WHOIS 隐私、Nameserver、glue。
+- **DNS**：Zone/记录读写、DNSSEC、变更前检查与回滚（仅当 Provider 提供）。
+- **交易市场**：Listing 创建/修改/下架、价格（BIN、最低出价、底价）、销售与成交记录、销售授权码交付、
+  平台所有权验证。
+- **获取（买方）**：在市场和拍卖中搜索与查看在售域名、竞价、补抢（backorder）、一口价或清仓购买，
+  以及购得域名在注册商侧的到账对账。
+- **监控**：上述资源的周期观察与漂移检测，包括竞价被超出、拍卖结束与补抢结果。
+
+完整目录按能力记录实现状态、最小权限、风险、确认、幂等、异步结果、未知结果对账、补偿及真实资格。
+未实现、账号未授权或未资格化的能力如实标为不可执行并记录原因，不能因此删除自动化交付目标。
+
+非域名产品仍不在范围：主机、邮箱、SSL、建站/Link in Bio、应用托管（如 Spaceship Hyperlift）、账户充值，
+以及平台之间的托管搬迁服务（如 Porkbun 的 Cloudflare 迁移接口）。
+
+## 平台账户与资源模型
+
+- 一个**平台连接**代表用户在一个平台上的一个账户及其本地凭据，可同时承担 `registrar`、`dns`、`marketplace`、
+  `acquisition` 中的一种或多种角色；角色由该平台的 manifest 与凭据实际权限共同决定，不由 Renderer 声明。
+- 同一公司下认证体系不同的平台按独立平台处理（Afternic 与 GoDaddy 各自一份连接和凭据）。
+- 一个域名资产可以同时绑定：一个注册商资源、一个 DNS 资源，以及每个平台连接一个当前 Listing。
+  同市场多账户分别绑定；Listing 身份包含连接和资源标识摘要。同一连接下，一个远端 Listing 只归属于一个域名。
+  已 detached 的旧 Listing 身份保留，新资源可以接替；禁止旧身份与当前身份同时恢复为有效绑定。
+  Registrar/DNS 保持各自单资源唯一性。身份与观察事实分别拥有，本地连接表达平台与角色集合，
+  schema 由 `local-storage` 以追加迁移维护。
+- Provider 账户 ID、账户别名、凭据、平台原始响应继续只存在本地 Host，不进入 Sync Outbox 或 Cloud
+  （[ADR-0016](0016-local-business-database-and-cloud-sync-boundary.md)）；Listing 状态与价格等可同步字段沿用允许字段白名单。
+
+## 非资金批量工作流
+
+本地 operations 拥有一个父计划，组合多个平台 Service 的独立步骤；Service 不互相调用或共享凭据。
+确认前收集可读取的验证要求与现状，在一次整批预览中列明域名、平台、价格、上下架动作、DNS
+变更及验证方式。已批准的计划自动执行与复核，不因跨 Service 而要求用户重复确认同一意图。
+若验证要求必须在上架后才产生，预览要限定域名、DNS 类型/名称及变更目的；执行仅接受可信平台
+返回且满足已批准范围的值。需要新增目标、扩大 DNS 修改范围或改价时才重新预览差异。
+
+确认意图不等于永久运行授权。每一步仍重新检查当前账户、工作区、连接代次、能力资格和授权。
+资金操作继续逐笔确认。任务按域名、平台和步骤保存状态及幂等关联；单项失败不能伪装为整批成功。
+DNS 只合并需要的验证记录，不全量覆盖用户记录；完成验证后是否保留或移除记录取决于平台要求，
+不能擅自清理其他任务或用户拥有的记录。
+
+应用运行时后台继续；退出或休眠暂停，重开先查询平台 job/listing/DNS 状态，再续作未完成步骤。
+客户端暂停不能撤回已被平台受理的异步 job。结果未知先对账，不能直接重发写请求；发现外部状态
+改变、取消或授权失效时暂停相应步骤。过期运行授权可重新取得，不能从持久任务中恢复旧 Lease
+或 ApprovedOperation。无需关闭电脑后执行，也不为这一需求引入 Cloud Provider 执行器。
+
+## API 接入决策
+
+按**能力**核查和选择接入方式，不要求整个平台所有功能使用相同来源：
+
+1. 已确认官方 API 支持的能力继续按官方合同实现，明确具体账号准入。
+2. 目前未找到官方支持的能力缺口，直接纳入**自研私有 API 开发清单**；协议调查、当前账户流程验证、
+   实现与回归测试是该工作包的步骤，不再设置社区成品或更多官方搜索的前置关卡。
+3. 自研该平台**私有协议适配器**，面向用户本人账户正常可用的功能。
+   根据当前流程证据封装已有的未公开 HTTP 接口；允许在该 Service 内有界解析必要的 HTML 表单数据，
+   不执行远程 JavaScript。自研接口不能凭空赋予上游不存在的功能或账号未授予的权限。
+4. 社区公开代码仅作参考；复用代码仍核实许可证、当前协议和秘密处理，不引入第三方托管 API 作为默认路径。
+5. 人工操作是具体步骤尚未实现、接口变化或需要人完成登录挑战时的恢复方式，不能代替自动化交付目标。
+   当前确无可用授权路径的能力如实记录原因，并保留实现调查，不声称自动完成。
+
+## 所有权与信任边界
+
+- 运行时归属不变：每个平台由 `secure-host-core` 一个私有 Service 拥有，`local-storage` operations
+  拥有父计划、批准范围、执行记录与对账；共用机制限于凭据代次、加固运输、按平台限流与串行化、
+  能力准入和闭合错误分类。`packages/connectors/<platform>` 仅导出 Host-local 非秘密领域合同；
+  持久计划复用 `operation_plans`、`operation_attempts`、`operation_results`。Renderer 只收集有界意图并展示脱敏结果，Cloud 不代调平台。
+- 官方与私有端点是 Service 内的实现细节，可服务不同能力；同一能力、同一次 attempt 只走一个明确版本。
+  不在超时、401/403 或未知响应后偷偷切换接口重放写入。先对账、重新认证或修复合同，再决定续作。
+- 接入前固定允许的 HTTPS origin、路径、method、字段与重定向边界。不开放自定义 URL、Cookie 注入、
+  任意 HTTP、脚本或通用代理 IPC。HTML/JSON/XML 都按不可信 wire 有界解析，登录页不能被当作业务成功。
+- API key、Cookie、CSRF token、密码及必要的账户绑定保留在 Native 受限 custody；不进入 TypeScript、
+  业务副本、独立业务备份、日志或普通错误。不得照搬旧社区代码的明文 Cookie 文件和 HTTP 秘密请求。
+- 若需要平台会话，连接流程须实现并验证原生秘密输入/会话获取、账号绑定、过期与撤销；不能用读取用户
+  浏览器 Profile 或复制秘密到普通设置字段替代。验证码/MFA 进入需要用户处理状态，不绕过认证或风控。
+- 社区公开 API 若是第三方托管服务，不默认为它授权接收平台凭据。优先本地持有实现并直连平台；
+  引入新的凭据接收方或云端执行方属于独立信任域变更，需要新的架构决定。
+
+## 首次真实接口取证
+
+首次真实取证使用具名、有限期限的开发验收范围；不能因为生产资格尚未取得而永远拒绝取证，也不能把开发取证开关当作生产资格。验收构建必须显式选择非默认编译特性，只允许已授权的系统和实际debug profile；release及其他profile在构建时拒绝。生产资格登记与DTO中的资格事实保持不变。
+
+开发资格（2026-11-25 用户决定）：开发阶段不再为每个平台单独申请具名验收范围。非默认编译特性 `development-qualification` 只能用于 debug profile，release 及其他 profile 在构建时拒绝。启用后，Host 把所有格式完整的 `platform:role:capability` 视为已资格化，DTO 里的资格字段也如实显示为可执行，可用 `pnpm --filter @gooddealer/desktop tauri:dev` 启动。真实 Grant、Lease、商业权限、Native 录入与 custody、ProviderLane、确认与对账照常生效，只放开资格登记这一层。生产资格登记表不变，单元测试保持关闭的登记表；用该特性取得的结果只是开发证据，不能写入登记表，也不能当作生产资格。
+
+Spaceship 单连接（2026-11-25 用户决定）：Spaceship 的 Registrar 与 SellerHub 使用同一 API 密钥，因此只建立一个 Spaceship 连接。连接时用该密钥分别预检各个已资格化且已授权的角色，平台返回 403 的角色不纳入，连接声明的角色集在之后保持不变；要增加角色，需要断开后重新连接。各角色仍分别受能力资格、Grant 权限和扫描回执约束，凭据只托管一份，撤销与清理覆盖整个连接。
+
+local-storage在唯一业务事务内固定验收run与当前GoodDealer账户、工作区、设备、Lease epoch、唯一连接及其incarnation/generation/public proof。范围固定Provider、受控域名、动作和截止；重开只恢复原绑定，不自动换连接、凭据或授权代次。截止来自验签执行上下文的连续时间，不能靠系统时间回拨延长。完整库存只读限于同一受控凭据账户，写入逐项验证域名与动作。
+
+取证仍使用真实Grant、Lease、商业权限、Native录入/custody、原ProviderLane、持久预览批准和最后提交栅栏。休眠、取消、撤销、代次与范围变化都关闭准入；未知结果保留并只读对账，不因此重新发送。撤销与清理仍可减少秘密持有，不能删除run来重新授予范围。Host仅返回脱敏范围说明，Renderer不能输入或授予验收权威；不增加秘密桥、任意代理或假签名。
+
+真实取证按提交、构件、环境及实际效果保存独立证据，再评估生产资格；具体run、域名、期限与运行日志归工作框架及审查记录。Windows/macOS完整目标与分别实机资格继续成立。
+
+## 操作语义与维护
+
+- 风险分类由实际业务副作用决定，不能由 HTTP method 推断；Atom 的 GET 写操作仍受批准与未知结果门禁。
+- 任务绑定平台账号/凭据代次、资源、预期变更及适配实现版本。协议漂移、会话失效或新增挑战应暂停相关步骤，
+  保留已完成结果；修复后先对账，应用重开也遵循同样规则。
+- 整批非资金操作仍按本 ADR 预览确认一次。私有表单里的扣款、费用选择、NS 修改、注册商锁定或协议确认
+  不能跟随社区脚本默认值偷偷提交；只执行已批准范围，资金操作继续逐笔确认。
+- 对账需确认当前账户中的目标状态。HTTP 成功、公共市场存在记录、任务受理、页面回跳都不是 owner 验证成功。
+- 版本化维护适配器的合同证据、脱敏夹具及失效行为；逐项真实资格包含账户权限、条款、受控资产、限流、
+  部分失败、撤销、重试和未知结果。Windows/macOS 的会话 custody 均需验证。私有接入不是免测捷径。
+
+## 资金与高影响操作
+
+注册、续费、恢复、转入、竞价、补抢、购买及任何扣款操作，统一适用本节的单项确认与报价核对；平台的账户余额、
+自动充值等支付设置不纳入首发。获取类操作另有以下约束：
+
+- **竞价逐次确认**：每一次出价都是一笔独立的资金承诺，确认绑定具体拍卖、出价金额、币种与拍卖结束时间。
+  不提供代理出价、自动加价或“最高到 X”的长期授权；被超出后由监控提示用户，再次出价需要新的确认。
+- **条件扣款明示**：补抢等只在成功时扣款的操作，确认文本必须说明扣款条件、最高金额和失败时是否退款。
+- **购得不等于入库**：购买或拍卖成功只是 Provider 侧状态。只有在注册商侧观察到域名进入用户账户后，
+  Host 才创建或更新本地资产；在此之前资产处于待对账状态。
+- **只读搜索不付费**：搜索、浏览与报价查询是只读能力，不需要资金确认，但仍受速率限制与能力准入约束。
+
+注册、续费、转入、转出及其他付费操作都必须是单项用户确认。确认绑定具体资产、Provider
+资源绑定摘要、计划摘要、条款摘要及其展示文本、金额、币种、报价有效期、报价摘要和一次性 nonce；
+不能用批量确认或长期授权替代。Host 从当前本地绑定与 Provider 报价重新核对这些字段，过期、
+绑定变更或 nonce 重放都拒绝；确认引用本身不是支付授权。
+Provider 页面回跳只构成不可信的 reconciliation hint，不能作为成功、付款或资源状态回执。
+
+转出及需要单独确认的 NS、锁定、授权码交付等高影响动作不因批量非资金体验而隐含获准。
+只在 Provider 支持可验证补偿时声明回滚；每次执行重新检查 Grant、Lease、商业权益、凭据代次、绑定和前置条件。
+
+## 平台专有安全约束
+
+- **URL 中的凭据（Atom）**：Atom 市场 API 把 token 放在查询参数中。Atom Service 必须在内部构造请求 URL，
+  任何日志、错误、诊断与持久化都不得包含完整 URL；Transport 的通用错误映射不得回显请求 URL。
+- **请求签名（Dynadot）**：HMAC 计算只在 Service 内进行，secret 不离开 custody 边界。
+- **IP 白名单（Namecheap）**：桌面用户的公网 IP 会变化。白名单失败映射为可解释的连接状态（例如
+  `insufficient_access`），不得自动重试刷屏。若需取得本机出口 IP，只能使用该平台自身返回的信息或用户输入，
+  不引入第三方 IP 查询服务。
+- **最小权限**：支持 scope 的平台（Spaceship、Cloudflare）只请求 manifest 中已实现能力所需的 scope；
+  连接校验发现 scope 不足时按能力降级，而不是整条连接失败。
+  GoDaddy PAT 同样按 scope 授权（2026-11-24 核对 [官方认证说明](https://developer.godaddy.com/docs/api-users/auth#pat-scopes)：
+  `domains.domain:read` 为域名读取，`domains.dns:update` 为 DNS 记录增删改，写 scope 同时满足同一资源的读取，选择
+  “Domains & DNS”整包即勾选全部 Domains scope，可缩减为子集；官方未给出端点与 scope 的对应，也没有只读 DNS scope）。账户归集预期的
+  最小 scope 是 `domains.domain:read`（官方描述未明列域名列表，待受控账户核实）；DNS 记录读取所需的 scope 未核实前，不扩展 GoDaddy 连接的角色。
+  Porkbun API 密钥同样按权限授权（2026-11-24 核对[官方 OpenAPI v3.112](https://porkbun.com/api/json/v3/spec) 说明与各操作的
+  `x-porkbun-scope`）：`read` 只读且总是包含，另有 `dns`、`domains`、`purchase`、`funding` 等权限，设置页提供“Read-only”预设；
+  密钥还可限定允许的域名（范围外 403 `DOMAIN_NOT_ALLOWED`），权限不足为 403 `INSUFFICIENT_SCOPE`。`/domain/listAll` 与
+  `/dns/retrieve/{domain}` 都只需要 `read`，因此账户归集与 DNS 读取共用一把 Read-only 密钥。注册局委派 `GET /domain/getNs/{domain}`
+  同样只需 `read`（2026-11-24 重新下载同一 v3.112 规范核对，SHA-256 未变）；官方说明它实时读自注册局、nameserver 为无序集合，
+  响应 `{status, ns[]}`，声明 200、400、429。
+  Spaceship API 密钥按 scope 授权（2026-11-24 核对 [docs.spaceship.dev](https://docs.spaceship.dev/) 内嵌的官方 OpenAPI 1.0.0
+  各操作的 `x-scopes`）：`domains:read`（列表、详情、可用性与价格）、`domains:write`（自动续费、联系人、nameserver、隐私、glue）、
+  `domains:billing`（注册、续费、赎回、转入）、`domains:transfer`（授权码、转移锁、转移详情）、`dnsrecords:read`/`write`、
+  `contacts:read`/`write`、`sellerhub:read`/`write`（挂牌、已售报表、验证记录、Checkout link、SafePay）与 `asyncoperations:read`。
+  资金操作返回 202 并需异步结果对账；读、写与资金各有独立 scope，因此可按角色和能力分别签发凭据。
+  Cloudflare API 令牌按权限组授权（2026-11-25 核对[官方 OpenAPI 4.0.0](https://github.com/cloudflare/api-schemas) 的
+  `x-api-token-group` 与 [Registrar API 指南](https://developers.cloudflare.com/registrar/registrar-api/)）：Zone 读取为 `Zone Read`，
+  DNS 记录与 DNSSEC 读取为 `DNS Read`、写入为 `DNS Write`；Registrar 端点在 OpenAPI 中未声明权限组，指南只要求 Registrar 写权限；
+  规范的权限组清单另有 `Registrar Domains Read`/`Registrar Domains Admin`（及 Sandbox 对应项），读取注册清单所需的最小权限须在受控账户上核实。Registrar API 为 beta：续费、转移与联系人更新写明尚未提供，注册计费且不可退款。
+  Afternic Portfolio API 只有账户级 key/secret（2026-11-25 核对[官方认证说明](https://api.afternic.com/docs/portfolio-api/guides/authentication/)：
+  每个账户至多 2 把，`Authorization: sso-key`），没有 scope，读写挂牌与提交销售授权码共用同一凭据。按本节规则（只对支持 scope
+  的平台要求最小 scope）不据此降级，这是 GoodDealer 的取舍：凭据只在 Host custody，写能力逐项资格认证并单独确认。
+  Atom 各 API（Seller、Partnership、AtomRegistrar）均为 Limited Beta，须分别申请批准（2026-11-25 核对[准入说明](https://www.atom.com/help/article/atom-seller-api-access)，
+  2026-11-24 更新：卖家至少 500 个 Listing 才进入审查，Registrar API 须至少 100 个 AtomRegistrar 域名和/或为活跃卖家）。Seller/Partnership
+  以查询参数 `api_token` 与 `user_id` 认证，Registrar 以 Bearer token 认证，[官方文档](https://apidocs.atom.com/introduction)未提供 scope。
+  query-string token 不得进入日志、错误或 URL 记录。准入能否取得属于真实资格，未获批前相应能力保持不可执行。
+  Sedo Basic API 以 `partnerid` 与 `signkey` 认证，卖家函数另需账户用户名与密码（2026-11-25 核对[官方 Basic API v1](https://api.sedo.com/apidocs/v1/Basic/)，
+  密码至多 16 字符），没有 scope；文档未说明该密码是否就是账户登录密码（待受控账户核实）。四项凭据只在 Host custody，任何读写都不得把它们写入请求日志或错误。
+  阿里云以 RAM 按 API 授权（2026-11-25 核对 [OpenAPI 门户元数据](https://api.aliyun.com/meta/v1/products/Domain/versions/2018-01-29/api-docs.json)
+  的 `ramActions`）：注册商读取（`domain:QueryCommonInfo`）、续费（按域名资源的 `domain:CreateOrderRenew`）与 Alidns 读写各有独立动作，
+  可按角色签发最小权限凭据。例外：交易 API 的严选在售清单、状态与价格查询和下单共用 `domain:FixPrice`，国际一口价的清单、检查与下单
+  共用 `domain:IntlFixPrice`，能读报价的凭据同时能下单；`CheckDomain` 只查询能否注册。因此 GoodDealer 的取舍是：一口价报价观察
+  与购买一样逐笔确认，或只观察注册可用性。
+- **Linux**：Provider 秘密按 [ADR-0025](0025-linux-secret-service-custody.md) 的具名条目准入。固定 Native GTK 窗口只捕获已列明用途的字段，条目存入 Secret Service。新增 Provider 与备份条目须分别明确威胁接受。Linux 开发验收与 Windows/macOS 完整目标及实机资格分别记录。
+
+Cloudflare 观察的 401/403 统一表示凭据被拒绝，不据此区分失效与权限不足；429、408、425 与服务端错误
+表示稍后重试，传输失败表示无法连接，其他不符响应为通用失败。写操作仍按未知结果规则先对账，
+不能仅凭可重试 HTTP 状态重放副作用。
+
+## 浏览器范围
+
+首发不创建、嵌入或控制远程浏览器，不读取用户 Browser Profile，不执行远程 JavaScript，也不开放通用 DOM、
+脚本、网页抓取或浏览器代理。具名 Service 的 Native HTTP 会话、Cookie/CSRF custody 与有界 HTML 解析按上文实施。
+需要用户处理的登录挑战可交接到用户控制的页面；回跳只触发 Host 对账，不是成功、付款或所有权证明。
+新增嵌入式或受控浏览器须另定平台矩阵、隔离、IPC、秘密和副作用边界；远程页面必须与本地应用展示域及
+受保护资源隔离，不得获得本地特权接口。用户 CSV 导入不在范围；平台批量 job
+使用 CSV wire 时只在对应 Service 内生成解析。
+
+## 平台 Service 骨架（2026-11-24 修订）
+
+用户于 2026-11-24 改变此前“不预铺空 Service、由第二个平台真实需求确定复用面”的做法：十二个首发平台
+**预先建立各自的 `secure-host-core` 私有 Service 骨架**，让后续能力按平台在固定位置落地，而不是每个
+平台第一次接入时临时决定结构。骨架的边界：
+
+- 骨架位于 `secure-host-core` 的 `provider_services`：每个平台一个私有模块，持有逐能力 manifest 并经唯一的
+  准入入口按连接声明的角色和 manifest 拒绝；未核实的能力一律为 unavailable，并写明原因
+  （`platform_facts_pending`、`qualification_pending`）。HTTPS origin、凭据形态与错误分类在该平台事实
+  核实后写入同一模块或其 Native transport，不凭推测预填。
+- 骨架不含可执行的 Provider 请求路径；能力只有在 [API 核查](../PROVIDER_API_REVIEW.md) 写入平台事实、
+  实现并逐项取得资格（ADR-0024）后才变为可用。UI 对骨架能力显示不可用及原因。
+- 不因此引入通用 Provider 代理、通用 HTTP IPC、工作流或规则引擎；共用机制仍只限上文所列。
+- 骨架、空 manifest 与模块测试不计为平台交付或资格，进度记录仍按真实客户旅程和真实账号验收区分。
+- 临时例外（2026-11-24）：骨架准入入口在可构造准入值之前不能放行任何能力，因此已实现的平台 Native transport
+  （Cloudflare、Spaceship、阿里云、GoDaddy、Porkbun、Atom、Sedo、Afternic）仍由 Desktop 直接组合，执行门是 Host
+  资格登记（ADR-0024）与授权能力，而不是骨架入口；这些能力在 manifest 中保持 `qualification_pending`。在骨架准入
+  可构造之前新增的 transport 沿用同一方式，并须同步 manifest 与 `IMPLEMENTED`。移除条件：使准入值可构造的那次变更
+  必须把上述全部直接组合迁到 `admit_provider_capability` 之后。
+
+## 验收与证据
+
+十二平台的 manifest 必须与实际 Service 对齐；真实受控资产须覆盖用户六个资产来源与七个市场旅程，
+只有不可执行清单不能证明交付。整批一次确认、部分失败可见，重启、休眠、限流与提交后断网先对账再续作。
+平台事实、账号准入与当前接口调查见 [API 核查](../PROVIDER_API_REVIEW.md)；源码与已取得资格见
+[当前实现](../CURRENT_IMPLEMENTATION.md)。接口存在、社区样例和模块测试都不能替代真实能力验收。
+功能开发阶段以 Linux 源码与受控真实账户验证为主；Windows/macOS 实机与第二台设备的跨平台验收在基础功能
+完成后统一进行（2026-11-24 用户决定），届时仍须分别记录两系统结果，不以 Tauri 跨平台推定资格。

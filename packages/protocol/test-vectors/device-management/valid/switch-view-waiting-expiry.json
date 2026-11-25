@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "requestId": "switch-1",
   "mode": "forced",
   "status": "waiting_expiry",
@@ -7,5 +7,6 @@
   "toDeviceId": "device-2",
   "requestedAt": "2026-08-13T10:00:00Z",
   "earliestTakeoverAt": "2026-08-13T12:00:00Z",
-  "bootstrapExpiresAt": null
+  "bootstrapExpiresAt": null,
+  "normalHandoffReceipt": null
 }

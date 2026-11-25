@@ -1,19 +1,19 @@
 {
-  "schemaVersion": 1,
-  "deviceSwitchRequestId": "switch-1",
-  "capabilityJti": "bootstrap-jti-1",
+  "schemaVersion": 2,
+  "deviceSwitchRequestId": "installation-workflow",
+  "capabilityJti": "installation-capability",
   "stepNumber": 2,
-  "stepNonce": "bm9uY2UtMg",
-  "expectedWorkflowRevision": 1,
+  "stepNonce": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+  "expectedWorkflowRevision": 2,
+  "requestDigest": "VcALlE1WQ5zxzm4l9JKpe7Jia1wt4R1zbkyZt_DS-0E",
   "stepKind": "fetch_mutations",
   "stepPayload": {
-    "pinnedCheckpointId": "checkpoint-4",
-    "pinnedCheckpointThroughServerRevision": 4,
-    "pinnedCheckpointDigest": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    "fromServerRevisionExclusive": 6,
-    "throughServerRevisionInclusive": 5,
+    "pinnedCheckpointId": "installation-checkpoint",
+    "pinnedCheckpointThroughServerRevision": 5,
+    "pinnedCheckpointDigest": "f_ivtpHN0Q01XFYzjZME-YOVBZdH2SHXNn6I6C_Isas",
+    "fromServerRevisionExclusive": 8,
+    "throughServerRevisionInclusive": 7,
     "cursor": null,
-    "pageLimit": 100
-  },
-  "requestDigest": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    "pageLimit": 256
+  }
 }

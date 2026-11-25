@@ -41,6 +41,7 @@ function list(source: "active_local" | "standby_cloud" = "active_local") {
     kind: "renewal_desk",
     state: "list",
     freshness: freshness(source),
+    planAvailability: "available",
     budget: { currency: "USD", amount: "312" },
     items: [item("vault", true), item("kanban", false)],
     selectedCount: 1,
@@ -97,6 +98,23 @@ describe("RenewalDesk contracts", () => {
       ...list("standby_cloud"),
       freshness: { ...freshness("standby_cloud"), canEdit: true },
     }).success).toBe(false);
+  });
+
+  it("ties an unavailable plan to no selection, term, price or budget", () => {
+    const unavailable = {
+      ...list(),
+      planAvailability: "unavailable",
+      budget: null,
+      selectedCount: 0,
+      selectedTotal: null,
+      items: list().items.map((entry) => ({ ...entry, selected: false, termYears: null, annualPrice: null, registrar: null, autoRenewEnabled: null })),
+    };
+    expect(renewalDeskViewModelSchema.safeParse(unavailable).success).toBe(true);
+    expect(renewalDeskViewModelSchema.safeParse({ ...unavailable, budget: { currency: "USD", amount: "1" } }).success).toBe(false);
+    expect(renewalDeskViewModelSchema.safeParse({ ...unavailable, items: [{ ...unavailable.items[0], selected: true }] }).success).toBe(false);
+    expect(renewalDeskViewModelSchema.safeParse({ ...unavailable, items: [{ ...unavailable.items[0], termYears: 1 }] }).success).toBe(false);
+    expect(renewalDeskViewModelSchema.safeParse({ ...list(), budget: null }).success).toBe(false);
+    expect(renewalDeskViewModelSchema.safeParse({ ...list(), items: [{ ...list().items[0], annualPrice: null }] }).success).toBe(false);
   });
 
   it("can create only a plan and has no auto-renew or charge operation", () => {

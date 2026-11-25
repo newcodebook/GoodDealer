@@ -5,7 +5,7 @@ import {
   domainProviderFinancialConfirmationSchema,
   domainProviderFinancialQuoteSchema,
   domainProviderHandoffReturnSchema,
-} from "./domain-capabilities";
+} from "../domain-providers/domain-capabilities";
 
 export const CONNECTORS_PROTOCOL_VERSION = 1 as const;
 export const CLOUDFLARE_PROVIDER_KIND = "cloudflare" as const;
@@ -230,13 +230,13 @@ export {
   domainProviderFinancialConfirmationSchema,
   domainProviderFinancialQuoteSchema,
   domainProviderHandoffReturnSchema,
-} from "./domain-capabilities";
+} from "../domain-providers/domain-capabilities";
 export type {
   DomainProviderCapabilityId,
   DomainProviderFinancialConfirmation,
   DomainProviderFinancialQuote,
   DomainProviderHandoffReturn,
-} from "./domain-capabilities";
+} from "../domain-providers/domain-capabilities";
 
 export function parseDomainProviderFinancialConfirmation(value: unknown) {
   return domainProviderFinancialConfirmationSchema.parse(copyUntrustedCloudflareWire(value));

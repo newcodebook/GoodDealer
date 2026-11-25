@@ -86,15 +86,14 @@ export interface MockTask {
   readonly artifact: string | null;
   readonly completion: string;
   readonly riskPolicy: "forbidden" | "allowed" | "fresh_reauth_required";
-  readonly browser: "running" | "paused" | null;
 }
 
 export function initialMockTasks(): readonly MockTask[] {
   return [
-    { id: "task-afternic-csv", title: "上传 Afternic 价格 CSV", priority: "high", status: "awaiting_user", platform: "Afternic", account: "主账户", reason: "Afternic 不提供批量改价 API，需在后台上传 CSV", domains: ["vault.io", "goldrail.com", "kanban.ai", "oxide.dev"], artifact: "afternic-prices-0820.csv", completion: "平台价格与本地目标一致", riskPolicy: "allowed", browser: "running" },
-    { id: "task-sellerhub-verify", title: "SellerHub 所有权确认", priority: "normal", status: "open", platform: "SellerHub", account: "主账户", reason: "平台要求在后台点击确认所有权", domains: ["lumen.dev"], artifact: null, completion: "平台显示所有权已验证", riskPolicy: "forbidden", browser: null },
-    { id: "task-registrar-lock", title: "解除注册商转移锁", priority: "low", status: "verification_pending", platform: "Dynadot", account: "Dynadot 主账户", reason: "转移锁只能在注册商控制台关闭", domains: ["helio.systems"], artifact: null, completion: "注册商显示转移锁已关闭", riskPolicy: "fresh_reauth_required", browser: null },
-    { id: "task-atom-listing", title: "Atom 上架复核", priority: "normal", status: "confirmed_completed", platform: "Atom", account: "主账户", reason: "新建 Listing 需人工复核描述", domains: ["north.capital"], artifact: null, completion: "Listing 状态为在售", riskPolicy: "forbidden", browser: null },
+    { id: "task-atom-transfer-out", title: "Atom 转出 · 获取授权码", priority: "high", status: "awaiting_user", platform: "Atom", account: "主账户", reason: "AtomRegistrar 不提供转出 API，需在控制台解锁并取得授权码", domains: ["vault.io", "goldrail.com"], artifact: null, completion: "注册商显示域名已解锁且授权码已签发", riskPolicy: "allowed" },
+    { id: "task-sellerhub-verify", title: "SellerHub 所有权确认", priority: "normal", status: "open", platform: "SellerHub", account: "主账户", reason: "平台要求在后台点击确认所有权", domains: ["lumen.dev"], artifact: null, completion: "平台显示所有权已验证", riskPolicy: "forbidden" },
+    { id: "task-registrar-lock", title: "解除注册商转移锁", priority: "low", status: "verification_pending", platform: "Dynadot", account: "Dynadot 主账户", reason: "转移锁只能在注册商控制台关闭", domains: ["helio.systems"], artifact: null, completion: "注册商显示转移锁已关闭", riskPolicy: "fresh_reauth_required" },
+    { id: "task-atom-listing", title: "Atom 上架复核", priority: "normal", status: "confirmed_completed", platform: "Atom", account: "主账户", reason: "新建 Listing 需人工复核描述", domains: ["north.capital"], artifact: null, completion: "Listing 状态为在售", riskPolicy: "forbidden" },
   ];
 }
 
@@ -111,25 +110,10 @@ export function mockManualTasks(tasks: readonly MockTask[], selectedId: string |
     selectedTaskId: selectedId,
     tasks: tasks.map((task, index) => {
       const planId = `plan-${task.id}`;
-      const grant = task.browser === null ? null : {
-        schemaVersion: 1, grantRequestId: `grant-${task.id}`, providerConnectionId: "conn-afternic", browserSessionId: "session-2241",
-        operationPlanId: planId, approvedPlanHash: digest, provider: task.platform, accountAlias: task.account, planItemCount: 12,
-        planActionLabel: "上传价格 CSV", allowedActions: ["fill", "upload_csv", "read_result"], targetDomains: task.domains,
-        allowedHosts: ["*.afternic.com"], issuedAt: "2026-08-20T06:00:00Z", expiresAt: "2026-08-20T07:00:00Z", requiresFinalConfirmation: true,
-      };
-      const browserTask = task.browser === null ? null : {
-        schemaVersion: 1, taskId: `browser-${task.id}`, providerConnectionId: "conn-afternic", browserSessionId: "session-2241",
-        provider: task.platform, accountAlias: task.account, allowedHosts: ["*.afternic.com"], operator: task.browser === "running" ? "software" : "user",
-        state: task.browser, nextStepLabel: task.browser === "running" ? "填写价格表单 → 提交" : "等待用户完成登录", remainingItems: 3,
-        controlAdmission: canCommand
-          ? { status: "proven", controls: task.browser === "running" ? ["pause_and_take_over", "terminate"] : ["continue", "terminate"] }
-          : { status: "unavailable", reason: "gate_unproven" },
-      };
       const actions: string[] = [];
       if (nonTerminal.has(task.status) && canCommand) {
         actions.push("open_platform", "request_recheck", "cancel");
         if (task.status !== "verification_pending") actions.push("mark_user_operation_done");
-        if (grant !== null) actions.push("request_automation_grant");
         if (task.riskPolicy !== "forbidden") actions.push("accept_residual_risk");
       }
       return {
@@ -143,18 +127,17 @@ export function mockManualTasks(tasks: readonly MockTask[], selectedId: string |
         account: task.account,
         reason: task.reason,
         affectedDomains: task.domains,
+        affectedDomainCount: task.domains.length,
         preparedArtifactLabel: task.artifact,
         completionCondition: task.completion,
         lastCheckedAt: "2026-08-20T05:50:00Z",
         checklist: [
-          { id: `${task.id}-1`, label: "登录平台后台", state: task.status === "open" ? "pending" : "completed" },
-          { id: `${task.id}-2`, label: task.artifact === null ? "完成平台要求的操作" : `上传 ${task.artifact}`, state: task.status === "confirmed_completed" ? "completed" : "pending" },
+          { id: `${task.id}-1`, label: "在自己的浏览器中登录平台", state: task.status === "open" ? "pending" : "completed" },
+          { id: `${task.id}-2`, label: "完成平台要求的操作", state: task.status === "confirmed_completed" ? "completed" : "pending" },
           { id: `${task.id}-3`, label: "等待系统读取平台状态核对", state: task.status === "confirmed_completed" ? "completed" : "pending" },
         ],
         riskAcceptancePolicy: task.riskPolicy,
         unresolvedImpactDigest: task.riskPolicy === "forbidden" ? null : digest,
-        browserGrant: grant,
-        browserTask,
         availableActions: actions,
       };
     }),

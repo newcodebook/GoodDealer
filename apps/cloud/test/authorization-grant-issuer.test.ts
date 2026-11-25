@@ -100,8 +100,7 @@ describe("Desktop authorization Grant issuer", () => {
   it.each([
     { state: "grace" },
     { commercialExpiresAt: "2026-08-30T00:00:00Z" },
-    { featureEntitlements: ["feature:portfolio"] },
-  ])("rejects inactive, expired, or missing-capability commercial authority", async (override) => {
+  ])("rejects inactive or expired commercial authority", async (override) => {
     const signer = new FixedGrantSigner(false);
     await expect(new DesktopAuthorizationGrantIssuer(signer).issue({
       accountId: "account-a",
@@ -113,6 +112,54 @@ describe("Desktop authorization Grant issuer", () => {
     })).rejects.toThrow(/commercial authority/u);
     expect(signer.calls).toBe(0);
   });
+
+  it.each([
+    [[], []],
+    [["feature:portfolio", "feature:provider-read"], []],
+    [["cloudflare:dns:observe", "feature:portfolio"], ["cloudflare:dns:observe"]],
+    [["cloudflare:registrar:observe", "feature:portfolio"], ["cloudflare:registrar:observe"]],
+    [["aliyun:registrar:observe", "feature:portfolio"], ["aliyun:registrar:observe"]],
+    [["atom:marketplace:observe", "feature:portfolio"], ["atom:marketplace:observe"]],
+    [["feature:portfolio", "godaddy:registrar:observe"], ["godaddy:registrar:observe"]],
+    [["feature:portfolio", "porkbun:registrar:observe"], ["porkbun:registrar:observe"]],
+    [["feature:portfolio", "porkbun:dns:observe"], ["porkbun:dns:observe"]],
+    [["sedo:marketplace:observe", "sedo:marketplace:write"], ["sedo:marketplace:observe"]],
+    [["feature:portfolio", "spaceship:registrar:observe"], ["spaceship:registrar:observe"]],
+    [["feature:portfolio", "spaceship:marketplace:observe"], ["spaceship:marketplace:observe"]],
+    [["spaceship:marketplace:observe", "spaceship:marketplace:write"],
+      ["spaceship:marketplace:observe", "spaceship:marketplace:write"]],
+    [["afternic:marketplace:observe"], ["afternic:marketplace:observe"]],
+    [["afternic:marketplace:observe", "afternic:marketplace:write", "cloudflare:dns:observe"],
+      ["afternic:marketplace:observe", "afternic:marketplace:write", "cloudflare:dns:observe"]],
+  ])("signs only the exact supported feature intersection %#", async (features, expected) => {
+    const result = await new DesktopAuthorizationGrantIssuer(new FixedGrantSigner(false)).issue({
+      accountId: "account-a", deviceId: "device-a", workspaceId: "workspace-a", activeDeviceLease: lease,
+      authoritativeEntitlementSnapshot: { ...commercialSnapshot, featureEntitlements: features },
+      trustedNow: "2026-08-30T00:00:00Z",
+    });
+    expect(result).toMatchObject({ issued: true, grant: { schemaVersion: 4, typ: "gd.desktop-authorization-grant.v4",
+      commercialAuthority: { schemaVersion: 2, capabilities: expected } } });
+  });
+
+  it.each([
+    ["afternic:marketplace:write", "cloudflare:dns:observe"],
+    ["spaceship:marketplace:write", "spaceship:registrar:observe"],
+  ])("never repairs write-only features into a more powerful signed authority (%s)", async (write, unrelatedObservation) => {
+    const signer = new FixedGrantSigner(false);
+    await expect(new DesktopAuthorizationGrantIssuer(signer).issue({
+      accountId: "account-a", deviceId: "device-a", workspaceId: "workspace-a", activeDeviceLease: lease,
+      authoritativeEntitlementSnapshot: { ...commercialSnapshot, featureEntitlements: [write, unrelatedObservation] },
+      trustedNow: "2026-08-30T00:00:00Z",
+    })).rejects.toThrow(/require observation/u);
+    expect(signer.calls).toBe(0);
+  });
+
+  it("rejects a correctly signed but substituted capability set", async () => {
+    await expect(new DesktopAuthorizationGrantIssuer(new FixedGrantSigner(false, true)).issue({
+      accountId: "account-a", deviceId: "device-a", workspaceId: "workspace-a", activeDeviceLease: lease,
+      authoritativeEntitlementSnapshot: commercialSnapshot, trustedNow: "2026-08-30T00:00:00Z",
+    })).rejects.toThrow(/invalid authority/u);
+  });
 });
 
 class FixedGrantSigner implements DesktopAuthorizationGrantSigner {
@@ -120,7 +167,7 @@ class FixedGrantSigner implements DesktopAuthorizationGrantSigner {
   readonly #publicKey;
   calls = 0;
 
-  constructor(private readonly substituteWorkspace: boolean) {
+  constructor(private readonly substituteWorkspace: boolean, private readonly substituteCapabilities = false) {
     const pair = generateKeyPairSync("ed25519");
     this.#privateKey = pair.privateKey;
     this.#publicKey = pair.publicKey;
@@ -131,6 +178,9 @@ class FixedGrantSigner implements DesktopAuthorizationGrantSigner {
     expect(input.purpose).toBe(DESKTOP_AUTHORIZATION_GRANT_KEY_PURPOSE);
     const envelope: DesktopAuthorizationGrant = {
       ...input.claims,
+      commercialAuthority: this.substituteCapabilities
+        ? { ...input.claims.commercialAuthority, capabilities: ["afternic:marketplace:observe", "afternic:marketplace:write", "cloudflare:dns:observe"] }
+        : input.claims.commercialAuthority,
       workspace: this.substituteWorkspace
         ? { workspaceId: "workspace-substituted", kind: "personal_default" }
         : input.claims.workspace,

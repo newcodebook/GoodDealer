@@ -2,13 +2,16 @@ import { parseBatchOperationViewModel, type BatchOperationViewModel } from "@goo
 
 import type { BatchExecutionProgress, BatchJobSummary, BatchPhase } from "../../src/features/operations/batch-operations";
 
+/** The mock design host's "today", so the completed-today count is stable across runs. */
+export const mockToday = "2026-08-20";
+
 /** Mock batch jobs adapted from brand/ui_kits/desktop/data.js; each detail passes the client-core parser. */
 export const mockBatchJobs: readonly BatchJobSummary[] = [
-  { id: "b-draft", title: "批量改价", ruleLabel: "BIN −8% · 2 平台", targetCount: 823, platform: "Atom / Afternic", account: "主账户", createdLabel: "今日 14:02", phase: "awaiting_approval", progressPercent: 0, highRisk: true, plannedCounts: { automatic: 811, manual: 12, conflict: 6 }, resultCounts: null },
-  { id: "b-run", title: "变更 Nameserver → Cloudflare", ruleLabel: "迁移 DNS · 3 注册商", targetCount: 146, platform: "注册商", account: "Spaceship · Dynadot", createdLabel: "今日 13:31", phase: "running", progressPercent: 62, highRisk: true, plannedCounts: null, resultCounts: { succeeded: 90, waitingRemote: 0, retryable: 0, outcomeUnknown: 0, manual: 0, failedFinal: 0 } },
-  { id: "b-done", title: "上架到 Atom", ruleLabel: "新建 Listing · BIN", targetCount: 512, platform: "Atom", account: "主账户", createdLabel: "今日 11:20", phase: "completed", progressPercent: 100, highRisk: false, plannedCounts: null, resultCounts: { succeeded: 512, waitingRemote: 0, retryable: 0, outcomeUnknown: 0, manual: 0, failedFinal: 0 } },
-  { id: "b-part", title: "DNS 记录同步", ruleLabel: "TXT 验证写入", targetCount: 88, platform: "Cloudflare / 注册商", account: "DNS 提供商", createdLabel: "昨日 18:44", phase: "partially_failed", progressPercent: 100, highRisk: false, plannedCounts: null, resultCounts: { succeeded: 79, waitingRemote: 0, retryable: 3, outcomeUnknown: 0, manual: 6, failedFinal: 0 } },
-  { id: "b-rb", title: "批量改价", ruleLabel: "BIN −12% · 全库", targetCount: 240, platform: "Atom", account: "主账户", createdLabel: "昨日 09:12", phase: "rolled_back", progressPercent: 100, highRisk: false, plannedCounts: null, resultCounts: null },
+  { id: "b-draft", title: "批量改价", ruleLabel: "BIN −8% · 2 平台", targetCount: 823, platform: "Atom / Afternic", account: "主账户", createdLabel: "今日 14:02", completedAt: null, phase: "awaiting_approval", progressPercent: 0, highRisk: true, plannedCounts: { automatic: 811, manual: 12, conflict: 6 }, resultCounts: null },
+  { id: "b-run", title: "变更 Nameserver → Cloudflare", ruleLabel: "迁移 DNS · 3 注册商", targetCount: 146, platform: "注册商", account: "Spaceship · Dynadot", createdLabel: "今日 13:31", completedAt: null, phase: "running", progressPercent: 62, highRisk: true, plannedCounts: null, resultCounts: { succeeded: 90, waitingRemote: 0, retryable: 0, outcomeUnknown: 0, manual: 0, failedFinal: 0 } },
+  { id: "b-done", title: "上架到 Atom", ruleLabel: "新建 Listing · BIN", targetCount: 512, platform: "Atom", account: "主账户", createdLabel: "今日 11:20", completedAt: `${mockToday}T12:00:00Z`, phase: "completed", progressPercent: 100, highRisk: false, plannedCounts: null, resultCounts: { succeeded: 512, waitingRemote: 0, retryable: 0, outcomeUnknown: 0, manual: 0, failedFinal: 0 } },
+  { id: "b-part", title: "DNS 记录同步", ruleLabel: "TXT 验证写入", targetCount: 88, platform: "Cloudflare / 注册商", account: "DNS 提供商", createdLabel: "昨日 18:44", completedAt: null, phase: "partially_failed", progressPercent: 100, highRisk: false, plannedCounts: null, resultCounts: { succeeded: 79, waitingRemote: 0, retryable: 3, outcomeUnknown: 0, manual: 6, failedFinal: 0 } },
+  { id: "b-rb", title: "批量改价", ruleLabel: "BIN −12% · 全库", targetCount: 240, platform: "Atom", account: "主账户", createdLabel: "昨日 09:12", completedAt: null, phase: "rolled_back", progressPercent: 100, highRisk: false, plannedCounts: null, resultCounts: null },
 ];
 
 const draftItems = [
@@ -83,7 +86,7 @@ export function mockBatchDetail(job: BatchJobSummary, excludedItemIds: readonly 
     },
     groups: [
       { id: `${job.id}-g1`, platform: "Atom", account: "主账户", actionLabel: "修改价格", itemCount: 811, result: "planned" },
-      { id: `${job.id}-g2`, platform: "Afternic", account: "主账户", actionLabel: "生成 CSV · 人工上传", itemCount: 12, result: "planned" },
+      { id: `${job.id}-g2`, platform: "Afternic", account: "主账户", actionLabel: "Portfolio API · 批量改价", itemCount: 12, result: "planned" },
       { id: `${job.id}-g3`, platform: "注册商", account: "Spaceship · Dynadot", actionLabel: "变更 Nameserver", itemCount: 3, result: "planned" },
     ],
     itemWindow: { totalItems: job.targetCount, startIndex: 0, items: phase === "completed" || phase === "rolled_back" ? items.filter((item) => item.result !== "excluded") : items },

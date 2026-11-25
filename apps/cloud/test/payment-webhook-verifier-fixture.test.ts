@@ -37,5 +37,8 @@ describe("payment webhook verifier fixture", () => {
         await fixture.app.close();
       }
     },
+    // The first case builds the production app and signs every control cold; it runs in well under
+    // a second locally but took 7 s on the macos-15-intel runner, past Vitest's 5 s default.
+    20_000,
   );
 });

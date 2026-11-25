@@ -27,6 +27,7 @@ export type {
 } from "./commercial-checkout";
 export {
   PostgresEntitlementDeadlineReader,
+  PostgresDeviceActivationEntitlementPort,
   authoritativeEntitlementSnapshotSchema,
 } from "./postgres-repository";
 export type { AuthoritativeEntitlementSnapshot } from "./postgres-repository";

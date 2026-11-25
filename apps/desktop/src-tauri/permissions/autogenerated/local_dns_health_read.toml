@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-local-dns-health-read"
+description = "Enables the local_dns_health_read command without any pre-configured scope."
+commands.allow = ["local_dns_health_read"]
+
+[[permission]]
+identifier = "deny-local-dns-health-read"
+description = "Denies the local_dns_health_read command without any pre-configured scope."
+commands.deny = ["local_dns_health_read"]

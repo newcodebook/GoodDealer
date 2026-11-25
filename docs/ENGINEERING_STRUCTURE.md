@@ -72,53 +72,73 @@ API-only Zone/DNS 只读观察，其余 DNS/DNSSEC/Registrar/监控能力必须�
    `accountId` 或 `workspaceId`。
 2. 资产路径读写本地 SQLCipher；展示层只能调用具名业务端口，不能直接访问 SQLite。业务事务与
    Sync Outbox 原子提交，Cloud 恢复投影不能被 UI 直接读取。
-3. Cloudflare 路径仅允许 API Zone/DNS read。Token 只在受限本地所有者内；Cloud、普通 TypeScript、
+3. 当前 Cloudflare 实现为 API Zone/DNS read；其余已接受的域名能力按各自合同继续实现。Token 只在受限本地所有者内；Cloud、普通 TypeScript、
    日志、错误、审计 payload 和 fixture 都不能接触它。GoodDealer 私有 Service 自主维护 Zone/DNS
    endpoint、Provider wire、Transport、Credential、authority、错误与能力准入，私有 Provider 类型
    不得跨出 Host。
 4. `brand/` 是视觉参考，绝不作为运行时或设计权威。生产共享 UI 只能从 `@gooddealer/ui` public
    exports、声明的 tokens/assets 和 `@gooddealer/i18n` public exports 消费；没有 `@gooddealer/ui-brand`、
    别名、深层 import 或临时共享 UI 路径。
-5. 没有兼容/过渡接口、双 data/session 路径、旧路由、迁移桥、通用 adapter、提供商 fallback 或
-   浏览器 fallback。夹具、gallery、样例数据和视觉 callback 不得进入生产依赖图，也不授予权威。
-6. v1 不组合浏览器、非域名 Provider 产品、团队/多工作区、凭据迁移或 CSV import；域名 Provider
-   写入、Registrar 和外部 mutation 只有在具名能力、审批、对账和资格完成后才能接线。
+5. 没有兼容/过渡接口、双 data/session 路径、旧路由、迁移桥、通用 adapter、未经声明的提供商 fallback 或
+   浏览器 fallback。[ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)允许同一平台 Service 内的具名私有 HTTP
+   实现，不允许失败后隐式切换接口重放写入。夹具、gallery、样例数据和视觉 callback 不得进入生产依赖图，也不授予权威。
+6. v1 不组合浏览器、非域名 Provider 产品、首发清单外平台、团队/多工作区、凭据迁移或 CSV import；域名 Provider
+   写入、Registrar、交易市场、获取和外部 mutation 只有在具名能力、审批、对账和资格完成后才能接线。
 
-## Current source state：Desktop 与 Cloudflare 组合边界
+## 当前实现与 Local Host 内部结构
 
-当前源码不支持产品 readiness 声明。首切片共享 schema、operation id 和 `cloud-client` 消费面已冻结。
-Cloud 的 production `publicBusinessRoutes` 精确注册账号激活、Desktop Grant，以及 billing
-checkout/status/cancel/fixed-term confirm 六条业务 route。账号激活只接受 `account_web` 认证主体、从主体派生 Account
-范围并复核个人默认工作区绑定；后者只接受 Desktop 主体，且在设备-session 绑定和生产签名
-custody 未组合前明确拒绝。六条业务 route 都用 protocol public schema 严格解析无客户端租户选择器的请求，
-并按各自客户端类型与主体派生范围授权。
-public OpenAPI 因此精确包含两条 boundary route，以及账号激活、Desktop Grant、billing
-checkout/status/cancel/fixed-term confirm 六条业务 route；
-`adminBusinessRoutes` 仍为空；`periodicJobs` 只包含 Licensing 拥有的 durable provider inbox 与
-exact-resource reconciliation。`apps/desktop` 通过三个具名 Tauri 命令读取和写入
-Host-owned 本地业务库；未授权时保持锁定，数据库身份和 OS keychain/CSPRNG/零化 SQLCipher key
-material 由 `gooddealer-local-storage` 的 `DesktopLocalHost` 持有，OAuth/device/Cloudflare 等非存储
-capability 由 `secure-host-core` 持有。Cloud 中央目录按字面
-顺序注册 25 项 Cloud migration（M001–M017、M019、M020、Sync/Observation、recovery 及后续 account capability migrations）：M002 建立 `workspace_replica_*` 脱敏读取与恢复副本 schema，M015
-是规范化商业领域的 greenfield baseline，M016 增加 Identity refresh recovery，M017 增加 Devices
-登录授权加固，M019 建立 PID/XID/nonce/purpose/session 绑定的一次性 Identity transaction capability，
-M020 建立 Account access challenge 和加密邮件 outbox，M023 建立密码恢复、challenge-bound dead-letter
-outbox 和 Session 撤销；
-不存在 M018 compatibility migration。连接键控的 Cloudflare Observation 设计仍
-不存在，当前 Cloud schema 不保存任何 Provider 连接身份。
+源码组合状态统一见 [当前实现](CURRENT_IMPLEMENTATION.md)。命令以 Tauri `generate_handler!`、
+manifest 与 capability 为准，Cloud 路由以对应 composition factory 和注册表为准，迁移顺序以
+`apps/cloud/src/db/migrations.ts` 为准。本文件不维护另一份会过期的命令、路由或迁移数量。
 
-`secure-host-core` 已实现私有 Cloudflare Zone/DNS 只读 Service、Credential Fence、固定来源的
-加固 HTTPS Transport，以及自主维护的私有 endpoint/Provider wire。该边界尚无原生
-秘密录入、Tauri Command、Cloud route 或客户可达组合。后续 Desktop 源码负责人必须通过显式
-能力 allowlist 组合，并由整合负责人重新检查入口、注册表和可达性；不得恢复被删除的兼容、过渡、
-fixture 或被排除 connector 路径。
+`crates/local-storage/src/desktop_local_host/` 是唯一 Local Host 聚合所有者：
+
+| 私有模块 | 职责 |
+| --- | --- |
+| `mod.rs` | 构造、共享状态、数据库所有权和锁/代次不变量；crate 根继续导出原有窄 API。 |
+| `authorization.rs` / `authority.rs` | 授权状态发布与限制转换 / 严格签名授权验证。 |
+| `business.rs` | 业务读取、修改、冲突处理与最终提交栅栏。 |
+| `sync.rs` | Native Cloud 准入、复制阶段和受栅栏保护的持久化提交。 |
+| `provider.rs` | Provider 本地观察与凭据变更事务协调；实际秘密 custody 和 HTTPS 仍属于 Secure Host。 |
+| `backup_workflow.rs` / `native_backup.rs` | 备份意图、检查、恢复工作流 / 原生文件准入与发布。 |
+| `container.rs` / `source.rs` / `restore.rs` / `continuity.rs` | GDBK 加密容器、业务投影、当前数据库恢复事务与授权连续性。 |
+| `recovery.rs` | Cloud rebootstrap 的 Host 入口；当前生产实现缺口不能被测试组合替代。 |
+| `test_support.rs` / `tests.rs` | 私有测试组合及跨能力故障/并发回归，不是运行时可选后端。 |
+
+这些模块共享同一个 Host 状态，不各自创建数据库 writer。授权转换先发布代次，业务、同步与备份
+仍遵守原有锁顺序和提交栅栏；拆分不增加跨 crate 的数据库、密钥、明文或任意回调接口。
+
+工作区授权采用 `WorkspaceAuthorityVerifier`、`VerifiedWorkspaceAuthority` 与 `WorkspaceAuthorityState`。
+`BackupArtifactState` 只持有工件容器和 Native 发布组合，与工作区授权共享 publication mutex，不能授予执行权。
+`HostOperationState` 保留统一操作代次及备份选择状态，不增加第二套锁或权威。
+
+`active_workspace/business/` 内部按能力组织：
+
+| 私有模块 | 职责 |
+| --- | --- |
+| `mod.rs` | 数据库 owner、领域类型与私有组合 |
+| `assets.rs` / `reads.rs` | 资产生命周期与本地读投影 |
+| `provider_observations.rs` | 资源绑定、Cloudflare 观察及投影提交 |
+| `inbox.rs` / `outbox.rs` / `conflicts.rs` | 副本应用、可靠交付、冲突与裁决 |
+| `checkpoint.rs` / `database.rs` | checkpoint 安装、数据库打开/克隆和完整性证明 |
+| `wire.rs` / `repair.rs` | 确定性 wire 验证与编码 / 有界存储修复 |
+| `cloudflare_credential.rs` / `cloudflare_retirement.rs` / `drain_claims.rs` | 已有凭据事务、退役和设备交接 drain |
+| `tests/` | 各能力行为测试及跨能力事务 fixture |
+
+`domain_asset_provider_bindings` 统一拥有注册商、DNS 与 Listing 资源身份；Listing 唯一性包含连接，
+每个域名/连接最多一个当前 Listing，detached 历史可保留。Registrar/DNS 继续各自单资源约束。
+平台观察仍属于既有 observation 表，不能把绑定当成已验证的外部结果。
+
+Native `provider_credential_orchestrator/mod.rs` 是窄 facade，`cloudflare.rs` 适配现有平台，持久业务判断
+不搬到壳层。`desktop_custody/{macos,linux,unsupported}.rs` 只承载私有 OS 密钥库细节；
+文件身份、加密库所有权与恢复策略仍由 custody owner 管理，Windows 在独立后端完成 handle 语义。
 
 ## Cloud 领域与持久化所有权
 
 | 领域 | 拥有内容 | 必须保持的边界 |
 | --- | --- | --- |
 | identity / workspace | 账户激活、默认绑定、服务器端租户范围、允许字段的同步副本和恢复投影。 | 认证后导出范围；副本不是 Desktop Repository；没有成员、选择器、转移或跨账户共享。 |
-| connector / observation | 无 Cloud 持久化所有权。 | Provider 账号、连接标识与凭据全在本地；允许业务字段只能经本地 Outbox 同步。 |
+| workspace / observation | 拥有 allowlisted Cloudflare 计数观察副本与 ingress；经服务器端认证与工作区范围准入。 | 不保存 Provider 账号身份或凭据；不把本地不透明连接引用提升为第三方账号身份或执行权威；不代表 Desktop 调用 Provider。 |
 | audit | 服务器审计记录与其受限签名边界。 | 审计不成为通用秘密、密钥或授权旁路。 |
 | job/runtime | 由具体领域拥有的后台作业。 | 空注册表不是未来 capability 的占位授权；有作业时先取得领域、租户、幂等、失败和审计合同。 |
 

@@ -67,6 +67,7 @@ describe("account billing HTTP routes", () => {
       now: () => new Date("2026-09-01T00:00:00Z"),
       correlationIds: () => "billing-correlation",
       ports: {
+        desktopRouteAuthority: { async authorize() { return true; } },
         accountActivation: { activate: async () => null },
         desktopAuthorization: { issue: async () => null },
         commercialCheckout: { createCheckout, readStatus, cancelSubscription, confirmFixedTerm,

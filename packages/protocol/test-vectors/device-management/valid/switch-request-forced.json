@@ -1,7 +1,7 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "mode": "forced",
   "toDeviceId": "device-2",
   "idempotencyKey": "idem-2",
-  "reauthProofId": "proof-1"
+  "expectedSourceLeaseEpoch": 1
 }

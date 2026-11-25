@@ -25,6 +25,7 @@ export type AccountAccessNoticeKey = keyof Pick<
   | "resetSent"
   | "resetCompleted"
   | "signedOut"
+  | "desktopReauthenticationRequired"
 >;
 
 export interface AccountAccessNotice {

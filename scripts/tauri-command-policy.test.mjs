@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 
-import { tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
+import { adapterCommands, tauriCommandPolicyErrors } from "./tauri-command-policy.mjs";
 
 function writeFile(root, path, source) {
   const destination = join(root, path);
@@ -15,13 +15,55 @@ function writeFile(root, path, source) {
 function createFixture() {
   const root = mkdtempSync(join(tmpdir(), "gooddealer-tauri-command-"));
   const commands = [
+    "afternic_connection_connect",
+    "afternic_connection_revoke",
+    "afternic_connection_status",
+    "afternic_delist_approve",
+    "afternic_delist_preview",
+    "afternic_delist_status",
+    "afternic_listing_plan_approve",
+    "afternic_listing_plan_preview",
+    "afternic_listing_plan_status",
+    "afternic_listing_write_approve",
+    "afternic_listing_write_preview",
+    "afternic_listing_write_status",
+    "aliyun_registrar_status",
+    "aliyun_registrar_submit",
+    "atom_marketplace_status",
+    "atom_marketplace_submit",
+    "atom_standard_delist_approve",
+    "atom_standard_delist_preview",
+    "atom_standard_delist_status",
+    "afternic_inventory_refresh",
     "cloudflare_connection_activate",
+    "cloudflare_connection_create",
+    "cloudflare_connection_purge",
+    "cloudflare_connection_revoke",
     "cloudflare_connection_status",
     "cloudflare_observation_read",
+    "cloudflare_registrar_account_status",
+    "cloudflare_registrar_account_submit",
+    "cloudflare_registrar_inventory_refresh",
+    "cloudflare_retirement_candidates",
     "cloudflare_zone_observe",
     "desktop_authentication_begin",
     "desktop_authentication_refresh",
     "desktop_authentication_status",
+    "device_directory_read",
+    "device_self_report",
+    "device_switch_advance",
+    "device_switch_cancel",
+    "device_switch_request",
+    "device_switch_status",
+    "forced_takeover_cancel",
+    "forced_takeover_confirm",
+    "forced_takeover_preview",
+    "forced_takeover_reauthenticate",
+    "forced_takeover_status",
+    "godaddy_registrar_status",
+    "godaddy_registrar_submit",
+    "porkbun_registrar_status",
+    "porkbun_registrar_submit",
     "local_business_status",
     "local_backup_artifact_select",
     "local_backup_export",
@@ -29,20 +71,54 @@ function createFixture() {
     "local_backup_restore_status",
     "local_conflict_center_read",
     "local_conflict_resolve",
+    "local_device_lease_read",
     "local_sync_status",
+    "sedo_marketplace_status",
+    "sedo_marketplace_submit",
     "local_domain_asset_edit",
+    "local_domain_asset_create",
     "local_domain_asset_delete",
     "local_domain_asset_provider_bind",
     "local_asset_library_read",
+    "local_batch_operations_read",
+    "local_dns_health_read",
     "local_domain_detail_read",
+    "local_history_read",
+    "local_manual_tasks_read",
+    "local_portable_backup",
+    "local_renewals_read",
+    "local_sales_read",
+    "local_settings_read",
+    "local_storage_repair",
+    "spaceship_registrar_status",
+    "spaceship_registrar_submit",
+    "sellerhub_bin_price_approve",
+    "sellerhub_bin_price_preview",
+    "sellerhub_bin_price_status",
+    "sellerhub_create_approve",
+    "sellerhub_create_preview",
+    "sellerhub_create_status",
+    "sellerhub_status",
+    "sellerhub_submit",
+    "target_bootstrap_status",
+    "target_installation_start",
+    "target_installation_status",
+    "target_bootstrap_cancel",
   ];
   writeFile(root, "apps/desktop/src-tauri/build.rs", `AppManifest::new().commands(&[${commands.map((command) => `"${command}"`).join(",")}])\n`);
   writeFile(root, "apps/desktop/src-tauri/src/main.rs", `
-let local_host = Arc::new(DesktopLocalHost::production(application_root)?);
+let local_host = Arc::new(execution_context_native::production_host(application_root, identity.clone(), &power_gate)?);
 app.manage(Arc::clone(&local_host));
 tauri::generate_handler![${commands.join(",")}]
 `);
-  const ordinaryCommands = commands.filter((command) => !command.startsWith("local_backup_"));
+  writeFile(root, "apps/desktop/src-tauri/src/execution_context_native.rs", `
+pub(crate) fn production_host(root: DesktopApplicationRoot) -> Result<DesktopLocalHost, DesktopLocalHostError> {
+  let native = Arc::new(ExecutionContextNative::new(identity, power.clone()));
+  let host = DesktopLocalHost::production_with_execution_context(root, native)?;
+  Ok(host)
+}
+`);
+  const ordinaryCommands = commands.filter((command) => !command.startsWith("local_backup_") && command !== "local_portable_backup");
   writeFile(root, "apps/desktop/src-tauri/src/handler.rs", `${ordinaryCommands.map((command) => `#[tauri::command]\nfn ${command}() {}`).join("\n")}
 #[tauri::command]
 async fn local_backup_restore_status(host: State<'_, Arc<DesktopLocalHost>>) -> Result<Status, String> {
@@ -78,6 +154,19 @@ async fn local_backup_restore_begin(request: tauri::ipc::Request<'_>, host: Stat
     .map_err(|_| "BACKUP_STORAGE_REJECTED".to_owned())?
     .map_err(map_desktop_backup_error)
 }
+#[tauri::command]
+async fn local_portable_backup(request: tauri::ipc::Request<'_>, host: State<'_, Arc<DesktopLocalHost>>, coordinator: State<'_, Arc<NativeCloudCoordinator>>) -> Result<Status, String> {
+  let wire = bounded_request_wire(&request)?;
+  let aggregate = Arc::clone(host.inner());
+  let result = tauri::async_runtime::spawn_blocking(move || aggregate.portable_backup(&wire))
+    .await
+    .map_err(|_| "BACKUP_STORAGE_REJECTED".to_owned())?
+    .map_err(map_desktop_backup_error)?;
+  if result.get("state").and_then(serde_json::Value::as_str) == Some("import_applied") {
+    coordinator.wake_sync();
+  }
+  Ok(result)
+}
 fn map_desktop_backup_error(error: DesktopBackupError) -> String { error.code().to_owned() }
 `);
   writeFile(root, "apps/desktop/src-tauri/src/backup_ipc.rs", `
@@ -97,9 +186,53 @@ fn backup_operation_rejected() -> String { "BACKUP_OPERATION_REJECTED".to_owned(
   writeFile(
     root,
     "apps/desktop/src/adapters/tauri/index.ts",
-    commands.filter((command) => !command.startsWith("local_backup_"))
-      .map((command) => `"${command}"`)
+    commands.filter((command) => !command.startsWith("local_backup_") && !command.startsWith("afternic_") && !command.startsWith("forced_takeover_") && !command.startsWith("spaceship_") && !command.startsWith("aliyun_") && !command.startsWith("godaddy_") && !command.startsWith("porkbun_") && !command.startsWith("atom_") && !command.startsWith("cloudflare_registrar_account_") && command !== "local_portable_backup")
+      .map((command) => `invoke("${command}")`)
       .join("\n"),
+  );
+  writeFile(root, "apps/desktop/src/adapters/tauri/forced-takeover.ts",
+    commands.filter(command => command.startsWith("forced_takeover_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/spaceship-registrar.ts",
+    commands.filter(command => command.startsWith("spaceship_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/aliyun-registrar.ts",
+    commands.filter(command => command.startsWith("aliyun_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/godaddy-registrar.ts",
+    commands.filter(command => command.startsWith("godaddy_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/porkbun-registrar.ts",
+    commands.filter(command => command.startsWith("porkbun_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/sellerhub.ts",
+    commands.filter(command => command.startsWith("sellerhub_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/portable-backup.ts",
+    commands.includes("local_portable_backup") ? 'invoke("local_portable_backup")' : "");
+  writeFile(root, "apps/desktop/src/adapters/tauri/atom-marketplace.ts",
+    commands.filter(command => command.startsWith("atom_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/sedo-marketplace.ts",
+    commands.filter(command => command.startsWith("sedo_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(root, "apps/desktop/src/adapters/tauri/cloudflare-registrar-account.ts",
+    commands.filter(command => command.startsWith("cloudflare_registrar_account_")).map(command => `invoke("${command}")`).join("\n"));
+  writeFile(
+    root,
+    "apps/desktop/src/adapters/tauri/afternic.ts",
+    commands.filter((command) => command.startsWith("afternic_") && !command.startsWith("afternic_delist_") && !command.startsWith("afternic_listing_"))
+      .map((command) => `"${command}"`).join("\n"),
+  );
+  writeFile(
+    root,
+    "apps/desktop/src/adapters/tauri/afternic-delist.ts",
+    commands.filter((command) => command.startsWith("afternic_delist_"))
+      .map((command) => `"${command}"`).join("\n"),
+  );
+  writeFile(
+    root,
+    "apps/desktop/src/adapters/tauri/afternic-listing-plan.ts",
+    commands.filter((command) => command.startsWith("afternic_listing_plan_"))
+      .map((command) => `invoke("${command}")`).join("\n"),
+  );
+  writeFile(
+    root,
+    "apps/desktop/src/adapters/tauri/afternic-listing-write.ts",
+    commands.filter((command) => command.startsWith("afternic_listing_write_"))
+      .map((command) => `"${command}"`).join("\n"),
   );
   writeFile(
     root,
@@ -126,6 +259,36 @@ function useFixture(t) {
 
 test("the repository Desktop bridge exposes exactly the reviewed business and authentication commands", () => {
   assert.deepEqual(tauriCommandPolicyErrors(), []);
+});
+
+test("startup keeps one context-aware Host and rejects bypass or duplicate construction", () => {
+  for (const [path, before, after] of [
+    ["main.rs", "execution_context_native::production_host", "DesktopLocalHost::production"],
+    ["execution_context_native.rs", "production_with_execution_context(root, native)", "production(root)"],
+    ["execution_context_native.rs", "Ok(host)", "Ok(other_host)"],
+    ["execution_context_native.rs", "Ok(host)", "let other = DesktopLocalHost::production_with_execution_context(root, native)?; Ok(host)"],
+  ]) {
+    const root = createFixture();
+    try {
+      const file = `apps/desktop/src-tauri/src/${path}`;
+      const source = readFileSync(join(root, file), "utf8");
+      const changed = source.replace(before, after);
+      assert.notEqual(changed, source);
+      writeFile(root, file, changed);
+      assert(tauriCommandPolicyErrors({ root }).some(error => error.includes("exactly one local-host aggregate")));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
+test("the tracked macOS capability schema matches the generated desktop schema", () => {
+  // Only a macOS build regenerates macOS-schema.json; it is byte-identical to the desktop schema
+  // there, so drift here would surface late as a dirty worktree in the macOS native job.
+  const schemas = new URL("../apps/desktop/src-tauri/gen/schemas/", import.meta.url);
+  assert.equal(
+    readFileSync(new URL("macOS-schema.json", schemas), "utf8"),
+    readFileSync(new URL("desktop-schema.json", schemas), "utf8"),
+    "regenerate macOS-schema.json from desktop-schema.json after changing Desktop commands",
+  );
 });
 
 test("rejects an unreviewed command or a missing reviewed command in each Desktop surface", (t) => {
@@ -168,6 +331,19 @@ test("rejects missing, symbolic-link, and adapter structural inputs", (t) => {
   const adapterRoot = useFixture(t);
   rmSync(join(adapterRoot, "apps/desktop/src/adapters/tauri/index.ts"));
   assert.ok(tauriCommandPolicyErrors({ root: adapterRoot }).some((error) => error.includes("regular file")));
+
+  const afternicRoot = useFixture(t);
+  const afternicPath = join(afternicRoot, "apps/desktop/src/adapters/tauri/afternic.ts");
+  rmSync(afternicPath);
+  assert.ok(tauriCommandPolicyErrors({ root: afternicRoot }).some((error) => error.includes("regular file")));
+  symlinkSync("index.ts", afternicPath);
+  assert.ok(tauriCommandPolicyErrors({ root: afternicRoot }).some((error) => error.includes("symlink")));
+  const delistRoot = useFixture(t);
+  const delistPath = join(delistRoot, "apps/desktop/src/adapters/tauri/afternic-delist.ts");
+  rmSync(delistPath);
+  assert.ok(tauriCommandPolicyErrors({ root: delistRoot }).some((error) => error.includes("regular file")));
+  symlinkSync("index.ts", delistPath);
+  assert.ok(tauriCommandPolicyErrors({ root: delistRoot }).some((error) => error.includes("symlink")));
 });
 
 test("rejects every capability broadening and custom permission surface", (t) => {
@@ -458,4 +634,24 @@ test("rejects JSON, unbounded, or non-aggregate backup IPC composition", (t) => 
     "[dependencies]\ngooddealer-secure-host-core = { features = [\"backup-test-adapter\"] }\n",
   );
   assert.ok(tauriCommandPolicyErrors({ root: featureRoot }).some((error) => error.includes("test adapter")));
+});
+
+test("distinguishes installation state data from literal command invocations", () => {
+  const states = 'type State = "target_installation_pending"; const states = ["target_installation_pending"];';
+  assert.deepEqual(adapterCommands(states), []);
+  assert.deepEqual(adapterCommands(states + '\ninvoke<unknown>("target_installation_status"); invoke("target_installation_start");'),
+    ["target_installation_start", "target_installation_status"]);
+  assert.deepEqual(adapterCommands(states + '\ninvoke("target_installation_pending"); invoke("target_installation_unreviewed");'),
+    ["target_installation_pending", "target_installation_unreviewed"]);
+  assert.deepEqual(adapterCommands("invoke<unknown>('target_installation_unreviewed');"),
+    ["target_installation_unreviewed"]);
+});
+
+test("forced takeover data strings do not expand executable commands", () => {
+  const data = 'const kind = "forced_takeover_pending"; const reason = "local_recovery_required";';
+  const options = { literalInvocationsOnly: true };
+  assert.deepEqual(adapterCommands(data, options), []);
+  assert.deepEqual(adapterCommands(data + 'invoke<unknown>("forced_takeover_status");', options), ["forced_takeover_status"]);
+  assert.deepEqual(adapterCommands("invoke('forced_takeover_unreviewed');", options), ["forced_takeover_unreviewed"]);
+  assert.deepEqual(adapterCommands('invoke("local_unreviewed");', options), ["local_unreviewed"]);
 });

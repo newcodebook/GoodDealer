@@ -23,8 +23,22 @@ const expectedBackupEvidenceInputPaths = [
   "rust-toolchain.toml",
   "crates/local-storage/Cargo.toml",
   "crates/local-storage/src/lib.rs",
-  "crates/local-storage/src/backup/mod.rs",
-  "crates/local-storage/src/backup/evidence.rs",
+  "crates/local-storage/src/desktop_local_host/mod.rs",
+  "crates/local-storage/src/desktop_local_host/evidence.rs",
+  "crates/local-storage/src/desktop_local_host/authority.rs",
+  "crates/local-storage/src/desktop_local_host/authorization.rs",
+  "crates/local-storage/src/desktop_local_host/backup_workflow.rs",
+  "crates/local-storage/src/desktop_local_host/business.rs",
+  "crates/local-storage/src/desktop_local_host/container.rs",
+  "crates/local-storage/src/desktop_local_host/continuity.rs",
+  "crates/local-storage/src/desktop_local_host/native_backup.rs",
+  "crates/local-storage/src/desktop_local_host/provider.rs",
+  "crates/local-storage/src/desktop_local_host/recovery.rs",
+  "crates/local-storage/src/desktop_local_host/restore.rs",
+  "crates/local-storage/src/desktop_local_host/source.rs",
+  "crates/local-storage/src/desktop_local_host/sync.rs",
+  "crates/local-storage/src/desktop_local_host/test_support.rs",
+  "crates/local-storage/src/desktop_local_host/tests.rs",
   "crates/local-storage/src/sqlcipher_fixture.rs",
   "crates/local-storage/examples/backup_evidence.rs",
   "scripts/collect-wp0-evidence.mjs",
@@ -47,7 +61,10 @@ test("backup evidence input inventory is literal, complete, and closed", () => {
   assertCompleteBackupEvidenceInputInventory(BACKUP_EVIDENCE_INPUT_PATHS);
 
   for (const requiredPath of [
-    "crates/local-storage/src/backup/mod.rs",
+    "crates/local-storage/src/desktop_local_host/mod.rs",
+    "crates/local-storage/src/desktop_local_host/backup_workflow.rs",
+    "crates/local-storage/src/desktop_local_host/native_backup.rs",
+    "crates/local-storage/src/desktop_local_host/authorization.rs",
     "crates/local-storage/src/sqlcipher_fixture.rs",
   ]) {
     const omission = expectedBackupEvidenceInputPaths.filter((path) => path !== requiredPath);

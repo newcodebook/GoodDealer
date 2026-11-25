@@ -57,3 +57,15 @@ function timestamp(value: Date | string): string {
   const candidate = value instanceof Date ? value.toISOString().replace(/\.\d{3}Z$/u, "Z") : value;
   return canonicalUtcTimestamp.parse(candidate);
 }
+
+/** Licensing deadline observed under the caller's consumed devices_account capability. */
+export class PostgresDeviceActivationEntitlementPort {
+  async lockCurrent(transaction: import("../../db/index").TenantTransaction): Promise<{ readonly active: true; readonly entitlementDeadline: string } | null> {
+    const result = await transaction.query<{state: string; commercial_expires_at: Date | null; trusted_now: Date}>(
+      "SELECT state, commercial_expires_at, trusted_now FROM licensing_api.read_authoritative_entitlement_snapshot()");
+    const row = result.rows[0];
+    if (result.rows.length !== 1 || row === undefined || row.state !== "active" || row.commercial_expires_at === null ||
+      row.commercial_expires_at <= row.trusted_now) return null;
+    return {active: true, entitlementDeadline: timestamp(row.commercial_expires_at)};
+  }
+}

@@ -1,7 +1,7 @@
 import type {
   CheckpointDescriptor,
   MutationPage,
-  WorkspaceEntityDigest,
+  CheckpointEntityDigest,
 } from "@gooddealer/protocol/workspace";
 
 import type { TenantTransaction } from "../../db/index";
@@ -24,6 +24,7 @@ export interface BootstrapRevisionPort {
 
 /** Checkpoint owner is the only participant allowed to create or release pins. */
 export interface BootstrapCheckpointPort {
+  ensureBootstrapCheckpointLocked?(transaction: TenantTransaction, input: { readonly workflowId: string; readonly expiresAt: string }): Promise<{ readonly checkpoint: CheckpointDescriptor; readonly checkpointEntityDigests: readonly CheckpointEntityDigest[]; readonly targetServerRevision: number; readonly workspaceSchemaVersion: number } | null>;
   lockAvailableAndPin(
     transaction: TenantTransaction,
     input: {
@@ -51,7 +52,7 @@ export interface BootstrapProjectionDigestPort {
     readonly checkpointId: string;
     readonly throughServerRevisionInclusive: number;
     readonly workspaceSchemaVersion: number;
-  }): Promise<readonly WorkspaceEntityDigest[]>;
+  }): Promise<readonly CheckpointEntityDigest[]>;
 }
 
 export interface BootstrapDeviceCursorPort {

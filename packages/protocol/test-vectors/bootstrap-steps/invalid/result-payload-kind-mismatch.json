@@ -1,13 +1,59 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "workflowRevision": 2,
-  "acceptedStepNumber": 2,
-  "nextStepNonce": "bm9uY2UtMw",
-  "stepKind": "fetch_mutations",
+  "acceptedStepNumber": 1,
+  "nextStepNonce": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+  "resultDigest": "VsBeZEXa2IR5zsDZH1yG2piDveAokR1vp6R753fsX2k",
+  "stepKind": "pin_checkpoint",
   "resultPayload": {
-    "verifiedRevision": 5,
-    "verifiedDigest": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "accepted": true
-  },
-  "resultDigest": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+    "mutationPage": {
+      "schemaVersion": 3,
+      "workspaceId": "installation-workspace",
+      "fromServerRevisionExclusive": 5,
+      "throughServerRevisionInclusive": 7,
+      "mutations": [
+        {
+          "schemaVersion": 3,
+          "workspaceId": "installation-workspace",
+          "workspaceSchemaVersion": 1,
+          "entityType": "domain_asset",
+          "sourceDeviceId": "installation-source",
+          "activeLeaseEpoch": 1,
+          "mutationId": "installed-edit",
+          "entityId": "kept.test",
+          "entityGeneration": 2,
+          "operationKind": "upsert",
+          "baseServerRevision": 5,
+          "serverRevision": 6,
+          "deviceMutationSequence": 6,
+          "changedFields": [
+            {
+              "fieldPath": "note",
+              "value": "Edited on generation two"
+            }
+          ]
+        },
+        {
+          "schemaVersion": 3,
+          "workspaceId": "installation-workspace",
+          "workspaceSchemaVersion": 1,
+          "entityType": "domain_asset",
+          "sourceDeviceId": "installation-source",
+          "activeLeaseEpoch": 1,
+          "mutationId": "installed-delete",
+          "entityId": "removed.test",
+          "entityGeneration": 1,
+          "operationKind": "delete",
+          "deletedAt": "2029-12-31T23:59:00Z",
+          "baseServerRevision": 6,
+          "serverRevision": 7,
+          "deviceMutationSequence": 7,
+          "changedFields": []
+        }
+      ],
+      "returnedThroughServerRevision": 7,
+      "nextCursor": null,
+      "pageDigest": "MAkdmvzF1epsiIVTdS1UKYxMZMzBo9GWaDPk2d1fa3Q"
+    }
+  }
 }

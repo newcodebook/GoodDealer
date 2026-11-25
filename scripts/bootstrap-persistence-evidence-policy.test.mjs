@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 import { BOOTSTRAP_INPUT_PATHS, BOOTSTRAP_MIGRATIONS, BOOTSTRAP_PORTABLE_TEST_NAMES,
-  BOOTSTRAP_POSTGRES_TEST_NAMES, BOOTSTRAP_TABLES, bootstrapPersistenceReportPassesPolicy,
+  BOOTSTRAP_POSTGRES_TEST_NAMES, BOOTSTRAP_TABLES, bootstrapPersistenceReportPassesPolicy, verifierIsFixedPurposeRegistry,
   digestInputs, drainSourceWritesSignedReadiness } from "./collect-bootstrap-persistence-report.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -24,7 +24,7 @@ const report = {
   tests: { portable: observation("test/bootstrap-persistence-boundary.test.ts", BOOTSTRAP_PORTABLE_TEST_NAMES),
     postgres: observation("test/postgres/bootstrap-persistence.test.ts", BOOTSTRAP_POSTGRES_TEST_NAMES) },
   production: { fixtureOnly: true, productionComposition: false, productionLeaseIssued: false,
-    normalHandoffEnabled: false, verifier: "Denying", leaseSigner: "Denying", drainSignedReadyWrites: 0,
+    normalHandoffEnabled: false, verifier: "FixedPurposeRegistry", leaseSigner: "Denying", drainSignedReadyWrites: 0,
     publicBusinessRoutes: 1, adminBusinessRoutes: 0, periodicJobs: 0, tauriCommands: [],
     fixtureImportsFromSource: 0 },
   gates: { "R0-05": "In Progress", "R0-06": "In Progress", "R0-09": "In Progress", "R0-16": "In Progress" },
@@ -48,7 +48,7 @@ test("Bootstrap policy accepts only exact PostgreSQL 18.6 facts and exact named 
 test("Bootstrap policy rejects fabricated production activation, surfaces, Gates, and source facts", () => {
   for (const [key, value] of [["productionComposition", true], ["productionLeaseIssued", true],
     ["normalHandoffEnabled", true], ["drainSignedReadyWrites", 1], ["publicBusinessRoutes", -1], ["periodicJobs", 1],
-    ["fixtureImportsFromSource", 1]]) {
+    ["fixtureImportsFromSource", 1], ["verifier", "Denying"], ["verifier", "unresolved"]]) {
     assert.equal(bootstrapPersistenceReportPassesPolicy({ ...report,
       production: { ...report.production, [key]: value } }), false, key);
   }
@@ -60,6 +60,16 @@ test("Bootstrap policy rejects fabricated production activation, surfaces, Gates
   const badInputs = report.inputs.map((input, index) => index === 0 ? { ...input, sha256: "c".repeat(64) } : input);
   assert.equal(bootstrapPersistenceReportPassesPolicy({ ...report,
     inputs: badInputs, inputSetDigest: digestInputs(badInputs) }), false);
+});
+
+test("Bootstrap verifier counts only the fixed-purpose Ed25519 key registry", () => {
+  const source = readFileSync(resolve(root, "apps/cloud/src/modules/devices/bootstrap-capability-verifier.ts"), "utf8");
+  assert.equal(verifierIsFixedPurposeRegistry(source), true);
+  // Answering any purpose, accepting other key types, or adding a second key source is not this registry.
+  assert.equal(verifierIsFixedPurposeRegistry(source.replace("input.purpose === BOOTSTRAP_CAPABILITY_KEY_PURPOSE ? ", "true ? ")), false);
+  assert.equal(verifierIsFixedPurposeRegistry(source.replaceAll('asymmetricKeyType !== "ed25519"', 'asymmetricKeyType === undefined')), false);
+  assert.equal(verifierIsFixedPurposeRegistry(`${source}\nexport class OpenKeys implements BootstrapVerificationKeySource {}`), false);
+  assert.equal(verifierIsFixedPurposeRegistry(undefined), false);
 });
 
 test("Bootstrap hosted workflow pins PostgreSQL 18.6 and exact evidence command", () => {

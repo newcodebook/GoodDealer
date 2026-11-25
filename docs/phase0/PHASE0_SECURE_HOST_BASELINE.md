@@ -36,8 +36,8 @@ projection、ephemeral candidate 与 current-DB restore 均为 crate-private。D
 
 ## 未完成的外部前提
 
-ADR-0015 已定义 SQLite 源身份为 Host-owned 的已打开连接，而非路径或可选 VFS；
-[ADR-0023](../adr/0023-installation-bound-gdbk-backup-and-honest-business-restore.md) 固定 strict GDBK、
+ADR-0023 已定义 SQLite 源身份为 Host-owned 的已打开连接，而非路径或可选 VFS；
+[ADR-0023](../adr/0023-business-backup-and-recovery.md) 固定 strict GDBK、
 安装级 KEK、handle-based 两阶段 journal 与诚实业务恢复。生产 Backup KEK、独立 non-rollbackable
 anchor、create-only rebootstrap slot custody、safe active-database move detection/原生 handle/crash 资格、
 签名应用、持久归档、独立审查和 Gate closure 仍未完成。Portable 或本地测试不能

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { DomainDetail, type DomainDetailProps } from "./index";
 
-function detail(overrides: { readonly state?: "normal" | "conflict" | "sold"; readonly readOnly?: boolean } = {}): DomainDetailViewModel {
+function detail(overrides: { readonly state?: "normal" | "conflict" | "sold"; readonly readOnly?: boolean; readonly expiring?: boolean } = {}): DomainDetailViewModel {
   const state = overrides.state ?? "normal";
   return parseDomainDetailViewModel({
     schemaVersion: 3,
@@ -23,7 +23,7 @@ function detail(overrides: { readonly state?: "normal" | "conflict" | "sold"; re
       id: "kanban.ai", domain: "kanban.ai", tags: ["AI"], registrar: "Namecheap",
       lifecycleStatus: state === "sold" ? "sold" : "active",
       syncStatus: state === "conflict" ? "conflicted" : "clean",
-      targetPrice: { currency: "USD", amount: "45000" }, expiresOn: "2027-01-28", assetVersion: 2,
+      targetPrice: { currency: "USD", amount: "45000" }, expiresOn: "2027-01-28", expiring: overrides.expiring ?? false, assetVersion: 2,
       acquiredOn: "2025-01-28", acquisitionCost: { currency: "USD", amount: "8100" },
       autoRenew: true, registrarLock: true, note: null, portfolioId: null,
     },
@@ -33,11 +33,17 @@ function detail(overrides: { readonly state?: "normal" | "conflict" | "sold"; re
 
 function render(props: Partial<DomainDetailProps> & Pick<DomainDetailProps, "presentation">): string {
   return renderToStaticMarkup(
-    <DomainDetail locale="zh-CN" onBack={() => undefined} onTargetPriceCommit={() => undefined} onDelist={() => undefined} referenceDate="2026-08-20" {...props} />,
+    <DomainDetail locale="zh-CN" onBack={() => undefined} onTargetPriceCommit={() => undefined} onDelist={() => undefined} {...props} />,
   );
 }
 
 describe("Domain detail presentation", () => {
+  it("marks the expiry only when the Host reports the asset as expiring", () => {
+    expect(render({ presentation: { state: "ready", data: detail({ expiring: true }) } })).toContain("domain-detail-expiring");
+    // The expiry is the same date in both: the Renderer no longer judges it from its own clock.
+    expect(render({ presentation: { state: "ready", data: detail() } })).not.toContain("domain-detail-expiring");
+  });
+
   it("renders the value ribbon with the unrealized gain against acquisition cost", () => {
     const html = render({ presentation: { state: "ready", data: detail() } });
 

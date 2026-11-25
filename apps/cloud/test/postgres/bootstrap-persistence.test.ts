@@ -144,6 +144,8 @@ describe("PostgreSQL strict Bootstrap step transaction", () => {
   beforeEach(async () => {
     fixture = signedFixture();
     await clearLicensingTestData(ownerPool);
+  // Immutable epoch boundaries are cleared only by owner fixture maintenance, never runtime DELETE.
+  await ownerPool.query("TRUNCATE identity_private.security_epoch_end_boundaries");
     await ownerPool.query(`TRUNCATE workspace_account_bindings, workspace_workspaces,
       device_bootstrap_activation_attempts, device_bootstrap_step_nonces,
       device_bootstrap_authorities, device_bootstrap_steps, device_bootstrap_capabilities,
@@ -151,6 +153,25 @@ describe("PostgreSQL strict Bootstrap step transaction", () => {
       device_account_states, workspace_revisions CASCADE`);
     await ownerPool.query("DELETE FROM identity_accounts");
     await seedBootstrap(scope, fixture);
+  });
+
+  it("keeps first-device bootstrap source-free and refuses cross-purpose source epochs", async () => {
+    const retained = await transactions.withTenant(scope, transaction => transaction.query(
+      "SELECT purpose, source_lease_epoch FROM device_switch_workflows WHERE workflow_id='switch-request-1'",
+    ));
+    expect(retained.rows).toEqual([{ purpose: "first_device", source_lease_epoch: null }]);
+    for (const [purpose, epoch] of [["device_switch", null], ["first_device", 1]] as const) {
+      await expect(transactions.withTenant(scope, transaction => transaction.query(
+        `INSERT INTO device_switch_workflows
+          (account_id,workspace_id,workflow_id,purpose,mode,request_digest,idempotency_key,status,
+           workflow_revision,to_device_id,bound_key_id,bound_key_version,bound_account_security_epoch,
+           state_deadline,source_lease_epoch)
+         SELECT account_id,workspace_id,'wrong-source-purpose',$1,mode,request_digest,'wrong-source-purpose',
+           'cancelled',1,to_device_id,bound_key_id,bound_key_version,bound_account_security_epoch,state_deadline,$2
+         FROM device_switch_workflows WHERE workflow_id='switch-request-1'`,
+        [purpose, epoch],
+      ))).rejects.toMatchObject({ code: "42501" });
+    }
   });
 
   it("persists pin and returns byte-identical replay after service reconstruction with zero port calls", async () => {
@@ -208,6 +229,27 @@ describe("PostgreSQL strict Bootstrap step transaction", () => {
         FROM device_switch_workflows w JOIN device_bootstrap_authorities a USING (account_id, workspace_id, workflow_id)
         WHERE w.workflow_id = 'switch-request-1'`));
     expect(stored.rows[0]).toEqual({ steps: "0", nonce_state: "active", workflow_revision: "4", next_step: "1" });
+  });
+
+  it("rolls back a bootstrap step when workspace I/O crosses the capability deadline", async () => {
+    await transactions.withTenant(scope, (transaction) => transaction.query(
+      "UPDATE device_bootstrap_capabilities SET expires_at = clock_timestamp() + interval '300 milliseconds'"));
+    const ports = new TestBootstrapPorts(scope.workspaceId);
+    const pin = ports.ensureBootstrapCheckpointLocked.bind(ports);
+    ports.ensureBootstrapCheckpointLocked = async (transaction) => {
+      await transaction.query("SELECT pg_sleep(0.4)");
+      return pin(transaction);
+    };
+    const service = createStepService(fixture, ports);
+    await expect(service.execute({ scope, expectedCapability: fixture.expected,
+      capability: fixture.envelope, request: pinRequest(fixture.envelope.jti, fixture.nonce) }))
+      .resolves.toEqual({ accepted: false, code: "BOOTSTRAP_CONFLICT" });
+    const state = await transactions.withTenant(scope, (transaction) => transaction.query(`SELECT
+      (SELECT count(*)::text FROM device_bootstrap_steps) AS steps,
+      (SELECT state FROM device_bootstrap_step_nonces WHERE step_number = 1) AS nonce,
+      (SELECT workflow_revision FROM device_switch_workflows) AS revision,
+      (SELECT pinned_checkpoint_id FROM device_bootstrap_authorities) AS pin`));
+    expect(state.rows).toEqual([{ steps: "0", nonce: "active", revision: "4", pin: null }]);
   });
 
   it("production Lease signing denial changes zero rows and never reaches cursor or pin release ports", async () => {
@@ -289,6 +331,30 @@ describe("PostgreSQL strict Bootstrap step transaction", () => {
       { device_id: "device-target", cursor_generation: "1", status: "active", retirement_reason: null },
     ]);
     expect(releases).toBe(1);
+  });
+
+  it("refuses activation when its signer crosses the bootstrap deadline and rolls back every write", async () => {
+    await terminalizeAuthority(scope, true);
+    await transactions.withTenant(scope, (transaction) => transaction.query(
+      "UPDATE device_bootstrap_capabilities SET expires_at = clock_timestamp() + interval '300 milliseconds'"));
+    const signer = fixtureLeaseSigner(fixture);
+    const service = new PostgresBootstrapActivation({
+      transactions, accountSecurity: new PostgresIdentityAccountSecurityStatePort(),
+      entitlement: activeEntitlement(), signer: { async sign(input) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        return signer.sign(input);
+      } },
+      checkpoints: { async lockAvailableAndPin() { throw new Error("unreachable"); }, async release() {} },
+      cursors: new PostgresDeviceCursorRepository(),
+    });
+    await expect(service.activate({ ...scope, workflowId: "switch-request-1", expectedWorkflowRevision: 4 }))
+      .resolves.toEqual({ installed: false, code: "ACTIVATION_CONFLICT" });
+    const state = await transactions.withTenant(scope, (transaction) => transaction.query(`SELECT
+      (SELECT status FROM device_lease_epoch_allocations WHERE lease_epoch = 2) AS allocation,
+      (SELECT status FROM device_switch_workflows) AS workflow,
+      (SELECT consumed_at FROM device_bootstrap_capabilities) AS consumed,
+      (SELECT count(*)::text FROM device_active_leases) AS leases`));
+    expect(state.rows).toEqual([{ allocation: "pending", workflow: "bootstrapping", consumed: null, leases: "0" }]);
   });
 
   it("fixture activation fault rolls back Lease Epoch capability workflow attempt pin and cursors together", async () => {
@@ -429,7 +495,7 @@ async function seedBootstrap(
       [scope.accountId, scope.workspaceId, fixture.envelope.jti, fixture.envelope.issuedAt,
         fixture.envelope.expiresAt, canonical, createHash("sha256").update(canonical).digest(), fixture.envelope.kid]);
     const nonceDigest = createHash("sha256").update(encodeDomainSeparatedWireValue(
-      "GOODDEALER-BOOTSTRAP-STEP-NONCE-V1", fixture.nonce,
+      "GOODDEALER-BOOTSTRAP-STEP-NONCE-V2", fixture.nonce,
     )).digest();
     await transaction.query(`INSERT INTO device_bootstrap_authorities
       (account_id, workspace_id, workflow_id, capability_jti, target_device_id, account_security_epoch,
@@ -455,10 +521,9 @@ function createStepService(fixture: ReturnType<typeof signedFixture>, ports: Tes
 }
 
 function pinRequest(capabilityJti: string, stepNonce: string, checkpointId = "checkpoint-1") {
-  const draft = { schemaVersion: 1 as const, deviceSwitchRequestId: "switch-request-1", capabilityJti,
-    stepNumber: 1, stepNonce, expectedWorkflowRevision: 4, stepKind: "pin_checkpoint" as const,
-    stepPayload: { checkpointId, checkpointThroughServerRevision: 0,
-      checkpointDigest: Buffer.alloc(32, 9).toString("base64url") },
+  const draft = { schemaVersion: 2 as const, deviceSwitchRequestId: "switch-request-1", capabilityJti,
+    stepNumber: 1, stepNonce, expectedWorkflowRevision: checkpointId === "checkpoint-1" ? 4 : 3, stepKind: "pin_checkpoint" as const,
+    stepPayload: {},
     requestDigest: Buffer.alloc(32).toString("base64url") };
   return bootstrapStepRequestSchema.parse({ ...draft,
     requestDigest: createHash("sha256").update(encodeBootstrapStepRequestDigestInput(draft)).digest("base64url") });
@@ -468,6 +533,13 @@ class TestBootstrapPorts {
   readonly calls = { revisions: 0, checkpoints: 0, mutations: 0, projection: 0 };
   constructor(private readonly workspaceId: string) {}
   async lock(_transaction: TenantTransaction) { this.calls.revisions += 1; return { serverRevision: 0, workspaceSchemaVersion: 1 }; }
+  async ensureBootstrapCheckpointLocked(transaction: TenantTransaction) {
+    await this.lock(transaction); this.calls.checkpoints += 1;
+    return {checkpoint:{schemaVersion:3 as const,workspaceId:this.workspaceId,workspaceSchemaVersion:1,
+      checkpointId:"checkpoint-1",throughServerRevision:0,checkpointDigest:Buffer.alloc(32,9).toString("base64url")},
+      checkpointEntityDigests:[{entityType:"domain_asset" as const,partitionId:"empty",digest:Buffer.alloc(32,9).toString("base64url")}],
+      targetServerRevision:0,workspaceSchemaVersion:1};
+  }
   async lockAvailableAndPin(_transaction: TenantTransaction, input: { readonly descriptor: object }) {
     this.calls.checkpoints += 1; return { ...input.descriptor } as never;
   }

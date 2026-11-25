@@ -5,10 +5,16 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+afternic-controlled-acceptance = ["gooddealer-local-storage/afternic-controlled-acceptance"]
+development-qualification = ["gooddealer-local-storage/development-qualification"]
+
 [build-dependencies]
 tauri-build.workspace = true
 
 [dependencies]
+base64 = "=0.22.1"
 gooddealer-local-storage = { path = "../../../crates/local-storage" }
 gooddealer-secure-host-core = { path = "../../../crates/secure-host-core" }
 serde.workspace = true

@@ -1,7 +1,7 @@
 import type { CloudMigration } from "../../../db/index";
 
 /**
- * ADR-0026: authorization codes now record the exact per-attempt loopback redirect that the token
+ * ADR-0011: authorization codes now record the exact per-attempt loopback redirect that the token
  * exchange must repeat. Custom-scheme codes are unredeemable short-lived history, so the
  * replacement constraint is NOT VALID and binds only new writes.
  */

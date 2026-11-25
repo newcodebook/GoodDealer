@@ -5,13 +5,24 @@
 //! generation used to perform the operation.  `DesktopLocalHost` can embed this runtime and
 //! expose the methods as its native boundary without widening the IPC contract.
 
+use std::collections::VecDeque;
 use std::fmt::{self, Write as _};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 
-use crate::active_workspace::business::SyncProjectionEffect;
+use crate::active_workspace::business::{
+    CloudMutationReceipt, CloudflareRetirementSeed, DrainMutationProgress, DrainProofSchemaVersion,
+    HandoffDrainProofClaims, SyncProjectionEffect, SyncRejectionKind,
+};
+use crate::active_workspace::business::{
+    CloudflareRegistrarInventoryCommit, CloudflareRegistrarScanHead, CloudflareRegistrarScanScope,
+};
+use crate::active_workspace::capability_qualification::{
+    CLOUDFLARE_DNS_OBSERVE, CLOUDFLARE_REGISTRAR_OBSERVE,
+};
 use crate::{
     BusinessDatabase, BusinessDatabaseError, ClaimedCloudflareDnsProjection, ClaimedSyncMutation,
     CloudflareCredentialEnvelopeKind, CloudflareCredentialOperationKind,
@@ -35,6 +46,11 @@ pub(crate) enum DesktopSyncError {
     StorageRejected,
     InvalidInput,
     AcknowledgementMismatch,
+    /// The capability has not passed ADR-0027 qualification, so the Host refuses to run it.
+    CapabilityUnqualified,
+    /// The activated Zone's name cannot become a domain asset: the create path rejects it, or
+    /// the domain was deleted and keeps its tombstone. Nothing was written.
+    ZoneUnimportable,
 }
 
 impl fmt::Display for DesktopSyncError {
@@ -45,6 +61,8 @@ impl fmt::Display for DesktopSyncError {
             Self::StorageRejected => "SYNC_STORAGE_REJECTED",
             Self::InvalidInput => "SYNC_INPUT_REJECTED",
             Self::AcknowledgementMismatch => "SYNC_ACKNOWLEDGEMENT_MISMATCH",
+            Self::CapabilityUnqualified => "SYNC_CAPABILITY_UNQUALIFIED",
+            Self::ZoneUnimportable => "SYNC_ZONE_UNIMPORTABLE",
         })
     }
 }
@@ -56,6 +74,7 @@ impl std::error::Error for DesktopSyncError {}
 pub(crate) enum DesktopSyncRejectDisposition {
     Rejected,
     Conflicted,
+    MutationConflicted,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -92,6 +111,38 @@ pub(crate) struct PreparedCloudflareObservationData {
     pub(crate) public_proof: String,
 }
 
+#[derive(PartialEq, Eq)]
+pub(crate) struct PreparedCloudflareRegistrarData {
+    pub(crate) connection_id: String,
+    pub(crate) connection_incarnation_id: String,
+    pub(crate) connection_digest: String,
+    pub(crate) generation: u64,
+    pub(crate) scope_digest: String,
+    pub(crate) zone_digest: String,
+    pub(crate) public_proof: String,
+    pub(crate) prior: Option<CloudflareRegistrarScanHead>,
+    pub(crate) request_id: Option<String>,
+}
+
+impl PreparedCloudflareRegistrarData {
+    fn scan_scope<'a>(
+        &'a self,
+        admission: &'a DesktopSyncRunAdmission,
+    ) -> Result<CloudflareRegistrarScanScope<'a>, DesktopSyncError> {
+        let credential_generation =
+            i64::try_from(self.generation).map_err(|_| DesktopSyncError::StorageRejected)?;
+        let lease_epoch =
+            i64::try_from(admission.lease_epoch()).map_err(|_| DesktopSyncError::StaleAuthority)?;
+        Ok(CloudflareRegistrarScanScope {
+            connection_id: &self.connection_id,
+            connection_incarnation_id: &self.connection_incarnation_id,
+            credential_generation,
+            device_id: admission.device_id(),
+            lease_epoch,
+        })
+    }
+}
+
 pub(crate) struct PreparedCloudflareRecoveryData {
     pub(crate) connection_incarnation_id: String,
     pub(crate) intent_id: String,
@@ -105,8 +156,10 @@ pub(crate) struct PreparedCloudflareRecoveryData {
 /// The fields are intentionally private and this type does not implement `Serialize`; a
 /// Renderer can only return the handle to the Host that created it.
 pub(crate) struct DesktopSyncRunAdmission {
-    runtime_nonce: [u8; 16],
-    run_sequence: u64,
+    role: NativeCloudRole,
+    /// `None` is a verified Standby authority without any admitted database runtime.
+    runtime_nonce: Option<[u8; 16]>,
+    run_sequence: Option<u64>,
     workspace_id: String,
     device_id: String,
     lease_epoch: u64,
@@ -114,17 +167,148 @@ pub(crate) struct DesktopSyncRunAdmission {
     pub(crate) execute_before: i64,
     authority_snapshot_digest: String,
     pub(crate) authority_epoch: u64,
+    provider_capabilities: Vec<String>,
 }
 
-/// Opaque Native-only admission. It cannot be cloned, serialized, deserialized, constructed, or
-/// inspected by a dependent crate; callers may only return it to `DesktopLocalHost` methods.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NativeCloudRole {
+    InitialReplica,
+    Active,
+    Standby,
+}
+
+/// Opaque Native-only admission. Dependent crates may inspect its role and return it to
+/// `DesktopLocalHost`, but cannot clone, serialize, deserialize or construct its authority.
 pub struct DesktopNativeCloudAdmission {
     pub(crate) inner: DesktopSyncRunAdmission,
 }
 
 impl DesktopNativeCloudAdmission {
+    /// Whether this admission carries Active execution authority. Read authority never grants
+    /// Provider, Outbox or business mutation access.
+    #[must_use]
+    pub const fn is_active(&self) -> bool {
+        matches!(self.inner.role, NativeCloudRole::Active)
+    }
+
+    /// A verified Active server credential whose local replica still needs its exact receipt.
+    /// It grants no business, sync or Provider authority.
+    #[must_use]
+    pub fn is_installing_target(&self) -> bool {
+        self.inner.role == NativeCloudRole::InitialReplica
+    }
+
     pub(crate) fn workspace_id(&self) -> &str {
         &self.inner.workspace_id
+    }
+}
+
+impl DesktopSyncRunAdmission {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn standby_authority(
+        workspace_id: String,
+        device_id: String,
+        lease_epoch_floor: u64,
+        trusted_time_floor: i64,
+        execute_before: i64,
+        authority_snapshot_digest: String,
+        authority_epoch: u64,
+    ) -> Self {
+        Self {
+            role: NativeCloudRole::Standby,
+            runtime_nonce: None,
+            run_sequence: None,
+            workspace_id,
+            device_id,
+            lease_epoch: lease_epoch_floor,
+            trusted_time_floor,
+            execute_before,
+            authority_snapshot_digest,
+            authority_epoch,
+            provider_capabilities: Vec::new(),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn initial_replica_authority(
+        workspace_id: String,
+        device_id: String,
+        lease_epoch: u64,
+        trusted_time_floor: i64,
+        execute_before: i64,
+        authority_snapshot_digest: String,
+        authority_epoch: u64,
+    ) -> Self {
+        let mut value = Self::standby_authority(
+            workspace_id,
+            device_id,
+            lease_epoch,
+            trusted_time_floor,
+            execute_before,
+            authority_snapshot_digest,
+            authority_epoch,
+        );
+        value.role = NativeCloudRole::InitialReplica;
+        value
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn matches_initial_replica_authority(
+        &self,
+        workspace_id: &str,
+        device_id: &str,
+        lease_epoch: u64,
+        trusted_time_floor: i64,
+        execute_before: i64,
+        digest: &str,
+        epoch: u64,
+    ) -> bool {
+        self.role == NativeCloudRole::InitialReplica
+            && self.runtime_nonce.is_none()
+            && self.run_sequence.is_none()
+            && self.provider_capabilities.is_empty()
+            && self.workspace_id == workspace_id
+            && self.device_id == device_id
+            && self.lease_epoch == lease_epoch
+            && self.trusted_time_floor == trusted_time_floor
+            && self.execute_before == execute_before
+            && self.authority_snapshot_digest == digest
+            && self.authority_epoch == epoch
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn matches_standby_authority(
+        &self,
+        workspace_id: &str,
+        device_id: &str,
+        lease_epoch_floor: u64,
+        trusted_time_floor: i64,
+        execute_before: i64,
+        authority_snapshot_digest: &str,
+        authority_epoch: u64,
+    ) -> bool {
+        self.role == NativeCloudRole::Standby
+            && self.runtime_nonce.is_none()
+            && self.run_sequence.is_none()
+            && self.workspace_id == workspace_id
+            && self.device_id == device_id
+            && self.lease_epoch == lease_epoch_floor
+            && self.trusted_time_floor == trusted_time_floor
+            && self.execute_before == execute_before
+            && self.authority_snapshot_digest == authority_snapshot_digest
+            && self.authority_epoch == authority_epoch
+            && self.provider_capabilities.is_empty()
+    }
+
+    pub(crate) fn lease_epoch(&self) -> u64 {
+        self.lease_epoch
+    }
+
+    pub(crate) fn authority_snapshot_digest(&self) -> &str {
+        &self.authority_snapshot_digest
+    }
+
+    /// The device this run acts for; derived from its verified Lease, never from a caller.
+    pub(crate) fn device_id(&self) -> &str {
+        &self.device_id
     }
 }
 
@@ -158,7 +342,7 @@ impl<'a> DesktopSyncCommitGuard<'a> {
         }
     }
 
-    fn verify(
+    pub(crate) fn verify(
         self,
         runtime: &DesktopSyncRuntime,
         admission: &DesktopSyncRunAdmission,
@@ -180,7 +364,9 @@ pub(crate) struct DesktopSyncRuntime {
     execute_before: i64,
     authority_snapshot_digest: String,
     authority_epoch: u64,
+    provider_capabilities: Vec<String>,
     next_run_sequence: AtomicU64,
+    retirement_open_retries: Mutex<Option<VecDeque<CloudflareRetirementSeed>>>,
 }
 
 impl fmt::Debug for DesktopSyncRuntime {
@@ -190,6 +376,138 @@ impl fmt::Debug for DesktopSyncRuntime {
 }
 
 impl DesktopSyncRuntime {
+    /// Checks exact current Native authority; qualification is a separate release requirement.
+    /// A continuation or Standby admission can never derive external Provider permission.
+    pub(crate) fn require_provider_capability(
+        &self,
+        admission: &DesktopSyncRunAdmission,
+        capability: &str,
+    ) -> Result<(), DesktopSyncError> {
+        recheck_snapshot(self, admission)?;
+        if !self
+            .provider_capabilities
+            .iter()
+            .any(|value| value == capability)
+        {
+            return Err(DesktopSyncError::Blocked);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn read_cloudflare_retirement_candidates(
+        &self,
+        database: &BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+    ) -> Result<Vec<crate::DesktopCloudflareRetirementCandidate>, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        database
+            .cloudflare_retirement_candidates()
+            .map_err(map_database_error)
+    }
+
+    pub(crate) fn claim_cloudflare_retirement_retry(
+        &self,
+        database: &BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+    ) -> Result<Option<(CloudflareRetirementSeed, String)>, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        self.initialize_cloudflare_retirement_retries(database)?;
+        let mut retries = self
+            .retirement_open_retries
+            .lock()
+            .map_err(|_| DesktopSyncError::StorageRejected)?;
+        Ok(retries.as_mut().and_then(VecDeque::pop_front).map(|seed| {
+            let digest = cloudflare_connection_digest(
+                &admission.workspace_id,
+                &seed.connection_incarnation_id,
+            );
+            (seed, digest)
+        }))
+    }
+
+    fn initialize_cloudflare_retirement_retries(
+        &self,
+        database: &BusinessDatabase,
+    ) -> Result<(), DesktopSyncError> {
+        let mut retries = self
+            .retirement_open_retries
+            .lock()
+            .map_err(|_| DesktopSyncError::StorageRejected)?;
+        if retries.is_none() {
+            // Snapshot only requests present on this writable opening. Later wakes must not
+            // become a background retry loop, nor pick up a newly confirmed request.
+            let seeds = database
+                .cloudflare_retirement_candidates()
+                .map_err(map_database_error)?
+                .into_iter()
+                .filter(|candidate| {
+                    candidate.action == crate::DesktopCloudflareMaintenanceAction::RetryRetirement
+                })
+                .map(|candidate| database.cloudflare_retirement_seed(&candidate.connection_ref))
+                .collect::<Result<VecDeque<_>, _>>()
+                .map_err(map_database_error)?;
+            *retries = Some(seeds);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn request_cloudflare_retirement(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        connection_hint: &str,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<(CloudflareRetirementSeed, String), DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        // Freeze the opening's retry set before introducing this new request, even if no
+        // recovery wake has successfully obtained writable admission yet.
+        self.initialize_cloudflare_retirement_retries(database)?;
+        let seed = database
+            .request_cloudflare_retirement_guarded(
+                connection_hint,
+                &timestamp(trusted_now()?)?,
+                || commit_guard.verify(self, admission),
+            )
+            .map_err(map_database_error)?;
+        let digest =
+            cloudflare_connection_digest(&admission.workspace_id, &seed.connection_incarnation_id);
+        Ok((seed, digest))
+    }
+
+    pub(crate) fn resume_cloudflare_retirement(
+        &self,
+        database: &BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        connection_hint: &str,
+    ) -> Result<(CloudflareRetirementSeed, String), DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        let seed = database
+            .cloudflare_retirement_seed(connection_hint)
+            .map_err(map_database_error)?;
+        let digest =
+            cloudflare_connection_digest(&admission.workspace_id, &seed.connection_incarnation_id);
+        Ok((seed, digest))
+    }
+
+    pub(crate) fn resolve_cloudflare_retirement(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        seed: &CloudflareRetirementSeed,
+        verified_absent: bool,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<bool, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        database
+            .resolve_cloudflare_retirement_guarded(
+                seed,
+                verified_absent,
+                &timestamp(trusted_now()?)?,
+                || commit_guard.verify(self, admission),
+            )
+            .map_err(map_database_error)
+    }
+
     pub(crate) fn admit_cloudflare_activation(
         &self,
         database: &BusinessDatabase,
@@ -197,6 +515,8 @@ impl DesktopSyncRuntime {
         connection_hint: &str,
     ) -> Result<(), DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        self.require_provider_capability(admission, CLOUDFLARE_DNS_OBSERVE)?;
+        require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
         database
             .cloudflare_provision_seed(connection_hint)
             .map(|_| ())
@@ -216,13 +536,8 @@ impl DesktopSyncRuntime {
         else {
             return Ok(None);
         };
-        let connection_digest = domain_digest(
-            b"gooddealer/cloudflare-connection/v1\0",
-            &[
-                admission.workspace_id.as_bytes(),
-                seed.connection_incarnation_id.as_bytes(),
-            ],
-        );
+        let connection_digest =
+            cloudflare_connection_digest(&admission.workspace_id, &seed.connection_incarnation_id);
         Ok(Some(PreparedCloudflareRecoveryData {
             connection_incarnation_id: seed.connection_incarnation_id,
             intent_id: seed.intent_id,
@@ -240,36 +555,116 @@ impl DesktopSyncRuntime {
         entity_hint: &str,
     ) -> Result<PreparedCloudflareObservationData, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
-        let credential = database
-            .cloudflare_connection_observation_admission(connection_hint)
-            .map_err(map_database_error)?;
-        let seed = database
-            .cloudflare_provision_seed(connection_hint)
-            .map_err(map_database_error)?;
-        if seed.expected_base.kind != CloudflareCredentialEnvelopeKind::Active
-            || seed.expected_base.generation != Some(credential.generation)
-            || seed.expected_base.scope_digest.as_deref() != Some(&credential.scope_digest)
-            || seed.expected_base.zone_digest.as_deref() != Some(&credential.zone_digest)
-            || seed.expected_base.public_proof.as_deref() != Some(&credential.public_proof)
-        {
-            return Err(DesktopSyncError::StorageRejected);
-        }
+        self.require_provider_capability(admission, CLOUDFLARE_DNS_OBSERVE)?;
+        require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
+        let (incarnation, credential) = cloudflare_stored_credential(database, connection_hint)?;
         Ok(PreparedCloudflareObservationData {
             connection_id: connection_hint.to_owned(),
             entity_id: entity_hint.to_owned(),
-            connection_digest: domain_digest(
-                b"gooddealer/cloudflare-connection/v1\0",
-                &[
-                    admission.workspace_id.as_bytes(),
-                    seed.connection_incarnation_id.as_bytes(),
-                ],
-            ),
-            connection_incarnation_id: seed.connection_incarnation_id,
+            connection_digest: cloudflare_connection_digest(&admission.workspace_id, &incarnation),
+            connection_incarnation_id: incarnation,
             generation: credential.generation,
             scope_digest: credential.scope_digest,
             zone_digest: credential.zone_digest,
             public_proof: credential.public_proof,
         })
+    }
+
+    pub(crate) fn prepare_cloudflare_registrar_inventory(
+        &self,
+        database: &BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        connection_id: &str,
+    ) -> Result<PreparedCloudflareRegistrarData, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        self.require_provider_capability(admission, CLOUDFLARE_REGISTRAR_OBSERVE)?;
+        require_qualified(CLOUDFLARE_REGISTRAR_OBSERVE)?;
+        let (incarnation, credential) = cloudflare_stored_credential(database, connection_id)?;
+        let prior = database
+            .cloudflare_registrar_scan_head(&incarnation, credential.generation)
+            .map_err(map_database_error)?;
+        let mut prepared = PreparedCloudflareRegistrarData {
+            connection_id: connection_id.to_owned(),
+            connection_digest: cloudflare_connection_digest(&admission.workspace_id, &incarnation),
+            connection_incarnation_id: incarnation,
+            generation: credential.generation,
+            scope_digest: credential.scope_digest,
+            zone_digest: credential.zone_digest,
+            public_proof: credential.public_proof,
+            prior,
+            request_id: None,
+        };
+        prepared.request_id = database
+            .cloudflare_registrar_pending_request(&prepared.scan_scope(admission)?)
+            .map_err(map_database_error)?;
+        Ok(prepared)
+    }
+
+    pub(crate) fn queue_cloudflare_registrar_inventory(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        connection_id: &str,
+        guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<(), DesktopSyncError> {
+        require_provider_dispatch(database)?;
+        let prepared =
+            self.prepare_cloudflare_registrar_inventory(database, admission, connection_id)?;
+        database
+            .queue_cloudflare_registrar_scan(&prepared.scan_scope(admission)?, || {
+                guard.verify(self, admission)
+            })
+            .map_err(map_database_error)
+    }
+
+    pub(crate) fn recheck_cloudflare_registrar_inventory(
+        &self,
+        database: &BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        prepared: &PreparedCloudflareRegistrarData,
+    ) -> Result<(), DesktopSyncError> {
+        require_provider_dispatch(database)?;
+        let current = self.prepare_cloudflare_registrar_inventory(
+            database,
+            admission,
+            &prepared.connection_id,
+        )?;
+        if current.request_id.is_none() || current != *prepared {
+            return Err(DesktopSyncError::StaleAuthority);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_cloudflare_registrar_inventory(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        prepared: &PreparedCloudflareRegistrarData,
+        account_scope_digest: &str,
+        registrations: &[crate::DesktopCloudflareRegistrationFact],
+        guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<crate::DesktopCloudflareRegistrarScanReceipt, DesktopSyncError> {
+        self.recheck_cloudflare_registrar_inventory(database, admission, prepared)?;
+        database
+            .import_cloudflare_registrar_inventory(
+                &CloudflareRegistrarInventoryCommit {
+                    request_id: prepared
+                        .request_id
+                        .as_deref()
+                        .ok_or(DesktopSyncError::StaleAuthority)?,
+                    connection_id: &prepared.connection_id,
+                    connection_incarnation_id: &prepared.connection_incarnation_id,
+                    credential_generation: prepared.generation,
+                    prior: prepared.prior.as_ref(),
+                    account_scope_digest,
+                    registrations,
+                    device_id: &admission.device_id,
+                    lease_epoch: admission.lease_epoch,
+                    at: &timestamp(trusted_now()?)?,
+                },
+                || guard.verify(self, admission),
+            )
+            .map_err(map_database_error)
     }
 
     pub(crate) fn commit_checked_cloudflare_observation(
@@ -281,6 +676,7 @@ impl DesktopSyncRuntime {
         commit_guard: DesktopSyncCommitGuard<'_>,
     ) -> Result<PendingCloudflareDnsProjection, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        self.require_provider_capability(admission, CLOUDFLARE_DNS_OBSERVE)?;
         let current = self.prepare_cloudflare_observation(
             database,
             admission,
@@ -324,6 +720,54 @@ impl DesktopSyncRuntime {
             .map_err(map_database_error)
     }
 
+    /// Imports the activated Zone as a domain asset under this activation's own admission, through
+    /// the same Host create path as `local_domain_asset_create`
+    /// (`DesktopBusinessRuntime::create_domain_asset_guarded`), so deduplication, the deletion
+    /// tombstone rule and the sync Outbox apply unchanged. The admission recheck and the commit
+    /// guard bind the write to the workspace, device, lease and authority the Provider was observed
+    /// under: a change of authority during the Provider call writes nothing. A domain the
+    /// workspace already holds is left as it is.
+    ///
+    /// The read generation is the runtime's own: this create is decided by the Host, not by a
+    /// Renderer view, and it only adds a bare asset keyed by name, so no update can be lost.
+    pub(crate) fn import_cloudflare_zone_asset(
+        &self,
+        business: &mut crate::desktop_business_runtime::DesktopBusinessRuntime,
+        admission: &DesktopSyncRunAdmission,
+        entity_id: &str,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<(), DesktopSyncError> {
+        self.recheck_sync_run(business.database_for_backup_mut(), admission)?;
+        self.require_provider_capability(admission, CLOUDFLARE_DNS_OBSERVE)?;
+        require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
+        let context = crate::desktop_business_runtime::BusinessMutationContext::new(
+            admission.device_id.clone(),
+            admission.lease_epoch,
+            timestamp(trusted_now()?)?,
+        )
+        .map_err(map_database_error)?;
+        let request = crate::DesktopDomainAssetCreateRequest {
+            mutation_id: random_uuid_v4()?,
+            expected_read_generation: business.read_generation(),
+            asset: crate::DesktopDomainAssetWrite::bare(entity_id),
+        };
+        match business
+            .create_domain_asset_guarded(request, &context, || commit_guard.verify(self, admission))
+        {
+            Ok(_) | Err(BusinessDatabaseError::AssetExists) => Ok(()),
+            // Every other input of this create is Host generated (a fresh mutation id, the
+            // admission's device, a trusted timestamp, the runtime's own read generation), so an
+            // invalid input can only be the Zone name itself.
+            Err(
+                BusinessDatabaseError::InvalidInput
+                | BusinessDatabaseError::AssetDeleted
+                | BusinessDatabaseError::AssetReAddPending
+                | BusinessDatabaseError::AssetReAddBlocked,
+            ) => Err(DesktopSyncError::ZoneUnimportable),
+            Err(error) => Err(map_database_error(error)),
+        }
+    }
+
     pub(crate) fn prepare_cloudflare_provision(
         &self,
         database: &mut BusinessDatabase,
@@ -333,6 +777,8 @@ impl DesktopSyncRuntime {
         commit_guard: DesktopSyncCommitGuard<'_>,
     ) -> Result<PreparedCloudflareProvisionData, DesktopSyncError> {
         self.recheck_sync_run(database, admission)?;
+        self.require_provider_capability(admission, CLOUDFLARE_DNS_OBSERVE)?;
+        require_qualified(CLOUDFLARE_DNS_OBSERVE)?;
         let seed = database
             .cloudflare_provision_seed(connection_hint)
             .map_err(map_database_error)?;
@@ -371,13 +817,8 @@ impl DesktopSyncRuntime {
                 observation.zone_binding_digest.as_bytes(),
             ],
         );
-        let connection_digest = domain_digest(
-            b"gooddealer/cloudflare-connection/v1\0",
-            &[
-                admission.workspace_id.as_bytes(),
-                seed.connection_incarnation_id.as_bytes(),
-            ],
-        );
+        let connection_digest =
+            cloudflare_connection_digest(&admission.workspace_id, &seed.connection_incarnation_id);
         let preparation = CloudflareCredentialPreparation {
             logical_connection_id: seed.logical_connection_id,
             connection_incarnation_id: seed.connection_incarnation_id,
@@ -408,6 +849,68 @@ impl DesktopSyncRuntime {
         })
     }
 
+    /// Durably prepares the revocation of the connection's Active credential and denies its use
+    /// in the same transaction, so the Host stops using it before custody is touched.
+    ///
+    /// Returns `None` when the connection holds no credential: there is nothing to revoke.
+    pub(crate) fn prepare_cloudflare_revocation(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        connection_hint: &str,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<Option<PreparedCloudflareProvisionData>, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        let seed = database
+            .cloudflare_revocation_seed(connection_hint)
+            .map_err(map_database_error)?;
+        let (scope_digest, zone_digest) = match &seed.expected_base {
+            base if base.kind == CloudflareCredentialEnvelopeKind::Absent => return Ok(None),
+            CloudflareCredentialWitness {
+                kind: CloudflareCredentialEnvelopeKind::Active,
+                scope_digest: Some(scope),
+                zone_digest: Some(zone),
+                ..
+            } => (scope.clone(), zone.clone()),
+            _ => return Err(DesktopSyncError::StorageRejected),
+        };
+        let target_generation = seed
+            .expected_head_generation
+            .checked_add(1)
+            .filter(|generation| *generation <= MAX_SAFE_INTEGER)
+            .ok_or(DesktopSyncError::StorageRejected)?;
+        let connection_digest =
+            cloudflare_connection_digest(&admission.workspace_id, &seed.connection_incarnation_id);
+        let preparation = CloudflareCredentialPreparation {
+            logical_connection_id: seed.logical_connection_id,
+            connection_incarnation_id: seed.connection_incarnation_id,
+            display_label: seed.display_label,
+            intent_id: random_uuid_v4()?,
+            operation_kind: CloudflareCredentialOperationKind::Revoke,
+            expected_head_generation: seed.expected_head_generation,
+            target_generation,
+            scope_digest,
+            zone_digest,
+            target_public_proof: random_hex_32()?,
+            prepared_authority_snapshot_digest: admission.authority_snapshot_digest.clone(),
+            staged_observation: None,
+            prepared_at: timestamp(trusted_now()?)?,
+        };
+        let disposition = database
+            .prepare_cloudflare_credential_operation_guarded(&preparation, || {
+                commit_guard.verify(self, admission)
+            })
+            .map_err(map_database_error)?;
+        if disposition != CloudflareCredentialPreparationDisposition::Prepared {
+            return Ok(None);
+        }
+        Ok(Some(PreparedCloudflareProvisionData {
+            preparation,
+            expected_base: seed.expected_base,
+            connection_digest,
+        }))
+    }
+
     /// Creates a runtime from Host-owned authority material.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -418,8 +921,10 @@ impl DesktopSyncRuntime {
         execute_before: i64,
         authority_snapshot_digest: String,
         authority_epoch: u64,
+        provider_capabilities: Vec<String>,
     ) -> Result<Self, DesktopSyncError> {
-        if !valid_identifier(&workspace_id)
+        if !valid_provider_capabilities(&provider_capabilities)
+            || !valid_identifier(&workspace_id)
             || !valid_identifier(&device_id)
             || !(1..=MAX_SAFE_INTEGER).contains(&lease_epoch)
             || execute_before <= trusted_time_floor
@@ -441,7 +946,9 @@ impl DesktopSyncRuntime {
             execute_before,
             authority_snapshot_digest,
             authority_epoch,
+            provider_capabilities,
             next_run_sequence: AtomicU64::new(0),
+            retirement_open_retries: Mutex::new(None),
         })
     }
 
@@ -468,8 +975,9 @@ impl DesktopSyncRuntime {
             .checked_add(1)
             .ok_or(DesktopSyncError::StorageRejected)?;
         Ok(DesktopSyncRunAdmission {
-            runtime_nonce: self.runtime_nonce,
-            run_sequence,
+            role: NativeCloudRole::Active,
+            runtime_nonce: Some(self.runtime_nonce),
+            run_sequence: Some(run_sequence),
             workspace_id: self.workspace_id.clone(),
             device_id: self.device_id.clone(),
             lease_epoch: self.lease_epoch,
@@ -477,6 +985,7 @@ impl DesktopSyncRuntime {
             execute_before: self.execute_before,
             authority_snapshot_digest: self.authority_snapshot_digest.clone(),
             authority_epoch: self.authority_epoch,
+            provider_capabilities: self.provider_capabilities.clone(),
         })
     }
 
@@ -486,7 +995,8 @@ impl DesktopSyncRuntime {
         admission: &DesktopSyncRunAdmission,
     ) -> Result<(), DesktopSyncError> {
         let now = trusted_now()?;
-        if admission.runtime_nonce != self.runtime_nonce
+        if admission.role != NativeCloudRole::Active
+            || admission.runtime_nonce != Some(self.runtime_nonce)
             || database.workspace_id() != self.workspace_id
             || admission.workspace_id != self.workspace_id
             || admission.device_id != self.device_id
@@ -495,6 +1005,7 @@ impl DesktopSyncRuntime {
             || admission.execute_before != self.execute_before
             || admission.authority_snapshot_digest != self.authority_snapshot_digest
             || admission.authority_epoch != self.authority_epoch
+            || admission.provider_capabilities != self.provider_capabilities
             || now < admission.trusted_time_floor
             || now >= admission.execute_before
         {
@@ -533,7 +1044,7 @@ impl DesktopSyncRuntime {
         let expires = checked_timestamp(now, SYNC_LEASE_SECONDS)?;
         let claimed = database
             .claim_sync_mutations_v2_guarded(
-                &owner(admission),
+                &owner(admission)?,
                 &timestamp(now)?,
                 &expires,
                 256,
@@ -566,6 +1077,211 @@ impl DesktopSyncRuntime {
                 {
                     return Err(BusinessDatabaseError::SequenceExhausted);
                 }
+                commit_guard.verify(self, admission)
+            })
+            .map_err(map_database_error)
+    }
+
+    /// ADR-0032 S2d: closes local mutation admission for one switch under this run's Lease epoch.
+    pub(crate) fn drain_begin_barrier(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        device_switch_request_id: &str,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<(), DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        let now = timestamp(trusted_now()?)?;
+        database
+            .begin_device_handoff_barrier_for_source(
+                device_switch_request_id,
+                &admission.device_id,
+                admission.lease_epoch,
+                &now,
+                || commit_guard.verify(self, admission),
+            )
+            .map_err(map_database_error)
+    }
+
+    pub(crate) fn drain_frozen_unresolved_count(
+        &self,
+        database: &BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+    ) -> Result<u64, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        database
+            .device_handoff_frozen_unresolved_count(&admission.device_id, admission.lease_epoch)
+            .map_err(map_database_error)
+    }
+
+    /// ADR-0032 S2d: this run's device-and-epoch view of the drain, read under a rechecked run.
+    pub(crate) fn drain_progress(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+    ) -> Result<DrainMutationProgress, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        let Some(pending) = database
+            .execution_evidence_pending_count()
+            .map_err(map_database_error)?
+        else {
+            return Ok(DrainMutationProgress::Blocked);
+        };
+        if pending > 0 {
+            return Ok(DrainMutationProgress::Waiting {
+                unconfirmed: pending,
+            });
+        }
+        let mutation = database
+            .read_drain_mutation_progress(&admission.device_id)
+            .map_err(map_database_error)?;
+        if !matches!(mutation, DrainMutationProgress::Ready(_)) {
+            return Ok(mutation);
+        }
+        if database
+            .execution_evidence_drain_claims(&admission.device_id, admission.lease_epoch)
+            .map_err(map_database_error)?
+            .is_none()
+        {
+            return Ok(DrainMutationProgress::Blocked);
+        }
+        Ok(mutation)
+    }
+
+    /// ADR-0032 S2c: the version-2 rows that still need Cloud's receipt.
+    pub(crate) fn drain_receipt_mutation_ids(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+    ) -> Result<Vec<String>, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        Ok(database
+            .drain_receipt_candidates(&admission.device_id)
+            .map_err(map_database_error)?
+            .into_iter()
+            .map(|candidate| candidate.mutation_id)
+            .collect())
+    }
+
+    /// ADR-0032 S2c: records Cloud's receipts, all or nothing, under a rechecked run.
+    pub(crate) fn drain_record_receipts(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        receipts: &[CloudMutationReceipt],
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<(), DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        let now = timestamp(trusted_now()?)?;
+        database
+            .record_cloud_wire_versions(&admission.device_id, receipts, &now, || {
+                commit_guard.verify(self, admission)
+            })
+            .map_err(map_database_error)
+    }
+
+    /// ADR-0032 S2d: the unsigned handoff proof for `device_switch_request_id`. It exists only while
+    /// this switch's barrier holds writes closed under this run's Lease epoch and the mutation
+    /// stream is fully confirmed and there are no local Provider facts requiring the other streams.
+    /// The key version comes from the current independently verified execution context.
+    pub(crate) fn drain_prepare_proof(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        device_switch_request_id: &str,
+        signing_key_id: &str,
+        signing_key_version: u64,
+    ) -> Result<HandoffDrainProofClaims, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        // This independent check also covers callers that bypass the progress projection.
+        if database
+            .has_unexported_provider_handoff_facts()
+            .map_err(map_database_error)?
+        {
+            return Err(DesktopSyncError::Blocked);
+        }
+        let barrier = database
+            .device_handoff_barrier()
+            .map_err(map_database_error)?
+            .ok_or(DesktopSyncError::Blocked)?;
+        if barrier.device_switch_request_id != device_switch_request_id
+            || barrier.active_lease_epoch != Some(admission.lease_epoch)
+        {
+            return Err(DesktopSyncError::Blocked);
+        }
+        let DrainMutationProgress::Ready(mutation) = database
+            .read_drain_mutation_progress(&admission.device_id)
+            .map_err(map_database_error)?
+        else {
+            return Err(DesktopSyncError::Blocked);
+        };
+        let [execution, audit] = database
+            .execution_evidence_drain_claims(&admission.device_id, admission.lease_epoch)
+            .map_err(map_database_error)?
+            .ok_or(DesktopSyncError::Blocked)?;
+        let now = trusted_now()?;
+        Ok(HandoffDrainProofClaims {
+            schema_version: DrainProofSchemaVersion::V2,
+            proof_id: random_uuid_v4()?,
+            workspace_id: admission.workspace_id.clone(),
+            source_device_id: admission.device_id.clone(),
+            active_lease_epoch: admission.lease_epoch,
+            device_switch_request_id: device_switch_request_id.to_owned(),
+            streams: [mutation, execution, audit],
+            // Cloud refuses a proof issued after its own clock and admits a window of at most 600
+            // seconds. Issuing 30 seconds back keeps a Desktop clock slightly ahead of Cloud from
+            // failing the first submission; the window stays five minutes.
+            issued_at: checked_timestamp(now, -30)?,
+            expires_at: checked_timestamp(now, 270)?,
+            signing_key_id: signing_key_id.to_owned(),
+            signing_key_version,
+        })
+    }
+
+    /// ADR-0032 S2d: reopens local writes after cancellation/failure before source release.
+    pub(crate) fn drain_clear_barrier(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        device_switch_request_id: &str,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<(), DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        database
+            .clear_device_handoff_barrier_for_source(
+                device_switch_request_id,
+                &admission.device_id,
+                admission.lease_epoch,
+                || commit_guard.verify(self, admission),
+            )
+            .map_err(map_database_error)
+    }
+
+    /// ADR-0032 S2d3: the switch whose barrier holds writes closed under this run's Lease epoch, so
+    /// a restarted Desktop resumes its own drain. A barrier from another epoch is not this run's.
+    pub(crate) fn drain_current_barrier(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+    ) -> Result<Option<String>, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        Ok(database
+            .device_handoff_barrier()
+            .map_err(map_database_error)?
+            .filter(|barrier| barrier.active_lease_epoch == Some(admission.lease_epoch))
+            .map(|barrier| barrier.device_switch_request_id))
+    }
+
+    /// ADR-0032 S2d: clears a barrier left by a switch whose Lease this device no longer holds.
+    pub(crate) fn drain_clear_left_over_barrier(
+        &self,
+        database: &mut BusinessDatabase,
+        admission: &DesktopSyncRunAdmission,
+        commit_guard: DesktopSyncCommitGuard<'_>,
+    ) -> Result<bool, DesktopSyncError> {
+        self.recheck_sync_run(database, admission)?;
+        database
+            .clear_left_over_device_handoff_barrier(admission.lease_epoch, || {
                 commit_guard.verify(self, admission)
             })
             .map_err(map_database_error)
@@ -610,10 +1326,15 @@ impl DesktopSyncRuntime {
             .reject_sync_batch_v2_guarded(
                 rejection.delivery_owner,
                 rejection.mutations,
-                matches!(
-                    rejection.disposition,
-                    DesktopSyncRejectDisposition::Conflicted
-                ),
+                match rejection.disposition {
+                    DesktopSyncRejectDisposition::Rejected => SyncRejectionKind::Deterministic,
+                    DesktopSyncRejectDisposition::Conflicted => {
+                        SyncRejectionKind::IdempotencyConflict
+                    }
+                    DesktopSyncRejectDisposition::MutationConflicted => {
+                        SyncRejectionKind::MutationConflict
+                    }
+                },
                 |effect| {
                     if effect == SyncProjectionEffect::VisibleStateChanged
                         && !has_read_generation_capacity
@@ -728,7 +1449,7 @@ impl DesktopSyncRuntime {
         let now = timestamp(now_seconds)?;
         let expires = checked_timestamp(now_seconds, PROJECTION_LEASE_SECONDS)?;
         let claimed = database
-            .claim_cloudflare_dns_projections_guarded(&owner(admission), &now, &expires, 1, || {
+            .claim_cloudflare_dns_projections_guarded(&owner(admission)?, &now, &expires, 1, || {
                 commit_guard.verify(self, admission)
             })
             .map_err(map_database_error)?
@@ -909,20 +1630,51 @@ impl DesktopSyncRuntime {
     }
 }
 
-pub(crate) fn delivery_owner(admission: &DesktopSyncRunAdmission) -> String {
+/// Refuses a capability the Host's ADR-0027 register has not qualified. Checked at every
+/// admission that would reach the Provider, so no caller can reach an unqualified capability.
+fn require_qualified(capability: &str) -> Result<(), DesktopSyncError> {
+    if crate::active_workspace::capability_qualification::capability_qualified(capability) {
+        Ok(())
+    } else {
+        Err(DesktopSyncError::CapabilityUnqualified)
+    }
+}
+
+/// The Keychain account digest of one connection incarnation; every credential path must agree.
+fn cloudflare_connection_digest(workspace_id: &str, connection_incarnation_id: &str) -> String {
+    domain_digest(
+        b"gooddealer/cloudflare-connection/v1\0",
+        &[
+            workspace_id.as_bytes(),
+            connection_incarnation_id.as_bytes(),
+        ],
+    )
+}
+
+pub(crate) fn delivery_owner(
+    admission: &DesktopSyncRunAdmission,
+) -> Result<String, DesktopSyncError> {
     owner(admission)
 }
 
-fn owner(admission: &DesktopSyncRunAdmission) -> String {
-    let nonce =
-        admission.runtime_nonce[..8]
-            .iter()
-            .fold(String::with_capacity(16), |mut output, byte| {
-                use std::fmt::Write as _;
-                write!(&mut output, "{byte:02x}").expect("writing to a String cannot fail");
-                output
-            });
-    format!("desktop-sync-{nonce}-{}", admission.run_sequence)
+fn owner(admission: &DesktopSyncRunAdmission) -> Result<String, DesktopSyncError> {
+    if admission.role != NativeCloudRole::Active {
+        return Err(DesktopSyncError::StaleAuthority);
+    }
+    let runtime_nonce = admission
+        .runtime_nonce
+        .ok_or(DesktopSyncError::StaleAuthority)?;
+    let run_sequence = admission
+        .run_sequence
+        .ok_or(DesktopSyncError::StaleAuthority)?;
+    let nonce = runtime_nonce[..8]
+        .iter()
+        .fold(String::with_capacity(16), |mut output, byte| {
+            use std::fmt::Write as _;
+            write!(&mut output, "{byte:02x}").expect("writing to a String cannot fail");
+            output
+        });
+    Ok(format!("desktop-sync-{nonce}-{run_sequence}"))
 }
 
 fn valid_identifier(value: &str) -> bool {
@@ -936,7 +1688,8 @@ fn recheck_snapshot(
     admission: &DesktopSyncRunAdmission,
 ) -> Result<(), DesktopSyncError> {
     let now = trusted_now()?;
-    if admission.runtime_nonce != runtime.runtime_nonce
+    if admission.role != NativeCloudRole::Active
+        || admission.runtime_nonce != Some(runtime.runtime_nonce)
         || admission.workspace_id != runtime.workspace_id
         || admission.device_id != runtime.device_id
         || admission.lease_epoch != runtime.lease_epoch
@@ -944,6 +1697,7 @@ fn recheck_snapshot(
         || admission.execute_before != runtime.execute_before
         || admission.authority_snapshot_digest != runtime.authority_snapshot_digest
         || admission.authority_epoch != runtime.authority_epoch
+        || admission.provider_capabilities != runtime.provider_capabilities
         || now < admission.trusted_time_floor
         || now >= admission.execute_before
     {
@@ -952,7 +1706,7 @@ fn recheck_snapshot(
     Ok(())
 }
 
-fn trusted_now() -> Result<i64, DesktopSyncError> {
+pub(crate) fn trusted_now() -> Result<i64, DesktopSyncError> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| DesktopSyncError::Blocked)
@@ -961,7 +1715,7 @@ fn trusted_now() -> Result<i64, DesktopSyncError> {
         })
 }
 
-fn timestamp(seconds: i64) -> Result<String, DesktopSyncError> {
+pub(crate) fn timestamp(seconds: i64) -> Result<String, DesktopSyncError> {
     if seconds < 0 {
         return Err(DesktopSyncError::Blocked);
     }
@@ -989,7 +1743,7 @@ fn checked_timestamp(now: i64, seconds: i64) -> Result<String, DesktopSyncError>
     timestamp(now.checked_add(seconds).ok_or(DesktopSyncError::Blocked)?)
 }
 
-fn random_uuid_v4() -> Result<String, DesktopSyncError> {
+pub(crate) fn random_uuid_v4() -> Result<String, DesktopSyncError> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| DesktopSyncError::StorageRejected)?;
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -1040,6 +1794,46 @@ fn encode_hex(bytes: impl AsRef<[u8]>) -> String {
     encoded
 }
 
+fn cloudflare_stored_credential(
+    database: &BusinessDatabase,
+    connection_id: &str,
+) -> Result<
+    (
+        String,
+        crate::active_workspace::business::CloudflareConnectionObservationAdmission,
+    ),
+    DesktopSyncError,
+> {
+    let credential = database
+        .cloudflare_connection_observation_admission(connection_id)
+        .map_err(map_database_error)?;
+    let seed = database
+        .cloudflare_provision_seed(connection_id)
+        .map_err(map_database_error)?;
+    if seed.expected_base.kind != CloudflareCredentialEnvelopeKind::Active
+        || seed.expected_base.generation != Some(credential.generation)
+        || seed.expected_base.scope_digest.as_deref() != Some(&credential.scope_digest)
+        || seed.expected_base.zone_digest.as_deref() != Some(&credential.zone_digest)
+        || seed.expected_base.public_proof.as_deref() != Some(&credential.public_proof)
+    {
+        return Err(DesktopSyncError::StorageRejected);
+    }
+    Ok((seed.connection_incarnation_id, credential))
+}
+
+pub(crate) fn require_provider_dispatch(
+    database: &BusinessDatabase,
+) -> Result<(), DesktopSyncError> {
+    if database
+        .device_handoff_barrier()
+        .map_err(map_database_error)?
+        .is_some()
+    {
+        return Err(DesktopSyncError::Blocked);
+    }
+    Ok(())
+}
+
 fn map_database_error(error: BusinessDatabaseError) -> DesktopSyncError {
     match error {
         BusinessDatabaseError::MutationConflict => DesktopSyncError::AcknowledgementMismatch,
@@ -1054,6 +1848,9 @@ fn map_database_error(error: BusinessDatabaseError) -> DesktopSyncError {
         | BusinessDatabaseError::WindowRejected
         | BusinessDatabaseError::AssetNotFound
         | BusinessDatabaseError::AssetDeleted
+        | BusinessDatabaseError::AssetExists
+        | BusinessDatabaseError::AssetReAddPending
+        | BusinessDatabaseError::AssetReAddBlocked
         | BusinessDatabaseError::SecretInSyncPayload
         | BusinessDatabaseError::SequenceExhausted
         | BusinessDatabaseError::ProviderBindingUnavailable => DesktopSyncError::InvalidInput,
@@ -1061,9 +1858,53 @@ fn map_database_error(error: BusinessDatabaseError) -> DesktopSyncError {
     }
 }
 
+/// The signed commercial contract is a canonical closed set, including a valid empty set.
+pub(crate) fn valid_provider_capabilities(values: &[String]) -> bool {
+    const CAPABILITIES: &[&str] = &[
+        "afternic:marketplace:observe",
+        "afternic:marketplace:write",
+        "aliyun:registrar:observe",
+        crate::active_workspace::capability_qualification::ATOM_MARKETPLACE_OBSERVE,
+        crate::active_workspace::capability_qualification::ATOM_MARKETPLACE_WRITE,
+        "cloudflare:dns:observe",
+        "cloudflare:registrar:observe",
+        "godaddy:registrar:observe",
+        crate::active_workspace::capability_qualification::PORKBUN_DNS_OBSERVE,
+        crate::active_workspace::capability_qualification::PORKBUN_REGISTRAR_OBSERVE,
+        crate::active_workspace::capability_qualification::SEDO_MARKETPLACE_OBSERVE,
+        crate::active_workspace::capability_qualification::SPACESHIP_MARKETPLACE_OBSERVE,
+        crate::active_workspace::capability_qualification::SPACESHIP_MARKETPLACE_WRITE,
+        "spaceship:registrar:observe",
+    ];
+    values.len() <= CAPABILITIES.len()
+        && values
+            .iter()
+            .all(|value| CAPABILITIES.contains(&value.as_str()))
+        && values.windows(2).all(|pair| pair[0] < pair[1])
+        && [
+            ("afternic:marketplace:write", "afternic:marketplace:observe"),
+            (
+                crate::active_workspace::capability_qualification::ATOM_MARKETPLACE_WRITE,
+                crate::active_workspace::capability_qualification::ATOM_MARKETPLACE_OBSERVE,
+            ),
+            (
+                crate::active_workspace::capability_qualification::SPACESHIP_MARKETPLACE_WRITE,
+                crate::active_workspace::capability_qualification::SPACESHIP_MARKETPLACE_OBSERVE,
+            ),
+        ]
+        .into_iter()
+        .all(|(write, observe)| {
+            !values.iter().any(|value| value == write)
+                || values.iter().any(|value| value == observe)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::active_workspace::capability_qualification::{
+        SPACESHIP_MARKETPLACE_OBSERVE, SPACESHIP_REGISTRAR_OBSERVE,
+    };
     use std::sync::{
         Arc, Barrier,
         atomic::{AtomicBool, Ordering as AtomicOrdering},
@@ -1075,7 +1916,7 @@ mod tests {
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     fn database(workspace_id: &str) -> (tempfile::TempDir, BusinessDatabase) {
-        let directory = tempfile::tempdir().expect("temporary database directory");
+        let directory = crate::test_tempdir::tempdir().expect("temporary database directory");
         let key = LocalDatabaseKey::from_bytes([0x73; 32]);
         let database =
             BusinessDatabase::open(&directory.path().join("business.db"), &key, workspace_id)
@@ -1092,6 +1933,7 @@ mod tests {
             i64::MAX,
             AUTHORITY_DIGEST.to_owned(),
             1,
+            vec![CLOUDFLARE_DNS_OBSERVE.to_owned()],
         )
         .expect("construct runtime")
     }
@@ -1178,7 +2020,7 @@ mod tests {
         let pull = runtime
             .sync_pull_request(&database, &admission, 64)
             .expect("derive pull request");
-        assert_eq!(pull.schema_version, 2);
+        assert_eq!(pull.schema_version, 3);
         assert_eq!(pull.after_server_revision, 0);
         assert_eq!(pull.page_limit, 64);
         assert!(
@@ -1263,6 +2105,98 @@ mod tests {
     }
 
     #[test]
+    fn provider_permissions_are_exact_current_and_never_inferred_from_active_or_standby() {
+        let (_directory, database) = database("workspace-local");
+        let mut runtime = runtime();
+        let admitted = runtime.begin_sync_run(&database).unwrap();
+        assert!(
+            runtime
+                .require_provider_capability(&admitted, CLOUDFLARE_DNS_OBSERVE)
+                .is_ok()
+        );
+        assert_eq!(
+            runtime.require_provider_capability(&admitted, "afternic:marketplace:observe"),
+            Err(DesktopSyncError::Blocked)
+        );
+        assert_eq!(
+            runtime.require_provider_capability(&admitted, SPACESHIP_REGISTRAR_OBSERVE),
+            Err(DesktopSyncError::Blocked)
+        );
+        runtime.provider_capabilities.clear();
+        assert_eq!(
+            runtime.require_provider_capability(&admitted, CLOUDFLARE_DNS_OBSERVE),
+            Err(DesktopSyncError::StaleAuthority)
+        );
+        assert!(
+            DesktopSyncCommitGuard::new(|| Ok(()))
+                .verify(&runtime, &admitted)
+                .is_err()
+        );
+        let local_only = runtime.begin_sync_run(&database).unwrap();
+        assert!(runtime.recheck_sync_run(&database, &local_only).is_ok());
+        assert_eq!(
+            runtime.require_provider_capability(&local_only, CLOUDFLARE_DNS_OBSERVE),
+            Err(DesktopSyncError::Blocked)
+        );
+        let _qualified =
+            crate::active_workspace::capability_qualification::test_qualification::qualify(
+                CLOUDFLARE_DNS_OBSERVE,
+            );
+        assert_eq!(
+            runtime.admit_cloudflare_activation(&database, &local_only, "any"),
+            Err(DesktopSyncError::Blocked)
+        );
+        let standby = DesktopSyncRunAdmission::standby_authority(
+            "workspace-local".into(),
+            "device-local".into(),
+            7,
+            0,
+            i64::MAX,
+            AUTHORITY_DIGEST.into(),
+            1,
+        );
+        assert_eq!(
+            runtime.require_provider_capability(&standby, CLOUDFLARE_DNS_OBSERVE),
+            Err(DesktopSyncError::StaleAuthority)
+        );
+    }
+
+    #[test]
+    fn spaceship_listing_access_requires_its_own_signed_capability() {
+        let (_directory, database) = database("workspace-local");
+        let mut runtime = runtime();
+        runtime.provider_capabilities = vec![SPACESHIP_REGISTRAR_OBSERVE.to_owned()];
+        let registrar = runtime.begin_sync_run(&database).unwrap();
+        assert!(
+            runtime
+                .require_provider_capability(&registrar, SPACESHIP_REGISTRAR_OBSERVE)
+                .is_ok()
+        );
+        assert_eq!(
+            runtime.require_provider_capability(&registrar, SPACESHIP_MARKETPLACE_OBSERVE),
+            Err(DesktopSyncError::Blocked)
+        );
+
+        runtime.provider_capabilities = vec![SPACESHIP_MARKETPLACE_OBSERVE.to_owned()];
+        let marketplace = runtime.begin_sync_run(&database).unwrap();
+        assert_eq!(
+            runtime.require_provider_capability(&registrar, SPACESHIP_REGISTRAR_OBSERVE),
+            Err(DesktopSyncError::StaleAuthority)
+        );
+        assert!(
+            runtime
+                .require_provider_capability(&marketplace, SPACESHIP_MARKETPLACE_OBSERVE)
+                .is_ok()
+        );
+        for capability in [SPACESHIP_REGISTRAR_OBSERVE, "spaceship:marketplace:write"] {
+            assert_eq!(
+                runtime.require_provider_capability(&marketplace, capability),
+                Err(DesktopSyncError::Blocked)
+            );
+        }
+    }
+
+    #[test]
     fn constructor_rejects_noncanonical_or_expired_authority() {
         assert_eq!(
             DesktopSyncRuntime::new(
@@ -1273,6 +2207,7 @@ mod tests {
                 1,
                 AUTHORITY_DIGEST.to_ascii_uppercase(),
                 1,
+                vec![CLOUDFLARE_DNS_OBSERVE.to_owned()],
             )
             .unwrap_err(),
             DesktopSyncError::InvalidInput
@@ -1287,6 +2222,7 @@ mod tests {
             1,
             AUTHORITY_DIGEST.to_owned(),
             1,
+            vec![CLOUDFLARE_DNS_OBSERVE.to_owned()],
         )
         .unwrap();
         assert_eq!(

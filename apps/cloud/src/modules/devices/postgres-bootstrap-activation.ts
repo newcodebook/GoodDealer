@@ -7,6 +7,7 @@ import {
 } from "@gooddealer/protocol/devices";
 import { encodeDomainSeparatedWireValue } from "@gooddealer/protocol/wire";
 
+import { bootstrapDeadlineIsLive } from "./bootstrap-deadline";
 import type { TenantTransaction, TenantTransactionRunner } from "../../db/index";
 import type {
   ActiveEntitlementDeadlinePort,
@@ -32,7 +33,7 @@ export interface ActiveDeviceLeaseSigner {
   >;
 }
 
-/** The only signer used by the production factory. */
+/** Explicit denial for unconfigured callers; production installation injects the Transit signer. */
 export class DenyingActiveDeviceLeaseSigner implements ActiveDeviceLeaseSigner {
   async sign(): Promise<{ readonly signed: false }> {
     return { signed: false };
@@ -44,12 +45,12 @@ export type BootstrapActivationAttempt =
   | { readonly installed: true; readonly lease: ActiveDeviceLeaseEnvelope; readonly cursorGeneration: number };
 
 /**
- * Internal future activation seam. Production uses the Denying signer, so the mutation branch is
- * unreachable; fixed signer construction belongs only to Cloud test support.
+ * Devices-owned activation transaction. Production supplies an independently verified Lease signer;
+ * standalone fixture runners and authenticated target installation share these same mutations.
  */
 export class PostgresBootstrapActivation {
   constructor(private readonly dependencies: {
-    readonly transactions: TenantTransactionRunner;
+    readonly transactions?: TenantTransactionRunner;
     readonly accountSecurity: BootstrapAccountSecurityPort;
     readonly entitlement: ActiveEntitlementDeadlinePort;
     readonly checkpoints: BootstrapCheckpointPort;
@@ -65,9 +66,10 @@ export class PostgresBootstrapActivation {
     readonly expectedWorkflowRevision: number;
   }): Promise<BootstrapActivationAttempt> {
     try {
+      if (this.dependencies.transactions === undefined) throw new TypeError("tenant runner unavailable");
       return await this.dependencies.transactions.withTenant(
         { accountId: input.accountId, workspaceId: input.workspaceId },
-        (transaction) => this.#activateOnce(transaction, input),
+        (transaction) => this.activateLocked(transaction, input),
       );
     } catch (error) {
       if (error instanceof ActivationRefusal) return { installed: false, code: "ACTIVATION_CONFLICT" };
@@ -75,9 +77,9 @@ export class PostgresBootstrapActivation {
     }
   }
 
-  async #activateOnce(
+  async activateLocked(
     transaction: TenantTransaction,
-    input: { readonly workflowId: string; readonly expectedWorkflowRevision: number },
+    input: { readonly workflowId: string; readonly expectedWorkflowRevision: number; readonly activationId?: string },
   ): Promise<BootstrapActivationAttempt> {
     await transaction.query("SET LOCAL lock_timeout = '2s'");
     await transaction.query("SET LOCAL statement_timeout = '10s'");
@@ -129,23 +131,25 @@ export class PostgresBootstrapActivation {
       [transaction.scope.accountId, transaction.scope.workspaceId, input.workflowId, pendingEpoch],
     );
     const capability = await transaction.query<{
-      jti: string; consumed_at: Date | null; ready_at: Date | null; live: boolean;
+      jti: string; target_device_id: string; consumed_at: Date | null; ready_at: Date | null; live: boolean;
     }>(
-      `SELECT jti, consumed_at, ready_at,
-              transaction_timestamp() >= issued_at AND transaction_timestamp() < expires_at AS live
+      `SELECT jti, target_device_id, consumed_at, ready_at,
+              clock_timestamp() >= issued_at AND clock_timestamp() < expires_at AS live
        FROM device_bootstrap_capabilities
        WHERE account_id = $1 AND workspace_id = $2 AND workflow_id = $3 FOR UPDATE`,
       [transaction.scope.accountId, transaction.scope.workspaceId, input.workflowId],
     );
     const authority = await transaction.query<{
+      capability_jti: string; target_device_id: string; account_security_epoch: string; pending_lease_epoch: string;
       target_server_revision: string | null; target_schema_version: string | null;
       pinned_checkpoint_id: string | null; pin_expires_at: Date | null;
       verified_entity_digests: Buffer | null; verified_rebuild_digest: Buffer | null; next_step_kind: string | null;
       pin_live: boolean;
     }>(
-      `SELECT target_server_revision, target_schema_version, pinned_checkpoint_id, pin_expires_at,
+      `SELECT capability_jti, target_device_id, account_security_epoch, pending_lease_epoch,
+              target_server_revision, target_schema_version, pinned_checkpoint_id, pin_expires_at,
               verified_entity_digests, verified_rebuild_digest, next_step_kind,
-              pin_expires_at > transaction_timestamp() AS pin_live
+              pin_expires_at > clock_timestamp() AS pin_live
        FROM device_bootstrap_authorities
        WHERE account_id = $1 AND workspace_id = $2 AND workflow_id = $3 FOR UPDATE`,
       [transaction.scope.accountId, transaction.scope.workspaceId, input.workflowId],
@@ -154,7 +158,10 @@ export class PostgresBootstrapActivation {
     const authorityRow = authority.rows[0];
     if (allocation.rows[0]?.status !== "pending" || capabilityRow === undefined ||
       capabilityRow.consumed_at !== null || capabilityRow.ready_at === null || !capabilityRow.live ||
-      authorityRow === undefined || !authorityRow.pin_live || authorityRow.next_step_kind !== null ||
+      authorityRow === undefined || capabilityRow.target_device_id !== workflowRow.to_device_id ||
+      authorityRow.target_device_id !== workflowRow.to_device_id || authorityRow.capability_jti !== capabilityRow.jti ||
+      parsePositive(authorityRow.pending_lease_epoch) !== pendingEpoch ||
+      parsePositive(authorityRow.account_security_epoch) !== security.accountSecurityEpoch || !authorityRow.pin_live || authorityRow.next_step_kind !== null ||
       authorityRow.verified_entity_digests === null || authorityRow.verified_rebuild_digest === null ||
       authorityRow.target_server_revision === null || authorityRow.target_schema_version === null ||
       authorityRow.pinned_checkpoint_id === null) refuse();
@@ -163,7 +170,7 @@ export class PostgresBootstrapActivation {
       [transaction.scope.accountId],
     );
     if (held.rowCount !== 0) refuse();
-    const clock = await transaction.query<{ now: Date }>("SELECT transaction_timestamp() AS now");
+    const clock = await transaction.query<{ now: Date }>("SELECT clock_timestamp() AS now");
     const issuedAt = clock.rows[0] === undefined ? undefined : canonicalSecond(clock.rows[0].now);
     if (issuedAt === undefined) refuse();
     const onlineExpiresAt = minimumTimestamp([addSeconds(issuedAt, 900), entitlement.entitlementDeadline]);
@@ -177,7 +184,7 @@ export class PostgresBootstrapActivation {
       accountId: transaction.scope.accountId,
       deviceId: workflowRow.to_device_id,
       accountSecurityEpoch: security.accountSecurityEpoch,
-      jti: `fixture-lease-${randomBytes(16).toString("base64url")}`,
+      jti: `lease-${randomBytes(16).toString("base64url")}`,
       issuedAt,
       expiresAt: offlineExecuteUntil,
       payload: {
@@ -198,10 +205,12 @@ export class PostgresBootstrapActivation {
       !verify(null, encodeActiveDeviceLeaseSignatureTranscript(envelope), signed.verificationKey,
         Buffer.from(envelope.signature, "base64url"))) refuse();
 
+    if (!await bootstrapDeadlineIsLive(transaction, input.workflowId)) refuse();
+
     const canonicalEnvelope = Buffer.from(encodeDomainSeparatedWireValue(
       "GOODDEALER-ACTIVE-DEVICE-LEASE-ENVELOPE-V1", envelope,
     ));
-    const attemptId = `fixture-${randomBytes(16).toString("base64url")}`;
+    const attemptId = input.activationId ?? `activation-${randomBytes(16).toString("base64url")}`;
     await transaction.query(
       `INSERT INTO device_active_leases
          (account_id, lease_epoch, device_id, jti, issued_at, renew_after, online_expires_at,
@@ -256,11 +265,16 @@ export class PostgresBootstrapActivation {
         createHash("sha256").update(signed.receipt).digest(), createHash("sha256").update(canonicalEnvelope).digest()],
     );
     this.dependencies.fault?.("before_activation_commit");
+    if (!await bootstrapDeadlineIsLive(transaction, input.workflowId)) refuse();
+    const finalEntitlement = await this.dependencies.entitlement.lockCurrent(transaction);
+    const finalClock = await transaction.query<{now: Date}>("SELECT clock_timestamp() AS now");
+    if (finalEntitlement === null || finalEntitlement.entitlementDeadline < envelope.payload.offlineExecuteUntil ||
+      finalClock.rows[0] === undefined || finalClock.rows[0].now >= new Date(envelope.payload.onlineExpiresAt)) refuse();
     return { installed: true, lease: envelope, cursorGeneration };
   }
 }
 
-class ActivationRefusal extends Error {}
+export class ActivationRefusal extends Error {}
 function refuse(): never { throw new ActivationRefusal("bootstrap activation conflict"); }
 function parsePositive(value: string): number {
   const parsed = Number(value); if (!Number.isSafeInteger(parsed) || parsed < 1) refuse(); return parsed;

@@ -34,7 +34,7 @@ Cloud 授权用户和设备是否可以使用能力；本地 SQLCipher 决定 De
 已接受的本地备份格式是严格 `GDBK v1`：`gooddealer-local-storage` 的 `DesktopLocalHost` 从已打开
 SQLCipher 连接取得一致快照和 allowlisted 业务投影，用每个备份的新内容密钥加密，再由安装级、非同步 ThisDeviceOnly
 `backup-wrap-v1` Backup KEK 包装。KEK 在普通 session/Lease 更新后保持稳定；可信时间、授权与
-operation generation 只作为短期操作 fence。备份只适用于同一安装、账号和工作区，没有口令、
+operation generation 只作为短期操作 fence。该 v1 格式只适用于同一安装、账号和工作区，没有口令、
 跨设备或 Cloud 托管模式。Provider 凭据/身份、OAuth/session、Lease/Grant/Ticket/ApprovedOperation、
 授权状态和同步控制状态不进入工件。
 
@@ -45,7 +45,7 @@ Desktop Local Host 私有的原生稳定文件 handle 进行严格格式、认�
 中把旧业务内容写成新的 mutation、field version、tombstone、history 和 secret-free Outbox，同时保留
 当前 authority、workspace、sync cursor/floor、Inbox、conflict、receipt 和 delivery ownership。
 
-该架构由 [ADR-0023](adr/0023-installation-bound-gdbk-backup-and-honest-business-restore.md) 固定。
+该架构由 [ADR-0023](adr/0023-business-backup-and-recovery.md) 固定。
 当前源码与测试已完成私有开发组合：local-storage-owned SQLCipher source → strict GDBK v1 → isolated
 candidate → guarded current-DB restore，并以 `cfg(test)` true-create-only fake 覆盖 continuity/rebootstrap
 聚合协议。该证据不包含生产 native picker、稳定文件 handle、真实安装级 KEK custody、独立
@@ -63,6 +63,10 @@ Mutation；Cloud ACK 只推进复制状态。Cloud Pull 必须先进入本地严
 
 Provider 读取和操作由 Secure Host 使用本地凭据执行，结果先写本地业务数据库。只有明确允许、
 不含第三方账号信息和秘密的业务字段可以进入 Outbox。Cloud 不代表 Desktop 调用 Provider。
+
+接入方式按 [ADR-0027](adr/0027-multi-platform-domain-providers-and-marketplaces.md)保留已确认的官方 API，当前未找到官方支持的能力缺口
+全部自研私有 HTTP 接口，社区代码仅作参考。两种协议路径均由对应平台私有 Service 持有，不产生新的 Cloud 代理或 Renderer 网络权威；必要的会话与
+有界表单解析仍在 Native 内，同一写入 attempt 不因失败自动切换协议路径重放。
 
 ## 同步客户表面
 
@@ -98,16 +102,14 @@ transport 观察时间。Native transport 只有 `checking`、`reachable`、`off
 
 权威数据分类与完整同步不变量见 [ADR-0016](adr/0016-local-business-database-and-cloud-sync-boundary.md)。
 
-## 当前实现
+## 当前实现与演进
 
-`local-storage` 已具备生产 SQLCipher 活动工作区以及完整业务 schema：DomainAsset 生命周期、
-Desired/Observed State、本地 Provider 账号与凭据版本、Operation/Result/History、Inbox/Outbox、
-冲突、墓碑和本地备份目录。当前窄业务 API 已原子写入权威表、字段版本和 Outbox；其余未来实体的
-GDBK 导出/恢复与 continuity/rebootstrap 状态机已在私有开发工作流中完成组合和测试，但在生产 native
-资格完成前不构成产品能力。当前 retained-fd 身份/摘要证据可以拒绝发布错误 inode，不能证明抵抗同
-UID active-path swap-and-swap-back 所造成的 SQLite 副作用。
-当前 `domain_asset` Repository、Desktop Host 授权门禁、同步 Push/Pull、Renderer Conflict Center
-和 Cloudflare 激活/只读观察旅程均已进入生产源码组合；D1+S1 的 generation、精确 CAS、原子重读和
-transport 聚合已通过有界独立复审。该局部结论不等于跨模块 V1 验收，也不证明真实 Provider、目标
-平台原生构件或未来实体；这些工作仍按[路线图](ROADMAP.md)推进。
-Cloud PostgreSQL 最终业务表使用 `workspace_replica_*`，只构成同步/恢复副本。
+源码组合及其入口统一维护在 [当前实现](CURRENT_IMPLEMENTATION.md)，Local Host 的私有模块职责
+见 [工程结构](ENGINEERING_STRUCTURE.md)。`DesktopLocalHost` 是整个本地数据面的聚合所有者，
+不再放在名为 `backup` 的顶层模块之下；授权、业务、同步、Provider 协调、备份和恢复各有私有实现，
+共同保留数据库所有权和事务栅栏。
+
+产品负责人已明确要求换机云恢复及独立业务备份。上文安装绑定 GDBK v1 描述的是现有协议，
+不能作为排除新恢复需求的理由；新的隔离离线读出、换机恢复与授权语义见
+[ADR-0023](adr/0023-business-backup-and-recovery.md)，具体格式与原生实现仍需交付。商业策略允许演进，Cloud Licensing
+拥有规则版本及已购事实，Desktop 不复制定价或优惠决策。营销材料不决定技术范围。

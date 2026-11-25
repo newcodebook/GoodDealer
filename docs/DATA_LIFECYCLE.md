@@ -1,5 +1,19 @@
 # GoodDealer 数据生命周期与恢复
 
+产品恢复目标与新边界以 [ADR-0023](adr/0023-business-backup-and-recovery.md)为准：
+独立备份由用户保存并跨机离线恢复，云恢复取得最近成功同步的副本；Windows/macOS 均需完整支持。
+下文 GDBK v1 描述既有安装绑定协议，不是新备份的产品限制，也不表示生产恢复已可用。
+
+## GDBK v2 独立备份
+
+设置页创建时由 Native 生成 256 位随机恢复材料，编码为 49 字节 ASCII，固定 `GDBK2-` 前缀加无填充 Base64url。用户分别选择 `.gdbk` 和 `.gdkey` 文件，恢复材料先持久发布，加密备份随后无覆盖发布。第二步失败时可留下已保存的独立密钥，界面会说明部分结果。重新打开外部备份时再次由用户选择两份文件。
+
+`GDBK\0V2\0` 工件固定 XChaCha20-Poly1305 与 HKDF-SHA256。header 含套件、业务投影长度、随机 32 字节 salt 和随机 16 字节 nonce 前缀。manifest 与每个数据帧使用 header 和连续序号作为附加认证数据。manifest 记录备份时间、允许字段版本与投影 digest。每帧至多 1 MiB，投影至多 64 MiB。解析检查精确总长、认证和业务投影规则。
+
+离线数据集使用独立随机 SQLCipher 密钥和只读查询。登录、商业授权、旧安装、Provider 账号、秘密、执行任务和当前同步状态均不参与工件认证。可读 JSON 由用户明确选择导出位置。当前字段为域名、备注、标签、组合标识和目标价格。
+
+当前 Active 工作区可以逐域名预览并一次批准新增。在原事务中重新比对当前数据，只对安全可创建的域名写入常规创建 mutation，并保存导入回执。已存在的资产、删除记录和不匹配的历史代次保留。预览随打开的备份会话关闭或放弃，已提交的资产和回执可在重开后读取。历史备份的离线读取仍独立于活动工作区 revision 和授权。
+
 ## 数据分类
 
 | 类别 | 权威位置 | 生命周期规则 |
@@ -10,7 +24,7 @@
 | Provider 凭据与数据库解锁材料 | OS/Host 秘密边界 | 不进入普通持久化、wire、Cloud、日志、错误或审计。 |
 | 脱敏同步副本 | Cloud sync plane | 受租户隔离、保留、导出和显式删除规则约束。 |
 | Provider 观察 | 先写本地业务库 | 只有允许字段可复制，保留来源和时间。 |
-| GDBK 备份工件 | 本地受限备份边界 | 只含 allowlisted 业务 root；由安装级 Backup KEK 绑定同一安装/账号/工作区，不能替代日常本地数据库。 |
+| GDBK v1 备份工件 | 本地受限备份边界 | 只含 allowlisted 业务 root；由安装级 Backup KEK 绑定同一安装/账号/工作区，不能替代日常本地数据库。 |
 
 ## 创建与修改
 
@@ -40,7 +54,7 @@ sync delivery ownership、cursor、Inbox、conflict、receipt、rebootstrap jour
 `active` 与 `verified_local_continuation` 可以导出和检查工件；只有 `active` 可以恢复。
 外部文件每次都通过原生 picker 取得的新 handle 重新准入；路径和 catalog metadata 不构成打开权威。
 导出按 `reserved -> writing -> fsynced -> renamed -> catalog_available` 两阶段日志发布，失败或身份不匹配
-进入 `invalid`/`quarantined`。临时快照始终为 SQLCipher 密文，临时 key、内容 key 和明文缓冲从首次
+进入 `invalid`/`quarantined`。临时快照始终为 SQLCipher 密文，所在临时目录在 Unix 上以 `0700` 创建并校验属主与权限（不随进程 umask），不符即失败关闭；临时 key、内容 key 和明文缓冲从首次
 分配起即由 owner-private zeroizing 容器持有；清理失败阻止工件变为可用。
 
 导入先在隔离 candidate 中完成容器认证、binding、schema、完整集合和数据分类验证。最终恢复在当前
@@ -63,6 +77,6 @@ journal/key/candidate/sidecar 或检查不确定性都终止 Host 构造，不�
 quarantine Host 与恢复执行只在 `cfg(test)`。retained-fd 证据
 不覆盖同 UID swap-and-swap-back SQLite 副作用。因此 GDBK、continuity 与 rebootstrap 均不可用。
 
-详细源能力约束见 [ADR-0015](adr/0015-host-owned-sqlite-backup-source.md)，完整权威边界见
+详细源能力约束见 [ADR-0023](adr/0023-business-backup-and-recovery.md)，完整权威边界见
 [ADR-0016](adr/0016-local-business-database-and-cloud-sync-boundary.md)，GDBK 与恢复语义见
-[ADR-0023](adr/0023-installation-bound-gdbk-backup-and-honest-business-restore.md)。
+[ADR-0023](adr/0023-business-backup-and-recovery.md)。
