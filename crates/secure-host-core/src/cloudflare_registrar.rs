@@ -322,3 +322,30 @@ impl CloudflareProviderClient {
         Err(CloudflareProviderError::ResponseLimit)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wire(expires_at: Option<&str>) -> RegistrationWire {
+        RegistrationWire {
+            domain_name: "example.com".to_owned(),
+            created_at: "2025-06-11T12:00:00Z".to_owned(),
+            expires_at: expires_at.map(str::to_owned),
+            auto_renew: true,
+            locked: true,
+            _privacy_mode: PrivacyMode::Redaction,
+            status: RegistrationStatus::Active,
+        }
+    }
+
+    /// Renewal windows count UTC days: only UTC (`Z`) timestamps are accepted and the stored
+    /// expiry is their UTC date, even one second before midnight.
+    #[test]
+    fn expiry_is_the_utc_date_and_offset_timestamps_are_refused() {
+        let projected = project_registration(wire(Some("2027-06-11T23:59:59Z"))).unwrap();
+        assert_eq!(projected.expires_on.as_deref(), Some("2027-06-11"));
+        assert!(project_registration(wire(Some("2027-06-12T01:00:00+05:00"))).is_err());
+        assert!(project_registration(wire(None)).is_err());
+    }
+}

@@ -403,4 +403,13 @@ mod tests {
             Err(AliyunError::ProtocolRejected)
         );
     }
+
+    /// `ExpirationDateLong` is epoch milliseconds; the stored expiry is its UTC date even where the
+    /// account's local date (for example UTC+8) is already the next day.
+    #[test]
+    fn expiry_is_the_utc_date_of_the_epoch_instant() {
+        // 2027-06-11T23:30:00Z, which is 2027-06-12 in Beijing.
+        let expires = date(1_812_756_600_000).unwrap();
+        assert_eq!(expires.date().to_string(), "2027-06-11");
+    }
 }

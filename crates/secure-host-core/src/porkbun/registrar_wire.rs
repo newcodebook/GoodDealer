@@ -256,4 +256,19 @@ mod tests {
         fill(&mut over);
         assert!(over.accept(&page(&[item("extra.com")])).is_err());
     }
+
+    /// Renewal windows count UTC days, so the stored expiry is the UTC date of the documented UTC
+    /// timestamp, even one second before midnight.
+    #[test]
+    fn expiry_is_the_utc_date_of_the_documented_utc_timestamp() {
+        assert_eq!(date("2027-01-15 23:59:59").as_deref(), Some("2027-01-15"));
+        assert_eq!(date("2027-01-16 00:00:00").as_deref(), Some("2027-01-16"));
+        for bad in [
+            "2027-01-15T23:59:59Z",
+            "2027-01-15 23:59:59+08:00",
+            "2027-01-15",
+        ] {
+            assert_eq!(date(bad), None, "{bad}");
+        }
+    }
 }

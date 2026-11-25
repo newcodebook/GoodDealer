@@ -368,4 +368,19 @@ mod tests {
         scan.accept(&first).unwrap();
         assert!(scan.accept(&page(&item, &json!([]))).is_err());
     }
+
+    /// Renewal windows count UTC days: an offset expiry is stored as its UTC date, not the date
+    /// written in the registrar's local offset.
+    #[test]
+    fn expiry_is_the_utc_date_of_an_offset_timestamp() {
+        assert_eq!(
+            date("2027-06-12T01:00:00+05:00").as_deref(),
+            Some("2027-06-11")
+        );
+        assert_eq!(
+            date("2027-06-11T23:30:00-02:00").as_deref(),
+            Some("2027-06-12")
+        );
+        assert_eq!(date("2027-06-11T23:59:59Z").as_deref(), Some("2027-06-11"));
+    }
 }

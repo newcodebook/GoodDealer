@@ -250,15 +250,15 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 按 [落地策略](../IMPLEMENTATION_STRATEGY.md) 的实际依赖推进具体能力；旧框架工作证据见 [阶段 5 框架 Task Frame](PHASE5_FRAMEWORK_PLAN.md)。资产归集与 Afternic 不等待完整 Cloudflare 写能力或阶段 4 汇合验收；资格限制真实执行声明，不替代本地实现。
 
 - [x] 平台连接与角色模型（registrar、dns、marketplace、acquisition）（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)。F1：平台连接 = 平台 + 角色集合（`local_provider_connections.provider_kind` 与 `capabilities_json`），Host 设置读取接受四种角色、对其他角色或重复角色失败关闭、每个角色在资格认证前不可用；client-core 角色取自协议 `domainProviderRoleSchema`，设置界面始终列出四种角色。按 manifest 与凭据实际权限派生角色须平台事实，随第 6–10 阶段各平台交付） https://github.com/newcodebook/GoodDealer/pull/53
-- [ ] binding 增加 `listing` 资源类型（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
+- [x] binding 增加 `listing` 资源类型（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)。本分支已由 b5bcee2 交付（PR #53）：迁移 `listing_provider_binding.sql` 把 `resource_kind` 扩为 `zone`/`registration`/`listing`，Listing 以市场连接身份进入唯一键、在用行唯一且历史解除行保留，Zone 与注册绑定保持单例；`migrations/listing_binding_tests.rs` 覆盖前向迁移、连接身份隔离与重建失败回滚；Afternic 下架与 Atom 库存已使用。2026-11-24 核对后补勾） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 每平台私有 Service 骨架和能力 manifest（2026-11-24 用户决定预建骨架，ADR-0027“平台 Service 骨架”。`secure-host-core` 的 `provider_services` 为十二个首发平台各建一个私有 Service 模块，镜像协议能力目录与 manifest，唯一准入入口先按连接声明的角色拒绝、再按 manifest 拒绝，`ProviderAdmission` 无值因而不可能放行；协议测试 `domain-provider-host-mirror.test.ts` 固定目录、平台顺序与每个 Service 的已实现清单。既有平台 transport 仍由各自资格或受控验收开关管控，尚未经此准入；骨架不计为平台交付。未合并旧的 F2–F7 分支，其 8 平台版本已被取代） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 资格登记按 manifest 能力标识校验，并让首个取得资格的能力同时经 Service 准入与资格登记放行（F3 余项；随第一个取得资格的能力实施）
-- [ ] 跨平台所有权验证的本地操作计划（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
-- [ ] 对账任务模型（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
-- [ ] 逐笔资金确认组件（含出价）（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
-- [ ] 负向测试：越权、跨租户、伪造 grant/bid、角色串用凭据、批量部分失败（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）
+- [ ] 跨平台所有权验证的本地操作计划（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）（暂停：待决事项——同一切片的 8 平台版本已在旁支 `refs/heads/claude/dreamy-ishizaka-049aae`（F4 b90a58d、F5 c8ec982、F6 8984b6c、F7 e8b945f）实现，但按用户指示不合并该分支；本分支尚无对应模型。影响：在首个需要跨平台所有权验证、对账任务或逐笔资金确认的能力（如 Porkbun 续费 `dryRun` 资格、Closeout 购买、Atom 出价）之前不阻塞；之后这些能力无法进入可执行实现。可选方案：（A）由执行方把旁支 F4–F7 按十二平台目录改写后在本分支重新提交，经独立评估（推荐，模型与平台无关的部分可复用，避免重复设计）；（B）在本分支从头重写；（C）推迟到首个需要它的能力时随该能力实现。）
+- [ ] 对账任务模型（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）（暂停：同上一项，旁支 F4–F7 的处理待用户决定）推迟到首个需要它的能力时随该能力实现。）
+- [ ] 逐笔资金确认组件（含出价）（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）（暂停：同上一项，旁支 F4–F7 的处理待用户决定）推迟到首个需要它的能力时随该能力实现。）
+- [ ] 负向测试：越权、跨租户、伪造 grant/bid、角色串用凭据、批量部分失败（框架项，2026-11-16 起先行，见 [Task Frame](PHASE5_FRAMEWORK_PLAN.md)）（暂停：同上一项，旁支 F4–F7 的处理待用户决定）推迟到首个需要它的能力时随该能力实现。）
 - [ ] Cloudflare Registrar 能力（账户级只读归集已接入原生设置和持久资产库；专用账户连接、真实资格、续费与其他写能力继续实施）
-- [ ] 第一个写入 `domain_assets.expires_on` 的注册商观察必须写入注册局到期时刻的 UTC 日期，不能用本地日期或注册商显示日期（到期窗口按 UTC 日计算的前提；当前只有测试种子写入该列），并补写入侧测试（待实现；按当前策略的能力依赖推进）
+- [x] 第一个写入 `domain_assets.expires_on` 的注册商观察必须写入注册局到期时刻的 UTC 日期，不能用本地日期或注册商显示日期（到期窗口按 UTC 日计算的前提；当前只有测试种子写入该列），并补写入侧测试（2026-11-24 核对：到期日现由注册商观察 `registrar_observations.expires_on` 写入并经读取事实投影，`domain_assets.expires_on` 在生产路径中只会被置空（恢复、重置），写入具体日期的只有测试种子与修复。五个已接入的注册商都按 UTC 取日期：Cloudflare 只接受 `Z` 时间戳并取其日期，阿里云按 epoch 毫秒换算 UTC，GoDaddy 与 Spaceship 把带偏移的时间换算到 UTC，Porkbun 官方 `listAll` 说明“日期均为 UTC”并只接受该形态。各 Native 解析器已有跨午夜的写入侧测试，偏移时间不会落到本地日期） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] Cloudflare DNS 写入与 DNSSEC（待实现；按当前策略的能力依赖推进）
 - [ ] Cloudflare 监控（待实现；按当前策略的能力依赖推进）
 - [ ] 核对 Cloudflare 平台事实并更新快照（待实现；按当前策略的能力依赖推进）
