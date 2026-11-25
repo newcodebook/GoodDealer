@@ -196,6 +196,50 @@ const checkedFacts: Readonly<Partial<Record<LaunchPlatformKind, CheckedFacts>>> 
     "acquisition.arrival.reconcile": "official_api_absent",
     "acquisition.monitor": "official_api_absent",
   },
+  // Atom Seller, Partnership and AtomRegistrar OpenAPI 1.0.0 (https://apidocs.atom.com/llms.txt) and
+  // the API access article (updated 2026-11-24), checked 2026-11-25. Every Atom API is a limited
+  // beta granted on request. The registrar API can lock but not unlock, and unlocking and auth codes
+  // are dashboard-only transfer-out actions, so lock management covers locking only and outbound
+  // transfer is absent; it has no glue or restore. Sellers have no endpoint to deliver a sale's auth
+  // code. Purchases go through the Partnership API (hold, confirm order, transfer auth code), a
+  // reseller channel for a partner's own customers: how Atom is paid is not described, and buying
+  // for GoodDealer's own user needs a partner grant the docs do not cover. There are no auction or
+  // backorder endpoints. The implemented Standard delisting and the
+  // not yet composed Standard creation do not make listing management implemented.
+  atom: {
+    "registrar.domain.observe": "implementation_pending",
+    "registrar.register": "implementation_pending",
+    "registrar.renew": "implementation_pending",
+    "registrar.restore": "official_api_absent",
+    "registrar.transfer.in": "implementation_pending",
+    "registrar.transfer.out": "official_api_absent",
+    "registrar.auth-code.request": "official_api_absent",
+    "registrar.lock.manage": "implementation_pending",
+    "registrar.auto-renew.manage": "implementation_pending",
+    "registrar.contact.manage": "implementation_pending",
+    "registrar.privacy.manage": "implementation_pending",
+    "nameservers.manage": "implementation_pending",
+    "registrar.glue.manage": "official_api_absent",
+    "registrar.monitor": "implementation_pending",
+    "zone.observe": "implementation_pending",
+    "dns.records.observe": "implementation_pending",
+    "dns.records.manage": "implementation_pending",
+    "dnssec.manage": "implementation_pending",
+    "dns.monitor": "implementation_pending",
+    "marketplace.listing.manage": "implementation_pending",
+    "marketplace.price.manage": "implementation_pending",
+    "marketplace.sales.observe": "implementation_pending",
+    "marketplace.sale.auth-code.deliver": "official_api_absent",
+    "marketplace.ownership.verify": "implementation_pending",
+    "marketplace.monitor": "implementation_pending",
+    "acquisition.search": "implementation_pending",
+    "acquisition.offer.observe": "implementation_pending",
+    "acquisition.bid": "official_api_absent",
+    "acquisition.backorder": "official_api_absent",
+    "acquisition.purchase": "implementation_pending",
+    "acquisition.arrival.reconcile": "implementation_pending",
+    "acquisition.monitor": "official_api_absent",
+  },
   // Spaceship External API OpenAPI 1.0.0 embedded in https://docs.spaceship.dev/, checked
   // 2026-11-24. Spaceship has no separate Zone resource: hosted DNS is per domain, so Zone
   // observation reads the domain's nameservers and record list. DNSSEC has no endpoint. A

@@ -292,12 +292,12 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 
 ### 10. Atom（含 AtomRegistrar）
 
-- [ ] 核对官方文档和准入门槛，更新平台事实快照（待实现；按当前策略的能力依赖推进）
+- [x] 核对官方文档和准入门槛，更新平台事实快照（2026-11-25 读取 Seller/Partnership 与 AtomRegistrar 两份官方 OpenAPI 1.0.0 及准入说明，记入 ADR-0027 快照与 [API 核查](../PROVIDER_API_REVIEW.md)「Atom 能力映射」行；manifest 逐项写明原因：注册商、DNS、Listing 管理/改价/销售/验证/监控、Partnership 检索与购买、到账对账为 `implementation_pending`；赎回、转出/授权码、glue、卖家交付销售授权码、竞拍、预订及其监控为 `official_api_absent`。准入为 Limited Beta 逐项审批，未获批前保持不可执行）（PR 链接待补）
 - [ ] Listing、逐笔确认的出价、AtomRegistrar 的 Service 与负向测试（query-string token 不进入日志、错误或 URL 记录）（待实现；按当前策略的能力依赖推进）
 - [ ] 逐项能力资格证据，或者带原因标记为不可执行（待实现；按当前策略的能力依赖推进）
 - [ ] Atom Standard 整批上架（[Task Frame](ATOM_LISTING_CREATE_TASK_FRAME.md)；2026-11-24 已核对 `add-domain`/`domain-details`/`verify-dns` 官方合同。已完成第一部分：协议执行证据 `add_standard`、测试向量与 Cloud 审计/执行台账迁移 `202611240001`/`202611240002` 的准入。Host 设备签名已接入同一用途。Native `add-domain` 发送（固定 Standard、整数美元价格、仅文档回执）与写后整数售价读取已完成。剩余：本地计划/认领/结果（与 Codex 的 SellerHub DNS 分支 `202611200015` 重建同一本地批准表和四个共享触发器，待其合入后在其之上实施，避免两份整体重建互相覆盖）、Tauri 命令与批量页、文档与审查；补一条直接调用 Cloud 准入函数的 Postgres 负向测试，证明 `add_standard` 拒绝借用的 `matched`/`published` 结果（当前只由协议解析拦截）。协调：Codex 的 SellerHub DNS 验证分支 `202611200007`/`0008` 与本迁移整体替换同一 Cloud 准入函数，后合并的一方须把对方的用途并入自己的函数体）
 - [ ] Atom Standard 所有权验证（`verify-dns` 触发与 TXT 发布；依赖上架切片与 Cloudflare DNS 写入资格）
-- [ ] 能力 manifest 计入已实现的 Atom 写能力（2026-11-24 核对 Spaceship 时发现：Host 已有 `atom:marketplace:write` 资格项与 Atom Standard 下架路径，但 manifest 的 Atom 只计入 `marketplace.listing.observe`；随 Atom 阶段核对官方事实时按实际覆盖范围更新 manifest 与 Host Service 镜像，部分实现的能力不计为已实现）
+- [x] 能力 manifest 计入已实现的 Atom 写能力（2026-11-24 核对 Spaceship 时发现：Host 已有 `atom:marketplace:write` 资格项与 Atom Standard 下架路径，但 manifest 的 Atom 只计入 `marketplace.listing.observe`；随 Atom 阶段核对官方事实时按实际覆盖范围更新 manifest 与 Host Service 镜像，部分实现的能力不计为已实现；2026-11-25 核对后无需改动：已实现的写只有 Standard 下架与尚未组合的 Standard 上架发送，Listing 管理仍不完整、改价未实现，因此 Atom 只计入 `marketplace.listing.observe`，理由写入 manifest 注释）（PR 链接待补）
 
 ### 11. 1.0 资格与发行
 
@@ -312,7 +312,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 
 - [x] live PostgreSQL 并发/RLS、容量、崩溃恢复、长时间运行（CI 运行 https://github.com/newcodebook/GoodDealer/actions/runs/43413659224 ，PostgreSQL 18.6，提交 caba50a，范围仅 workspace mutation ingest 路径：16 个租户共用同一工作区 id 并发写入 760 条、8 个连接，约 262 条/s，p50/p95/p99 约 57/73/111 ms；8 个租户 600 s 混合负载 47,134 次写入、11,782 次与新写入并发的已提交项重试、每 2 s 一次共 176 次不变量检查，无违例；同一项并发重复提交只应用一次；`fsync`、`synchronous_commit`、`full_page_writes` 均为 on 时 3 次写入中 SIGKILL 容器，已确认的写入无一丢失，每租户至多 1 项已提交未确认，已提交前缀一致，重提交恰为每个已提交项 1 次重复，12 个租户都续写到 1,000 项；六张负载表强制 RLS、应用角色非属主且无 BYPASSRLS，应用角色看不到其他租户的行。不构成：完整 RLS 资格（逐策略审计、全部写路径 WITH CHECK、其他表）、操作系统崩溃或断电下的持久性、超过 10 分钟的稳定性（vacuum/膨胀、XID 年龄、内存上限）、容量 SLO 或生产规格、Gate 关闭；本机 18.4 结果只是诊断） https://github.com/newcodebook/GoodDealer/pull/53
 - [x] 把 `desktop_local_host/source.rs` 的快照临时目录改为仅属主可访问（启用生产备份的前提）（`private_snapshot_directory` 在 Unix 上以 `0700` 创建，创建后对目录本身（不跟随 symlink）校验属主为当前有效用户且组与其他用户无任何权限，不符即 `StorageRejected`；macOS 与 Linux 都走 Unix 分支；Windows 沿用系统临时目录（位于用户配置目录下，默认仅该用户可访问，未另加 ACL 校验）；生产代码中唯一的临时目录创建点；负向测试覆盖 0750/0705/0770/0777 与 symlink） https://github.com/newcodebook/GoodDealer/pull/53
-
+- [ ] 定位并修复间歇失败的 `desktop_local_host::standby_tests::normal_handoff_inbox_final_fence_rolls_back_and_later_active_epoch_refreezes_old_evidence`（2026-11-25 发现：PR #53 提交 88e82be 的 native `macos-15-arm64` 任务中，该测试第 365 行激活 epoch 3 的 Active 授权时返回 `AuthorityRejected`；测试自 2026-11-19 未变，该提交只改文档与 manifest，同一工作流在上一提交 bacec97 通过，本机 Linux 连续 6 次通过。需查明非确定性来源（时间戳、并发或交接栅栏状态），修复后在 macOS CI 上重复验证）
 ## 2026-11-18 对谈后的实施增量
 
 - [x] 十二平台 Rust/TypeScript 读取合同、展示名称与不可执行 manifest 同步；销售聚合支持全部十二平台。

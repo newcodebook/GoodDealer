@@ -166,6 +166,10 @@ Provider 页面回跳只构成不可信的 reconciliation hint，不能作为成
   Afternic Portfolio API 只有账户级 key/secret（2026-11-25 核对[官方认证说明](https://api.afternic.com/docs/portfolio-api/guides/authentication/)：
   每个账户至多 2 把，`Authorization: sso-key`），没有 scope，读写挂牌与提交销售授权码共用同一凭据。按本节规则（只对支持 scope
   的平台要求最小 scope）不据此降级，这是 GoodDealer 的取舍：凭据只在 Host custody，写能力逐项资格认证并单独确认。
+  Atom 各 API（Seller、Partnership、AtomRegistrar）均为 Limited Beta，须分别申请批准（2026-11-25 核对[准入说明](https://www.atom.com/help/article/atom-seller-api-access)，
+  2026-11-24 更新：卖家至少 500 个 Listing 才进入审查，Registrar API 须至少 100 个 AtomRegistrar 域名和/或为活跃卖家）。Seller/Partnership
+  以查询参数 `api_token` 与 `user_id` 认证，Registrar 以 Bearer token 认证，[官方文档](https://apidocs.atom.com/introduction)未提供 scope。
+  query-string token 不得进入日志、错误或 URL 记录。准入能否取得属于真实资格，未获批前相应能力保持不可执行。
 - **Linux**：Provider 秘密按 [ADR-0025](0025-linux-secret-service-custody.md) 的具名条目准入。固定 Native GTK 窗口只捕获已列明用途的字段，条目存入 Secret Service。新增 Provider 与备份条目须分别明确威胁接受。Linux 开发验收与 Windows/macOS 完整目标及实机资格分别记录。
 
 Cloudflare 观察的 401/403 统一表示凭据被拒绝，不据此区分失效与权限不足；429、408、425 与服务端错误
