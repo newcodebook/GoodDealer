@@ -120,6 +120,12 @@ describe("domain Provider coverage and financial confirmation", () => {
       "marketplace.listing.observe", "marketplace.listing.manage", "marketplace.price.manage", "marketplace.monitor",
       "acquisition.search", "acquisition.offer.observe",
     ]);
+    const aliyun = domainProviderCapabilityManifest.filter(({ platform }) => platform === "aliyun");
+    expect(aliyun.filter(({ reason }) => reason === "platform_facts_pending")).toEqual([]);
+    expect(aliyun.filter(({ reason }) => reason === "official_api_absent").map(({ capabilityId }) => capabilityId)).toEqual([
+      "marketplace.listing.observe", "marketplace.listing.manage", "marketplace.price.manage", "marketplace.sales.observe",
+      "marketplace.sale.auth-code.deliver", "marketplace.ownership.verify", "marketplace.monitor", "acquisition.bid",
+    ]);
     // Fixed-price creation alone does not make listing management implemented: delisting is missing.
     expect(domainProviderManifestEntry("spaceship", "marketplace.listing.manage")?.reason).toBe("implementation_pending");
     // The record read reports no Zone status or nameservers, so Zone observation is not implemented.

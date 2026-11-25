@@ -172,6 +172,11 @@ Provider 页面回跳只构成不可信的 reconciliation hint，不能作为成
   query-string token 不得进入日志、错误或 URL 记录。准入能否取得属于真实资格，未获批前相应能力保持不可执行。
   Sedo Basic API 以 `partnerid` 与 `signkey` 认证，卖家函数另需账户用户名与密码（2026-11-25 核对[官方 Basic API v1](https://api.sedo.com/apidocs/v1/Basic/)，
   密码至多 16 字符），没有 scope；文档未说明该密码是否就是账户登录密码（待受控账户核实）。四项凭据只在 Host custody，任何读写都不得把它们写入请求日志或错误。
+  阿里云以 RAM 按 API 授权（2026-11-25 核对 [OpenAPI 门户元数据](https://api.aliyun.com/meta/v1/products/Domain/versions/2018-01-29/api-docs.json)
+  的 `ramActions`）：注册商读取（`domain:QueryCommonInfo`）、续费（按域名资源的 `domain:CreateOrderRenew`）与 Alidns 读写各有独立动作，
+  可按角色签发最小权限凭据。例外：交易 API 的严选在售清单、状态与价格查询和下单共用 `domain:FixPrice`，国际一口价的清单、检查与下单
+  共用 `domain:IntlFixPrice`，能读报价的凭据同时能下单；`CheckDomain` 只查询能否注册。因此 GoodDealer 的取舍是：一口价报价观察
+  与购买一样逐笔确认，或只观察注册可用性。
 - **Linux**：Provider 秘密按 [ADR-0025](0025-linux-secret-service-custody.md) 的具名条目准入。固定 Native GTK 窗口只捕获已列明用途的字段，条目存入 Secret Service。新增 Provider 与备份条目须分别明确威胁接受。Linux 开发验收与 Windows/macOS 完整目标及实机资格分别记录。
 
 Cloudflare 观察的 401/403 统一表示凭据被拒绝，不据此区分失效与权限不足；429、408、425 与服务端错误

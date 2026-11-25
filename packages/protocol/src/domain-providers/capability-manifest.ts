@@ -280,6 +280,50 @@ const checkedFacts: Readonly<Partial<Record<LaunchPlatformKind, CheckedFacts>>> 
     "acquisition.arrival.reconcile": "official_api_absent",
     "acquisition.monitor": "official_api_absent",
   },
+  // Alibaba Cloud Domain 2018-01-29 and 2018-02-08 and Alidns 2015-01-09, from the official
+  // OpenAPI metadata at api.aliyun.com, checked 2026-11-25. The registrar API covers registration,
+  // renewal, redemption, transfers both ways with auth codes, locks, auto-renew, contacts, privacy,
+  // nameservers and DNS hosts (glue); Alidns covers Zones, records and DNSSEC. Fixed-price purchase
+  // (`CreateFixedPriceSelectedOrder` charges the account balance) and drop-list reservation
+  // (`SaveBatchTaskForReserveDropListDomain`) exist, and reservation results are read through task
+  // polling. There are no seller listing, sales or verification endpoints, and no bids. The
+  // fixed-price list, status check and order share the `domain:FixPrice` RAM action (international
+  // ones share `domain:IntlFixPrice`), and `CheckDomain` only answers registrability, so observing a
+  // fixed-price offer is confirmed like a purchase or limited to registration availability.
+  aliyun: {
+    "registrar.register": "implementation_pending",
+    "registrar.renew": "implementation_pending",
+    "registrar.restore": "implementation_pending",
+    "registrar.transfer.in": "implementation_pending",
+    "registrar.transfer.out": "implementation_pending",
+    "registrar.auth-code.request": "implementation_pending",
+    "registrar.lock.manage": "implementation_pending",
+    "registrar.auto-renew.manage": "implementation_pending",
+    "registrar.contact.manage": "implementation_pending",
+    "registrar.privacy.manage": "implementation_pending",
+    "nameservers.manage": "implementation_pending",
+    "registrar.glue.manage": "implementation_pending",
+    "registrar.monitor": "implementation_pending",
+    "zone.observe": "implementation_pending",
+    "dns.records.observe": "implementation_pending",
+    "dns.records.manage": "implementation_pending",
+    "dnssec.manage": "implementation_pending",
+    "dns.monitor": "implementation_pending",
+    "marketplace.listing.observe": "official_api_absent",
+    "marketplace.listing.manage": "official_api_absent",
+    "marketplace.price.manage": "official_api_absent",
+    "marketplace.sales.observe": "official_api_absent",
+    "marketplace.sale.auth-code.deliver": "official_api_absent",
+    "marketplace.ownership.verify": "official_api_absent",
+    "marketplace.monitor": "official_api_absent",
+    "acquisition.search": "implementation_pending",
+    "acquisition.offer.observe": "implementation_pending",
+    "acquisition.bid": "official_api_absent",
+    "acquisition.backorder": "implementation_pending",
+    "acquisition.purchase": "implementation_pending",
+    "acquisition.arrival.reconcile": "implementation_pending",
+    "acquisition.monitor": "implementation_pending",
+  },
   // Spaceship External API OpenAPI 1.0.0 embedded in https://docs.spaceship.dev/, checked
   // 2026-11-24. Spaceship has no separate Zone resource: hosted DNS is per domain, so Zone
   // observation reads the domain's nameservers and record list. DNSSEC has no endpoint. A
