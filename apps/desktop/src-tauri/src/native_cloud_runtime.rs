@@ -1115,6 +1115,19 @@ async fn run_provider_operation(
                     .copied(),
             ))
         }
+        ProviderOperation::PorkbunDelegationObserve {
+            connection_id,
+            entity_id,
+        } => {
+            let run = Arc::new(porkbun::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "porkbun_delegation_observe",
+                run.observe_delegation(connection_id, entity_id)
+                    .await
+                    .as_ref()
+                    .copied(),
+            ))
+        }
         ProviderOperation::PorkbunRevoke { connection_id } => {
             let run = Arc::new(porkbun::Run::new(host, cancel_fence, power, false));
             Some(ProviderOperationRecord::of(

@@ -151,7 +151,9 @@ Provider 页面回跳只构成不可信的 reconciliation hint，不能作为成
   Porkbun API 密钥同样按权限授权（2026-11-24 核对[官方 OpenAPI v3.112](https://porkbun.com/api/json/v3/spec) 说明与各操作的
   `x-porkbun-scope`）：`read` 只读且总是包含，另有 `dns`、`domains`、`purchase`、`funding` 等权限，设置页提供“Read-only”预设；
   密钥还可限定允许的域名（范围外 403 `DOMAIN_NOT_ALLOWED`），权限不足为 403 `INSUFFICIENT_SCOPE`。`/domain/listAll` 与
-  `/dns/retrieve/{domain}` 都只需要 `read`，因此账户归集与 DNS 读取共用一把 Read-only 密钥。
+  `/dns/retrieve/{domain}` 都只需要 `read`，因此账户归集与 DNS 读取共用一把 Read-only 密钥。注册局委派 `GET /domain/getNs/{domain}`
+  同样只需 `read`（2026-11-24 重新下载同一 v3.112 规范核对，SHA-256 未变）；官方说明它实时读自注册局、nameserver 为无序集合，
+  响应 `{status, ns[]}`，声明 200、400、429。
 - **Linux**：Provider 秘密按 [ADR-0025](0025-linux-secret-service-custody.md) 的具名条目准入。固定 Native GTK 窗口只捕获已列明用途的字段，条目存入 Secret Service。新增 Provider 与备份条目须分别明确威胁接受。Linux 开发验收与 Windows/macOS 完整目标及实机资格分别记录。
 
 Cloudflare 观察的 401/403 统一表示凭据被拒绝，不据此区分失效与权限不足；429、408、425 与服务端错误

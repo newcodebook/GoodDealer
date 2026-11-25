@@ -28,13 +28,45 @@ const dnsZoneObservationSummarySchema = z.object({
   recordCounts: z.object({ a: safeCount, aaaa: safeCount, cname: safeCount, txt: safeCount, other: safeCount }).strict(),
 }).strict();
 
+/** The latest registry nameserver read of the asset; sorted and duplicate-free. */
+const dnsDelegationSchema = z.object({
+  nameservers: z.array(canonicalDomainNameSchema).max(16).readonly(),
+  observedAt: z.iso.datetime(),
+}).strict().refine(({ nameservers }) => nameservers.every((value, index) => index === 0 || nameservers[index - 1]! < value),
+  "delegation nameservers must be sorted and unique");
+
+type DnsDelegation = z.infer<typeof dnsDelegationSchema>;
+type DnsZoneObservationSummary = z.infer<typeof dnsZoneObservationSummarySchema>;
+
+/**
+ * The Host's delegation rule, restated so a row whose verdict disagrees with its own evidence is
+ * rejected: the delegation set against the shown Zone's nameservers, `unresolved` for an empty
+ * registry set, `unknown` without either side.
+ */
+function expectedDelegationStatus(delegation: DnsDelegation | null, observation: DnsZoneObservationSummary | null) {
+  if (delegation === null) return "unknown";
+  if (delegation.nameservers.length === 0) return "unresolved";
+  if (observation === null || observation.availability !== "available" || observation.authoritativeNameservers.length === 0) {
+    return "unknown";
+  }
+  const zone = new Set(observation.authoritativeNameservers);
+  return zone.size === delegation.nameservers.length && delegation.nameservers.every((value) => zone.has(value))
+    ? "healthy"
+    : "mismatch";
+}
+
 const dnsHealthRowSchema = z.object({
   entityId: canonicalDomainNameSchema,
   zoneBinding: dnsZoneBindingSchema.nullable(),
   observation: dnsZoneObservationSummarySchema.nullable(),
   /** The Host's verdict that binding the Zone would be admitted now; the only basis for offering it. */
   bindable: z.boolean(),
+  delegation: dnsDelegationSchema.nullable(),
+  delegationStatus: z.enum(["healthy", "mismatch", "unresolved", "unknown"]),
 }).strict().superRefine((row, context) => {
+  if (row.delegationStatus !== expectedDelegationStatus(row.delegation, row.observation)) {
+    context.addIssue({ code: "custom", path: ["delegationStatus"], message: "delegation status disagrees with its evidence" });
+  }
   // The Host binds only from an observation of the asset's own Zone and never over a live binding,
   // so a row claiming otherwise is inconsistent and rejected rather than offered.
   const live = row.zoneBinding !== null && row.zoneBinding.validationStatus !== "detached";
@@ -68,6 +100,8 @@ export const dnsHealthReadSchema = z.object({
   assetCount: z.number().int().nonnegative().max(1_000_200),
   observedCount: z.number().int().nonnegative().max(1_000_200),
   warningCount: z.number().int().nonnegative().max(1_000_200),
+  /** Workspace-wide assets whose delegation is a mismatch or unresolved. */
+  delegationIssueCount: z.number().int().nonnegative().max(1_000_200),
   window: z.object({
     startIndex: dnsHealthWindowRequestSchema.shape.startIndex,
     size: dnsHealthWindowRequestSchema.shape.size,
@@ -78,7 +112,8 @@ export const dnsHealthReadSchema = z.object({
   if (rows.length > size || startIndex + rows.length > read.totalRows) {
     context.addIssue({ code: "custom", path: ["window", "rows"], message: "window exceeds its bounds" });
   }
-  if (read.totalRows > read.assetCount || read.observedCount > read.assetCount || read.warningCount > read.observedCount) {
+  if (read.totalRows > read.assetCount || read.observedCount > read.assetCount || read.warningCount > read.observedCount
+    || read.delegationIssueCount > read.assetCount) {
     context.addIssue({ code: "custom", path: ["warningCount"], message: "counts exceed the workspace" });
   }
   for (let index = 1; index < rows.length; index += 1) {
@@ -126,10 +161,13 @@ function projectRow(row: DnsHealthRow): DnsVerificationRowViewModel {
     verificationAttemptId: null,
     verificationStatus: null,
     challenge: null,
-    // Registrar delegation is not observed, so it is unknown and never "healthy". The Zone's own
-    // nameservers are reported separately: matching them is what delegation would have to prove.
-    delegatedNameservers: [],
-    delegationStatus: "unknown",
+    // Registrar delegation as the Host judged it against the Zone this row shows. The Zone's own
+    // nameservers are reported separately; a hidden observation leaves no basis for a verdict.
+    delegatedNameservers: row.delegation === null ? [] : [...row.delegation.nameservers],
+    delegationStatus: observation === null && row.observation !== null
+      && (row.delegationStatus === "healthy" || row.delegationStatus === "mismatch")
+      ? "unknown"
+      : row.delegationStatus,
     zoneNameservers: observation === null ? [] : [...observation.authoritativeNameservers],
     dnssecStatus: observation?.dnssecStatus ?? null,
     recordHealth: recordCount === null ? "unobserved" : "observed",
@@ -162,6 +200,7 @@ export function projectDnsHealthViewModel(windows: readonly DnsHealthRead[], pag
       || window.assetCount !== first.assetCount
       || window.observedCount !== first.observedCount
       || window.warningCount !== first.warningCount
+      || window.delegationIssueCount !== first.delegationIssueCount
       || window.window.startIndex !== expectedStart
     ) {
       throw new TypeError("DNS health windows must be contiguous reads of one Host generation");
@@ -173,7 +212,7 @@ export function projectDnsHealthViewModel(windows: readonly DnsHealthRead[], pag
   }
   const rows = windows.flatMap((window) => window.window.rows.map(projectRow));
   return {
-    state: first.warningCount > 0 ? "warning" : "normal",
+    state: first.warningCount > 0 || first.delegationIssueCount > 0 ? "warning" : "normal",
     readSource: first.freshness.source,
     serverRevision: first.freshness.serverRevision,
     lastReplicationActivityAt: first.freshness.lastReplicationActivityAt,
@@ -182,7 +221,7 @@ export function projectDnsHealthViewModel(windows: readonly DnsHealthRead[], pag
     metrics: {
       verified: 0,
       pendingOrFailed: 0,
-      nameserverIssues: 0,
+      nameserverIssues: first.delegationIssueCount,
       recordIssues: 0,
       propagating: 0,
       observed: first.observedCount,

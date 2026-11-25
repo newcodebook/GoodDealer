@@ -58,8 +58,8 @@ function hostPorts() {
   }));
   const loadDnsHealth = vi.fn(async (request: HostWindowRequest & { readonly query: string }) => parseDnsHealthRead({
     schemaVersion: 1, kind: "dns_health", readGeneration: generation, freshness,
-    totalRows: total, assetCount: total, observedCount: 0, warningCount: 0,
-    window: { startIndex: request.startIndex, size: request.size, rows: rows(request, (index) => ({ entityId: domain(index), bindable: false, zoneBinding: null, observation: null })) },
+    totalRows: total, assetCount: total, observedCount: 0, warningCount: 0, delegationIssueCount: 0,
+    window: { startIndex: request.startIndex, size: request.size, rows: rows(request, (index) => ({ entityId: domain(index), bindable: false, delegation: null, delegationStatus: "unknown", zoneBinding: null, observation: null })) },
   }));
   const loadSales = vi.fn(async (request: HostWindowRequest) => parseSalesRead({
     schemaVersion: 1, kind: "sales", readGeneration: generation, freshness,
@@ -272,8 +272,8 @@ describe("paged Host routes", () => {
     const observed = { providerKind: "cloudflare", observedAt: "2026-09-20T00:00:00Z", availability: "available", evidenceStatus: "confirmed", zoneLabel: "vault.io", zoneStatus: "active", authoritativeNameservers: ["ada.ns.cloudflare.com"], dnssecStatus: "unknown", recordCounts: { a: 1, aaaa: 0, cname: 0, txt: 0, other: 0 } };
     const loadDnsHealth = vi.fn(async () => parseDnsHealthRead({
       schemaVersion: 1, kind: "dns_health", readGeneration: generation, freshness,
-      totalRows: 1, assetCount: 1, observedCount: 1, warningCount: 0,
-      window: { startIndex: 0, size: 50, rows: [{ entityId: "vault.io", bindable: true, zoneBinding: null, observation: observed }] },
+      totalRows: 1, assetCount: 1, observedCount: 1, warningCount: 0, delegationIssueCount: 0,
+      window: { startIndex: 0, size: 50, rows: [{ entityId: "vault.io", bindable: true, delegation: null, delegationStatus: "unknown", zoneBinding: null, observation: observed }] },
     }));
     const bindDomainAssetProvider = vi.fn(async () => ({ readGeneration: next }));
     const status = (readGeneration: number) => ({ schemaVersion: 2, state: "active", capabilities: ["local:read", "workspace:mutate"], readGeneration });

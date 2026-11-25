@@ -174,6 +174,18 @@ fn admit(
     seed: &PorkbunConnectionSeed,
     entity: &str,
 ) -> Result<ZoneAdmission> {
+    admit_connection(tx, workspace, seed, entity)?;
+    admit_zone(tx, workspace, seed, entity)
+}
+
+/// The checks every Porkbun per-domain read shares: a valid asset ID, the same active credential
+/// identity, no handoff barrier, and the asset in this connection's latest inventory.
+pub(super) fn admit_connection(
+    tx: &Connection,
+    workspace: &str,
+    seed: &PorkbunConnectionSeed,
+    entity: &str,
+) -> Result<()> {
     crate::portfolio_projection::validate_domain_asset_id(entity)
         .map_err(|_| BusinessDatabaseError::InvalidInput)?;
     let current = connection_seed(tx, workspace, &seed.connection_id)?;
@@ -195,6 +207,15 @@ fn admit(
     if !in_latest_scan(tx, workspace, &seed.connection_id, entity)? {
         return Err(BusinessDatabaseError::ProviderBindingUnavailable);
     }
+    Ok(())
+}
+
+fn admit_zone(
+    tx: &Connection,
+    workspace: &str,
+    seed: &PorkbunConnectionSeed,
+    entity: &str,
+) -> Result<ZoneAdmission> {
     let resource = hex_digest(
         format!(
             "gooddealer:porkbun:zone:v1:{}:{entity}",

@@ -75,19 +75,19 @@ describe("DNS & verification from the Host DNS health projection", () => {
   const hostView = (dnssecStatus: "active" | "inactive" | "unknown" | "unsupported" = "unknown") => projectDnsHealthViewModel([parseDnsHealthRead({
     schemaVersion: 1, kind: "dns_health", readGeneration: 2,
     freshness: { source: "active_local", readOnlyReason: null, serverRevision: 3, lastReplicationActivityAt: null, lastSuccessfulProviderObservationAt: null, canEdit: true },
-    totalRows: 2, assetCount: 2, observedCount: 1, warningCount: 0,
+    totalRows: 2, assetCount: 2, observedCount: 1, warningCount: 0, delegationIssueCount: 0,
     window: {
       startIndex: 0, size: 200,
       rows: [
         {
-          entityId: "observed.test", bindable: true, zoneBinding: null,
+          entityId: "observed.test", bindable: true, delegation: null, delegationStatus: "unknown", zoneBinding: null,
           observation: {
             providerKind: "cloudflare", observedAt: "2026-08-28T00:00:00Z", availability: "available", evidenceStatus: "confirmed",
             zoneLabel: "observed.test", zoneStatus: "active", authoritativeNameservers: ["ada.ns.cloudflare.com"], dnssecStatus,
             recordCounts: { a: 2, aaaa: 0, cname: 1, txt: 0, other: 0 },
           },
         },
-        { entityId: "plain.test", bindable: false, zoneBinding: null, observation: null },
+        { entityId: "plain.test", bindable: false, delegation: null, delegationStatus: "unknown", zoneBinding: null, observation: null },
       ],
     },
   })], 200);

@@ -118,13 +118,24 @@ function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
     local_operation_blocked: copy.porkbunDnsBlocked,
     provider_response_rejected: copy.porkbunDnsInvalidResponse,
   };
+  // Registry delegation reads run under the inventory's qualification and report their own outcomes.
+  const delegationOutcomes: Partial<Record<string, string>> = {
+    confirmed: copy.porkbunDelegationConfirmed,
+    api_access_disabled: copy.porkbunDnsApiAccessDisabled,
+    not_in_account: copy.porkbunDnsNotInAccount,
+    domain_not_active: copy.porkbunDnsDomainNotActive,
+    local_operation_blocked: copy.porkbunDelegationBlocked,
+    provider_response_rejected: copy.porkbunDelegationInvalidResponse,
+  };
   const lastOperation = view?.lastOperation ?? null;
   const message = readFailed ? copy[`${prefix}Unavailable`]
     : submission === "failed" ? copy.spaceshipRegistrarFailed
     : (busy || lastOperation === null) ? null
     : lastOperation.kind === "porkbun_dns_observe"
       ? dnsOutcomes[lastOperation.outcome] ?? outcomes[lastOperation.outcome as keyof typeof outcomes]
-      : outcomes[lastOperation.outcome as keyof typeof outcomes];
+      : lastOperation.kind === "porkbun_delegation_observe"
+        ? delegationOutcomes[lastOperation.outcome] ?? outcomes[lastOperation.outcome as keyof typeof outcomes]
+        : outcomes[lastOperation.outcome as keyof typeof outcomes];
   const dns = view !== null && "dnsObserve" in view ? view.dnsObserve : null;
   const canReadDns = writable && ready && dns !== null && dns.qualified && dns.entitled;
 
@@ -133,8 +144,10 @@ function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
     pending.current = true;
     setSubmission("pending");
     const ticket = generation.current;
-    // Only a Porkbun status carries `dnsObserve`, so only the Porkbun port receives a DNS read.
-    const sent = intent.action === "observe-dns" ? (port as PorkbunRegistrarPort).submit(intent) : port.submit(intent);
+    // Only a Porkbun status carries `dnsObserve`, so only the Porkbun port receives a per-domain read.
+    const sent = intent.action === "observe-dns" || intent.action === "observe-delegation"
+      ? (port as PorkbunRegistrarPort).submit(intent)
+      : port.submit(intent);
     void sent.then(() => {
       if (ticket === generation.current) {
         setView((current) => current === null ? current : { ...current, laneState: "busy" });
@@ -184,13 +197,18 @@ function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
             {dns === null || connection.state !== "active" ? null : <>
               <Input size="sm" mono label={copy.porkbunDnsDomain} placeholder="example.com"
                 value={dnsDomains[connection.connectionId] ?? ""}
-                disabled={!canReadDns}
+                disabled={!canReadDns && !canScan}
                 onChange={(event) => { const next = event.currentTarget.value; setDnsDomains((current) => ({ ...current, [connection.connectionId]: next })); }} />
               <Button type="button" size="sm"
                 disabled={!canReadDns || (dnsDomains[connection.connectionId] ?? "").trim() === ""}
                 aria-label={`${copy.porkbunDnsRead} ${name}`}
                 onClick={() => submit({ schemaVersion: 1, action: "observe-dns", connectionId: connection.connectionId,
                   domain: (dnsDomains[connection.connectionId] ?? "").trim().toLowerCase() })}>{copy.porkbunDnsRead}</Button>
+              <Button type="button" size="sm"
+                disabled={!canScan || (dnsDomains[connection.connectionId] ?? "").trim() === ""}
+                aria-label={`${copy.porkbunDelegationRead} ${name}`}
+                onClick={() => submit({ schemaVersion: 1, action: "observe-delegation", connectionId: connection.connectionId,
+                  domain: (dnsDomains[connection.connectionId] ?? "").trim().toLowerCase() })}>{copy.porkbunDelegationRead}</Button>
             </>}
           </div> : null}
         </li>;

@@ -1,7 +1,8 @@
 //! Official Porkbun API v3 account inventory. API keys and response bodies stay in Native.
 //!
 //! Facts: `docs/PROVIDER_API_REVIEW.md`, Porkbun `OpenAPI` v3.112 read on 2026-11-24. Only the
-//! read-only `/domain/listAll` endpoint is constructed here; money endpoints are never reachable.
+//! read-only `/domain/listAll`, `/domain/getNs` and `/dns/retrieve` endpoints are constructed here;
+//! write and money endpoints are never reachable.
 
 use std::{fmt, time::Duration};
 
@@ -22,9 +23,13 @@ mod registrar_wire;
 #[path = "porkbun/dns_wire.rs"]
 mod dns_wire;
 
+#[path = "porkbun/delegation_wire.rs"]
+mod delegation_wire;
+
 const ORIGIN: &str = "https://api.porkbun.com";
 const LIST_PATH: &str = "/api/json/v3/domain/listAll";
 const DNS_RETRIEVE_PATH: &str = "/api/json/v3/dns/retrieve";
+const GET_NS_PATH: &str = "/api/json/v3/domain/getNs";
 /// The documented page size: a page shorter than this is the last one.
 const PAGE_SIZE: usize = 1000;
 const MAX_DOMAINS: usize = 10_000;
@@ -196,6 +201,19 @@ pub enum PorkbunDnsZone {
     DomainNotActive,
 }
 
+/// One domain's registry delegation (`getNs`), or the documented reason it cannot be read.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PorkbunDelegation {
+    /// The registry's nameserver set, lowercased and sorted; empty when none is listed.
+    Nameservers(Vec<String>),
+    /// `API_ACCESS_DISABLED`: only the account holder can opt the domain in.
+    ApiAccessDisabled,
+    /// `INVALID_DOMAIN` / `DOMAIN_NOT_FOUND`; never a basis for downgrading asset evidence.
+    NotInAccount,
+    /// `DOMAIN_NOT_ACTIVE`: pending or expired, not manageable right now.
+    DomainNotActive,
+}
+
 pub struct PorkbunRegistrarClient {
     client: Client,
 }
@@ -245,6 +263,54 @@ impl PorkbunRegistrarClient {
             }
         }
         Err(PorkbunError::ProtocolRejected)
+    }
+
+    /// Reads the nameservers the registry lists for one domain with the documented
+    /// `GET /domain/getNs/{domain}`, which needs only the key's `read` permission.
+    ///
+    /// # Errors
+    /// Rejects a non-canonical domain, stale authority, authentication or permission errors and
+    /// malformed, duplicate or oversized nameserver sets.
+    pub async fn observe_nameservers(
+        &self,
+        credential: &PorkbunCredential,
+        domain: &str,
+        guard: &mut PorkbunGuard<'_>,
+    ) -> Result<PorkbunDelegation, PorkbunError> {
+        let request = self.nameserver_request(credential, domain)?;
+        guard()?;
+        let response = self.client.execute(request).await;
+        guard()?;
+        let response = response.map_err(|_| PorkbunError::Unavailable)?;
+        let status = response.status();
+        // As for the DNS read, non-400 failures are classified before any body is read.
+        if status != StatusCode::BAD_REQUEST {
+            status_class(status)?;
+        }
+        let observed = delegation_wire::classify(status, &read_body(response, guard).await?);
+        guard()?;
+        observed
+    }
+
+    fn nameserver_request(
+        &self,
+        credential: &PorkbunCredential,
+        domain: &str,
+    ) -> Result<Request, PorkbunError> {
+        let domain = dns_wire::canonical_zone(domain)
+            .filter(|canonical| canonical == domain)
+            .ok_or(PorkbunError::InputRejected)?;
+        let mut url = reqwest::Url::parse(ORIGIN).map_err(|_| PorkbunError::Unavailable)?;
+        url.set_path(&format!("{GET_NS_PATH}/{domain}"));
+        let (key, secret) = credential_headers(credential)?;
+        self.client
+            .get(url)
+            .header("x-api-key", key)
+            .header("x-secret-api-key", secret)
+            .header(header::ACCEPT, "application/json")
+            .header(header::CACHE_CONTROL, "no-store")
+            .build()
+            .map_err(|_| PorkbunError::InputRejected)
     }
 
     fn request(
@@ -493,6 +559,33 @@ mod tests {
         for zone in ["Example.com", "example.com/../domain/listAll", "localhost"] {
             assert_eq!(
                 client.request(&credential, zone).unwrap_err(),
+                PorkbunError::InputRejected
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_fixed_nameserver_get_carries_sensitive_key_headers() {
+        let credential = PorkbunCredential {
+            key: Zeroizing::new("pk1_synthetic".into()),
+            secret: Zeroizing::new("sk1_synthetic".into()),
+        };
+        let client = PorkbunRegistrarClient::production().unwrap();
+        let request = client
+            .nameserver_request(&credential, "example.com")
+            .unwrap();
+        assert_eq!(request.method(), reqwest::Method::GET);
+        assert_eq!(
+            request.url().as_str(),
+            "https://api.porkbun.com/api/json/v3/domain/getNs/example.com"
+        );
+        assert!(request.body().is_none());
+        assert!(request.headers()["x-api-key"].is_sensitive());
+        assert!(request.headers()["x-secret-api-key"].is_sensitive());
+        assert!(!format!("{request:?}").contains("sk1_synthetic"));
+        for domain in ["Example.com", "example.com/../updateNs/x", "localhost"] {
+            assert_eq!(
+                client.nameserver_request(&credential, domain).unwrap_err(),
                 PorkbunError::InputRejected
             );
         }

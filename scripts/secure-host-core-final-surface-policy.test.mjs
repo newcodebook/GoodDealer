@@ -52,6 +52,7 @@ const expectedSourceFiles = [
   "native_power/windows.rs",
   "porkbun.rs",
   "porkbun/credentials.rs",
+  "porkbun/delegation_wire.rs",
   "porkbun/dns_wire.rs",
   "porkbun/registrar_wire.rs",
   "provider_credential_slot.rs",
@@ -110,7 +111,7 @@ const expectedGoDaddyExports = [
   "load_godaddy_credential_guarded", "publish_godaddy_credential_guarded", "purge_godaddy_credential_guarded",
 ];
 const expectedPorkbunExports = [
-  "PorkbunCapture", "PorkbunCredential", "PorkbunCredentialPlan", "PorkbunDnsClient", "PorkbunDnsRecord",
+  "PorkbunCapture", "PorkbunCredential", "PorkbunCredentialPlan", "PorkbunDelegation", "PorkbunDnsClient", "PorkbunDnsRecord",
   "PorkbunDnsRecordType", "PorkbunDnsZone", "PorkbunError", "PorkbunGuard",
   "PorkbunRegistrarClient", "PorkbunRegistration",
   "load_porkbun_credential_guarded", "publish_porkbun_credential_guarded", "purge_porkbun_credential_guarded",
@@ -329,6 +330,7 @@ const expectedLocalStorageExportModules = [
   "desktop_local_host::atom_marketplace",
   "desktop_local_host::cloudflare_registrar_account",
   "desktop_local_host::godaddy_registrar",
+  "desktop_local_host::porkbun_delegation",
   "desktop_local_host::porkbun_dns",
   "desktop_local_host::porkbun_registrar",
   "desktop_local_host::sedo_marketplace",
@@ -462,6 +464,8 @@ const expectedLocalStoragePublicExports = [
   "DesktopAliyunConnectionSummary",
   "DesktopGoDaddyConnectionSummary",
   "DesktopPorkbunConnectionSummary",
+  "DesktopPorkbunDelegationRead",
+  "DesktopPorkbunDelegationReceipt",
   "DesktopPorkbunDnsRead",
   "DesktopPorkbunDnsReceipt",
   "DesktopPorkbunDnsRecord",

@@ -179,12 +179,13 @@ pub use active_workspace::business::{
     DesktopCloudflareRegistrarAccountSummary, DesktopCloudflareRegistrarScanReceipt,
     DesktopCloudflareRegistrationFact, DesktopCloudflareRegistrationStanding,
     DesktopGoDaddyConnectionState, DesktopGoDaddyConnectionSummary, DesktopPorkbunConnectionState,
-    DesktopPorkbunConnectionSummary, DesktopPorkbunDnsReceipt, DesktopPorkbunDnsRecord,
-    DesktopRegistrarScanReceipt, DesktopRegistrationFact, DesktopRegistrationStanding,
-    DesktopSedoConnectionState, DesktopSedoCurrency, DesktopSedoMarketplaceConnectionSummary,
-    DesktopSedoMarketplaceListingFact, DesktopSedoMarketplaceScanReceipt,
-    DesktopSellerHubBinApproval, DesktopSellerHubBinApproveRequest, DesktopSellerHubBinPlan,
-    DesktopSellerHubBinPlanItem, DesktopSellerHubBinPlanSummary, DesktopSellerHubBinPreviewRequest,
+    DesktopPorkbunConnectionSummary, DesktopPorkbunDelegationReceipt, DesktopPorkbunDnsReceipt,
+    DesktopPorkbunDnsRecord, DesktopRegistrarScanReceipt, DesktopRegistrationFact,
+    DesktopRegistrationStanding, DesktopSedoConnectionState, DesktopSedoCurrency,
+    DesktopSedoMarketplaceConnectionSummary, DesktopSedoMarketplaceListingFact,
+    DesktopSedoMarketplaceScanReceipt, DesktopSellerHubBinApproval,
+    DesktopSellerHubBinApproveRequest, DesktopSellerHubBinPlan, DesktopSellerHubBinPlanItem,
+    DesktopSellerHubBinPlanSummary, DesktopSellerHubBinPreviewRequest,
     DesktopSellerHubBinStatusRequest, DesktopSellerHubBinTarget, DesktopSellerHubConnectionSummary,
     DesktopSellerHubCreateApproval, DesktopSellerHubCreateApproveRequest,
     DesktopSellerHubCreateDetail, DesktopSellerHubCreatePlanSummary, DesktopSellerHubCreatePreview,
@@ -229,6 +230,7 @@ pub use desktop_local_host::cloudflare_registrar_account::{
 pub use desktop_local_host::godaddy_registrar::{
     DesktopGoDaddyConnection, DesktopGoDaddyRegistrarStatus,
 };
+pub use desktop_local_host::porkbun_delegation::DesktopPorkbunDelegationRead;
 pub use desktop_local_host::porkbun_dns::DesktopPorkbunDnsRead;
 pub use desktop_local_host::porkbun_registrar::{
     DesktopPorkbunConnection, DesktopPorkbunRegistrarStatus,

@@ -83,6 +83,11 @@ pub(crate) enum ProviderOperation {
         connection_id: String,
         entity_id: String,
     },
+    /// One read-only registry nameserver read through an inventory connection's key pair.
+    PorkbunDelegationObserve {
+        connection_id: String,
+        entity_id: String,
+    },
     AtomConnect,
     AtomRefresh {
         connection_id: String,
@@ -196,6 +201,7 @@ impl ProviderOperation {
             | Self::Revoke { connection_id }
             | Self::Purge { connection_id, .. }
             | Self::PorkbunDnsObserve { connection_id, .. }
+            | Self::PorkbunDelegationObserve { connection_id, .. }
             | Self::Observe { connection_id, .. } => connection_id,
         }
     }
@@ -278,7 +284,8 @@ impl ProviderRecoveryOutcome {
             ProviderOperation::PorkbunConnect
             | ProviderOperation::PorkbunRefresh { .. }
             | ProviderOperation::PorkbunRevoke { .. }
-            | ProviderOperation::PorkbunDnsObserve { .. } => self.porkbun,
+            | ProviderOperation::PorkbunDnsObserve { .. }
+            | ProviderOperation::PorkbunDelegationObserve { .. } => self.porkbun,
             ProviderOperation::AtomStandardDelistStep
             | ProviderOperation::AtomConnect
             | ProviderOperation::AtomRefresh { .. }
@@ -368,6 +375,7 @@ impl ProviderAdmissionState {
                 operation,
                 ProviderOperation::Observe { .. }
                     | ProviderOperation::PorkbunDnsObserve { .. }
+                    | ProviderOperation::PorkbunDelegationObserve { .. }
                     | ProviderOperation::CloudflareRegistrarRefresh { .. }
                     | ProviderOperation::CloudflareRegistrarAccountRefresh { .. }
                     | ProviderOperation::AfternicRefresh { .. }
@@ -407,6 +415,7 @@ impl ProviderAdmissionState {
             }
             ProviderOperation::Observe { .. }
             | ProviderOperation::PorkbunDnsObserve { .. }
+            | ProviderOperation::PorkbunDelegationObserve { .. }
             | ProviderOperation::CloudflareRegistrarRefresh { .. }
             | ProviderOperation::CloudflareRegistrarAccountRefresh { .. }
             | ProviderOperation::SpaceshipRefresh { .. }

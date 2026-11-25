@@ -80,10 +80,10 @@ pub use godaddy::{
 };
 
 pub use porkbun::{
-    PorkbunCapture, PorkbunCredential, PorkbunCredentialPlan, PorkbunDnsClient, PorkbunDnsRecord,
-    PorkbunDnsRecordType, PorkbunDnsZone, PorkbunError, PorkbunGuard, PorkbunRegistrarClient,
-    PorkbunRegistration, load_porkbun_credential_guarded, publish_porkbun_credential_guarded,
-    purge_porkbun_credential_guarded,
+    PorkbunCapture, PorkbunCredential, PorkbunCredentialPlan, PorkbunDelegation, PorkbunDnsClient,
+    PorkbunDnsRecord, PorkbunDnsRecordType, PorkbunDnsZone, PorkbunError, PorkbunGuard,
+    PorkbunRegistrarClient, PorkbunRegistration, load_porkbun_credential_guarded,
+    publish_porkbun_credential_guarded, purge_porkbun_credential_guarded,
 };
 
 pub use sedo::{

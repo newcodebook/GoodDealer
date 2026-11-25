@@ -3,14 +3,16 @@ use super::ProviderCredentialError;
 use crate::native_cloud_runtime::NativeCloudCancelFence;
 use gooddealer_local_storage::{
     DesktopLocalHost, DesktopLocalHostError, DesktopNativeCloudAdmission, DesktopPorkbunConnection,
-    DesktopPorkbunConnectionState, DesktopPorkbunDnsRead, DesktopPorkbunDnsRecord,
-    DesktopPorkbunRegistrarStatus, DesktopRegistrationFact, DesktopRegistrationStanding,
+    DesktopPorkbunConnectionState, DesktopPorkbunDelegationRead, DesktopPorkbunDnsRead,
+    DesktopPorkbunDnsRecord, DesktopPorkbunRegistrarStatus, DesktopRegistrationFact,
+    DesktopRegistrationStanding,
 };
 use gooddealer_secure_host_core::{
     NativePowerCommitGuard, NativePowerGate, PorkbunCapture, PorkbunCredential,
-    PorkbunCredentialPlan, PorkbunDnsClient, PorkbunDnsRecord, PorkbunDnsZone, PorkbunError,
-    PorkbunGuard, PorkbunRegistrarClient, PorkbunRegistration, load_porkbun_credential_guarded,
-    publish_porkbun_credential_guarded, purge_porkbun_credential_guarded,
+    PorkbunCredentialPlan, PorkbunDelegation, PorkbunDnsClient, PorkbunDnsRecord, PorkbunDnsZone,
+    PorkbunError, PorkbunGuard, PorkbunRegistrarClient, PorkbunRegistration,
+    load_porkbun_credential_guarded, publish_porkbun_credential_guarded,
+    purge_porkbun_credential_guarded,
 };
 use std::sync::Arc;
 
@@ -86,6 +88,18 @@ impl Run {
         drop(self.hold_power()?);
         self.host
             .recheck_porkbun_dns_read(read)
+            .map_err(|_| PorkbunError::AuthorityStale)?;
+        drop(self.hold_power()?);
+        Ok(())
+    }
+
+    fn check_delegation(
+        &self,
+        read: &DesktopPorkbunDelegationRead,
+    ) -> std::result::Result<(), PorkbunError> {
+        drop(self.hold_power()?);
+        self.host
+            .recheck_porkbun_delegation_read(read)
             .map_err(|_| PorkbunError::AuthorityStale)?;
         drop(self.hold_power()?);
         Ok(())
@@ -235,6 +249,55 @@ impl Run {
         } else {
             "confirmed"
         })
+    }
+
+    /// Reads the registry nameservers of one asset with the connection's key pair and commits
+    /// them as local delegation evidence. Returns `confirmed` or a Porkbun refusal that wrote
+    /// nothing.
+    pub(crate) async fn observe_delegation(
+        self: &Arc<Self>,
+        id: String,
+        domain: String,
+    ) -> Result<&'static str> {
+        let run = Arc::clone(self);
+        let (read, credential) = tauri::async_runtime::spawn_blocking(move || {
+            let read = run.commit(|host| {
+                host.admit_porkbun_delegation_read(host.begin_native_cloud_run()?, &id, &domain)
+            })?;
+            let credential = load_porkbun_credential_guarded(&Slot(read.connection()), &mut || {
+                run.check_delegation(&read)
+            })
+            .map_err(native_error)?
+            .ok_or(ProviderCredentialError::Keychain)?;
+            Ok::<_, ProviderCredentialError>((read, credential))
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)??;
+        let client = PorkbunRegistrarClient::production().map_err(native_error)?;
+        let mut guard = || self.check_delegation(&read);
+        let observed = tokio::select! {
+            biased;
+            _ = self.power.wait_for_epoch_change(self.epoch) => Err(PorkbunError::AuthorityStale),
+            result = client.observe_nameservers(&credential, read.domain(), &mut guard) => result,
+        }
+        .map_err(native_error)?;
+        drop(credential);
+        let nameservers = match observed {
+            PorkbunDelegation::Nameservers(nameservers) => nameservers,
+            PorkbunDelegation::ApiAccessDisabled => return Ok("api_access_disabled"),
+            PorkbunDelegation::NotInAccount => return Ok("not_in_account"),
+            PorkbunDelegation::DomainNotActive => return Ok("domain_not_active"),
+        };
+        let run = Arc::clone(self);
+        tauri::async_runtime::spawn_blocking(move || {
+            run.commit(|host| {
+                host.commit_porkbun_delegation_read(&read, &nameservers)
+                    .map(|_| ())
+            })
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)??;
+        Ok("confirmed")
     }
 
     pub(crate) async fn revoke(self: &Arc<Self>, id: String) -> Result<()> {

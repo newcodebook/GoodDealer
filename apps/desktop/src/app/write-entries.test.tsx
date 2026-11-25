@@ -76,8 +76,8 @@ function ports(cloudflare: () => Promise<CloudflareConnectionStatus> = async () 
     portfolio: { loadDomainDetail: vi.fn(async () => detail) },
     dns: { loadDnsHealth: vi.fn(async () => parseDnsHealthRead({
       schemaVersion: 1, kind: "dns_health", readGeneration: generation, freshness,
-      totalRows: 1, assetCount: 1, observedCount: 1, warningCount: 0,
-      window: { startIndex: 0, size: 50, rows: [{ entityId: "vault.io", bindable: true, zoneBinding: null, observation }] },
+      totalRows: 1, assetCount: 1, observedCount: 1, warningCount: 0, delegationIssueCount: 0,
+      window: { startIndex: 0, size: 50, rows: [{ entityId: "vault.io", bindable: true, delegation: null, delegationStatus: "unknown", zoneBinding: null, observation }] },
     })) },
     business: { bindDomainAssetProvider: vi.fn() },
     settings: { loadSettings: vi.fn(async () => settingsRead) },

@@ -358,6 +358,17 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "registrar_delegation_observations",
+        &[
+            "workspace_id",
+            "delegation_observation_id",
+            "entity_id",
+            "connection_id",
+            "nameservers_json",
+            "observed_at",
+        ],
+    ),
+    (
         "afternic_ownership_review_preflights",
         &[
             "workspace_id",

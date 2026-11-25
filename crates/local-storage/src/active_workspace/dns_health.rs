@@ -1,9 +1,10 @@
 //! Read-only DNS health projection: each local domain asset joined with its Provider Zone binding
 //! and the latest Host-committed Zone observation summary.
 //!
-//! The projection reports only what the Host has observed. It never judges delegation, record
-//! health or ownership: those need registrar and verification capabilities that are not composed,
-//! so the Renderer presents them as unavailable instead of inferring a healthy state.
+//! The projection reports only what the Host has observed. Delegation is judged only by comparing
+//! the latest registry nameserver read with the nameservers of the Zone observation the row shows;
+//! record health and ownership need capabilities that are not composed, so the Renderer presents
+//! them as unavailable instead of inferring a healthy state.
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
@@ -32,6 +33,8 @@ pub struct DnsHealthReadSnapshot {
     pub asset_count: u32,
     pub observed_count: u32,
     pub warning_count: u32,
+    /// Workspace-wide assets whose delegation is `mismatch` or `unresolved`.
+    pub delegation_issue_count: u32,
     pub window: DnsHealthWindow,
 }
 
@@ -53,6 +56,19 @@ pub struct DnsHealthRow {
     /// evidence for it and no live or conflicting binding stands in the way. The Renderer offers
     /// "Bind Zone" only on this, never from the observation it shows.
     pub bindable: bool,
+    /// The latest registry nameserver read for the asset, through any registrar connection.
+    pub delegation: Option<DnsDelegationSummary>,
+    /// `healthy` when that set equals the shown Zone observation's nameservers, `mismatch` when it
+    /// differs, `unresolved` when the registry lists none, and `unknown` without a delegation read
+    /// or without an available observation that names nameservers.
+    pub delegation_status: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsDelegationSummary {
+    pub nameservers: Vec<String>,
+    pub observed_at: String,
 }
 
 /// The asset's Zone binding on any launch platform. Connection identity and Provider resource IDs
@@ -195,6 +211,7 @@ impl<'a> ActiveDnsHealthReader<'a> {
             .map_err(|_| PortfolioReadError::StorageRejected)?;
         let (asset_count, observed_count, warning_count) =
             workspace_counts(&transaction, requested_workspace_id)?;
+        let delegation_issue_count = delegation_issues(&transaction, requested_workspace_id)?;
         if rejected_rows(&transaction, requested_workspace_id)? != 0 {
             return Err(PortfolioReadError::ProjectionRejected);
         }
@@ -245,11 +262,7 @@ impl<'a> ActiveDnsHealthReader<'a> {
             .map_err(|_| PortfolioReadError::ProjectionRejected)?;
         let rows = raw
             .into_iter()
-            .map(|raw| {
-                let mut row = project_row(raw)?;
-                row.bindable = row_bindable(&transaction, requested_workspace_id, &row.entity_id)?;
-                Ok(row)
-            })
+            .map(|raw| page_row(&transaction, requested_workspace_id, raw))
             .collect::<Result<Vec<_>, PortfolioReadError>>()?;
         let freshness = read_freshness(&transaction)?;
         drop(statement);
@@ -265,6 +278,7 @@ impl<'a> ActiveDnsHealthReader<'a> {
             asset_count: count(asset_count)?,
             observed_count: count(observed_count)?,
             warning_count: count(warning_count)?,
+            delegation_issue_count: count(delegation_issue_count)?,
             window: DnsHealthWindow {
                 start_index,
                 size,
@@ -293,6 +307,137 @@ fn workspace_counts(
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .map_err(|_| PortfolioReadError::StorageRejected)
+}
+
+/// One page row: the validated projection plus the Host's bind and delegation verdicts.
+fn page_row(
+    connection: &Connection,
+    workspace_id: &str,
+    raw: RawRow,
+) -> Result<DnsHealthRow, PortfolioReadError> {
+    let mut row = project_row(raw)?;
+    row.bindable = row_bindable(connection, workspace_id, &row.entity_id)?;
+    row.delegation = row_delegation(connection, workspace_id, &row.entity_id)?;
+    row.delegation_status =
+        delegation_status(row.delegation.as_ref(), row.observation.as_ref()).to_owned();
+    Ok(row)
+}
+
+/// The latest registry delegation read of each asset (`d`), newest first by observation time.
+const DELEGATION_JOIN: &str = "
+     LEFT JOIN registrar_delegation_observations d
+       ON d.workspace_id = a.workspace_id AND d.delegation_observation_id = (
+            SELECT d2.delegation_observation_id FROM registrar_delegation_observations d2
+             WHERE d2.workspace_id = a.workspace_id AND d2.entity_id = a.entity_id
+             ORDER BY d2.observed_at DESC, d2.rowid DESC LIMIT 1)";
+
+/// Workspace-wide assets whose delegation `delegation_status` calls `mismatch` or `unresolved`. The
+/// stored delegation set is duplicate-free, so equal size plus containment is set equality.
+fn delegation_issues(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<i64, PortfolioReadError> {
+    connection
+        .query_row(
+            &format!(
+                "SELECT coalesce(sum(CASE
+                   WHEN d.nameservers_json IS NULL THEN 0
+                   WHEN json_array_length(d.nameservers_json) = 0 THEN 1
+                   WHEN z.zone_observation_id IS NOT NULL AND z.observation_availability = 'available'
+                    AND json_array_length(z.authoritative_nameservers_json) > 0
+                    AND (json_array_length(d.nameservers_json) <> (
+                           SELECT count(DISTINCT zn.value) FROM json_each(z.authoritative_nameservers_json) zn)
+                         OR EXISTS (SELECT 1 FROM json_each(d.nameservers_json) dn
+                                     WHERE dn.value NOT IN (
+                                       SELECT zn.value FROM json_each(z.authoritative_nameservers_json) zn)))
+                   THEN 1 ELSE 0 END), 0)
+                 FROM domain_assets a {ZONE_JOINS} {DELEGATION_JOIN} WHERE {ASSETS}"
+            ),
+            [workspace_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| PortfolioReadError::StorageRejected)
+}
+
+/// The asset's latest delegation read. Its insert trigger admits only canonical host names, so a
+/// row that fails here is corruption and fails the page closed.
+fn row_delegation(
+    connection: &Connection,
+    workspace_id: &str,
+    entity_id: &str,
+) -> Result<Option<DnsDelegationSummary>, PortfolioReadError> {
+    let Some((nameservers, observed_at)): Option<(String, String)> = connection
+        .query_row(
+            "SELECT nameservers_json, observed_at FROM registrar_delegation_observations
+              WHERE workspace_id = ?1 AND entity_id = ?2
+              ORDER BY observed_at DESC, rowid DESC LIMIT 1",
+            params![workspace_id, entity_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|_| PortfolioReadError::StorageRejected)?
+    else {
+        return Ok(None);
+    };
+    let nameservers: Vec<String> =
+        serde_json::from_str(&nameservers).map_err(|_| PortfolioReadError::ProjectionRejected)?;
+    let distinct: std::collections::BTreeSet<&str> =
+        nameservers.iter().map(String::as_str).collect();
+    if nameservers.len() > MAX_NAMESERVERS
+        || distinct.len() != nameservers.len()
+        || nameservers.iter().any(|host| {
+            host.len() > 253
+                || !host.contains('.')
+                || host.split('.').any(|label| {
+                    !(1..=63).contains(&label.len())
+                        || label.starts_with('-')
+                        || label.ends_with('-')
+                        || !label.bytes().all(|byte| {
+                            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                        })
+                })
+        })
+    {
+        return Err(PortfolioReadError::ProjectionRejected);
+    }
+    Ok(Some(DnsDelegationSummary {
+        nameservers,
+        observed_at: validate_timestamp(Some(observed_at))?
+            .ok_or(PortfolioReadError::ProjectionRejected)?,
+    }))
+}
+
+/// The Host's delegation verdict; `delegation_issues` counts the same rule in SQL.
+fn delegation_status(
+    delegation: Option<&DnsDelegationSummary>,
+    observation: Option<&DnsZoneObservationSummary>,
+) -> &'static str {
+    let Some(delegation) = delegation else {
+        return "unknown";
+    };
+    if delegation.nameservers.is_empty() {
+        return "unresolved";
+    }
+    match observation {
+        Some(observation)
+            if observation.availability == "available"
+                && !observation.authoritative_nameservers.is_empty() =>
+        {
+            let zone: std::collections::BTreeSet<&str> = observation
+                .authoritative_nameservers
+                .iter()
+                .map(String::as_str)
+                .collect();
+            let delegated: std::collections::BTreeSet<&str> =
+                delegation.nameservers.iter().map(String::as_str).collect();
+            if zone == delegated {
+                "healthy"
+            } else {
+                "mismatch"
+            }
+        }
+        _ => "unknown",
+    }
 }
 
 /// How many of the rows the counts include fail validation, not only on the page. A page reads a few
@@ -563,6 +708,8 @@ fn project_row(raw: RawRow) -> Result<DnsHealthRow, PortfolioReadError> {
         zone_binding,
         observation,
         bindable: false,
+        delegation: None,
+        delegation_status: "unknown".to_owned(),
     })
 }
 

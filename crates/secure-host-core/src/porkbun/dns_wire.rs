@@ -103,7 +103,7 @@ pub(super) fn classify(
 /// Maps a documented HTTP 400 body (a `GoodDealer` mapping of the global code table). Domain states
 /// the account holder controls become outcomes, request-shape errors are `GoodDealer` defects, and
 /// any other or missing code fails closed as needing the account holder.
-fn rejection(body: &[u8]) -> Result<PorkbunDnsZone, PorkbunError> {
+pub(super) fn rejection(body: &[u8]) -> Result<PorkbunDnsZone, PorkbunError> {
     #[derive(Deserialize)]
     struct ErrorWire {
         status: String,

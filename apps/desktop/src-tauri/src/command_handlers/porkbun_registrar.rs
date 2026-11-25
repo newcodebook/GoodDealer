@@ -35,6 +35,13 @@ enum Intent {
         connection_id: String,
         domain: String,
     },
+    /// One read-only registry nameserver read of an asset through an existing connection.
+    #[serde(rename = "observe-delegation")]
+    ObserveDelegation {
+        schema_version: u8,
+        connection_id: String,
+        domain: String,
+    },
 }
 
 /// A canonical lowercase LDH domain; the Host still requires it to be an inventoried asset.
@@ -74,6 +81,16 @@ impl Intent {
                 domain,
             } if is_provider_connection_uuid(&connection_id) && is_zone_name(&domain) => {
                 Ok(ProviderOperation::PorkbunDnsObserve {
+                    connection_id,
+                    entity_id: domain,
+                })
+            }
+            Self::ObserveDelegation {
+                schema_version: 1,
+                connection_id,
+                domain,
+            } if is_provider_connection_uuid(&connection_id) && is_zone_name(&domain) => {
+                Ok(ProviderOperation::PorkbunDelegationObserve {
                     connection_id,
                     entity_id: domain,
                 })
@@ -182,7 +199,19 @@ mod tests {
                 entity_id: "xn--bcher-kva.example".into(),
             })
         );
+        assert_eq!(
+            parse(
+                r#"{"action":"observe-delegation","schemaVersion":1,"connectionId":"11111111-1111-4111-a111-111111111111","domain":"example.test"}"#
+            ),
+            Ok(ProviderOperation::PorkbunDelegationObserve {
+                connection_id: "11111111-1111-4111-a111-111111111111".into(),
+                entity_id: "example.test".into(),
+            })
+        );
         for input in [
+            r#"{"action":"observe-delegation","schemaVersion":1,"connectionId":"11111111-1111-4111-a111-111111111111","domain":"Example.test"}"#,
+            r#"{"action":"observe-delegation","schemaVersion":1,"connectionId":"11111111-1111-4111-a111-111111111111","domain":"example.test","nameservers":[]}"#,
+            r#"{"action":"observe-delegation","schemaVersion":2,"connectionId":"11111111-1111-4111-a111-111111111111","domain":"example.test"}"#,
             r#"{"action":"connect","schemaVersion":1,"apiKey":"refuse"}"#,
             r#"{"action":"connect","schemaVersion":1,"url":"https://example.test"}"#,
             r#"{"action":"connect","schemaVersion":1,"schemaVersion":1}"#,

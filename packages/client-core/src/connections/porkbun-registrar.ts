@@ -20,6 +20,10 @@ export const porkbunRegistrarIntentSchema = z.discriminatedUnion("action", [
   // One read-only Zone record read of an asset in that connection's latest inventory.
   z.object({ schemaVersion: version, action: z.literal("observe-dns"), connectionId: connectionIdSchema,
     domain: canonicalDomainNameSchema }).strict(),
+  // One read-only registry nameserver read of an asset in that connection's latest inventory,
+  // under the inventory's own qualification and entitlement.
+  z.object({ schemaVersion: version, action: z.literal("observe-delegation"), connectionId: connectionIdSchema,
+    domain: canonicalDomainNameSchema }).strict(),
 ]);
 
 const statusSchema = z.object({
@@ -41,12 +45,16 @@ const statusSchema = z.object({
     return row.lastScan !== null;
   })).max(64),
   lastOperation: z.object({
-    kind: z.enum(["porkbun_connect", "porkbun_refresh", "porkbun_revoke", "porkbun_dns_observe"]),
+    kind: z.enum(["porkbun_connect", "porkbun_refresh", "porkbun_revoke", "porkbun_dns_observe", "porkbun_delegation_observe"]),
     outcome: z.enum(["confirmed", "unqualified", "unreachable", "retry_later", "credential_rejected",
       "credential_store_unavailable", "local_operation_blocked", "provider_response_rejected", "capture_incomplete", "failed",
       "answered_elsewhere", "api_access_disabled", "not_in_account", "domain_not_active"]),
-  }).strict().refine((operation) => operation.kind === "porkbun_dns_observe"
-    || !["answered_elsewhere", "api_access_disabled", "not_in_account", "domain_not_active"].includes(operation.outcome))
+  }).strict().refine((operation) => {
+    // Domain refusals come only from the per-domain reads; only the DNS read can be answered elsewhere.
+    if (operation.outcome === "answered_elsewhere") return operation.kind === "porkbun_dns_observe";
+    return operation.kind === "porkbun_dns_observe" || operation.kind === "porkbun_delegation_observe"
+      || !["api_access_disabled", "not_in_account", "domain_not_active"].includes(operation.outcome);
+  })
     .nullable(),
 }).strict().refine(({ connections }) =>
   new Set(connections.map((row) => row.connectionId)).size === connections.length);

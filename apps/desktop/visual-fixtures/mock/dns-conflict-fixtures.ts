@@ -189,18 +189,18 @@ export function mockDnsHealthView(): DnsVerificationViewModel {
     totalRows: 3,
     assetCount: 3,
     observedCount: 2,
-    warningCount: 1,
+    warningCount: 1, delegationIssueCount: 0,
     window: {
       startIndex: 0,
       size: 50,
       rows: [
         {
           entityId: "goldrail.com",
-          bindable: false, zoneBinding: { providerKind: "cloudflare", connectionLabel: "Cloudflare 主账户", zoneLabel: "goldrail.com", validationStatus: "verified" },
+          bindable: false, delegation: null, delegationStatus: "unknown", zoneBinding: { providerKind: "cloudflare", connectionLabel: "Cloudflare 主账户", zoneLabel: "goldrail.com", validationStatus: "verified" },
           observation: observation("goldrail.com", ["ada.ns.cloudflare.com", "bob.ns.cloudflare.com"], "active", "active"),
         },
-        { entityId: "helio.systems", bindable: false, zoneBinding: null, observation: observation("helio.systems", ["kai.ns.cloudflare.com"], "inactive", "pending") },
-        { entityId: "north.capital", bindable: false, zoneBinding: { providerKind: "spaceship", connectionLabel: "Spaceship", zoneLabel: "north.capital", validationStatus: "unverified" }, observation: null },
+        { entityId: "helio.systems", bindable: false, delegation: null, delegationStatus: "unknown", zoneBinding: null, observation: observation("helio.systems", ["kai.ns.cloudflare.com"], "inactive", "pending") },
+        { entityId: "north.capital", bindable: false, delegation: null, delegationStatus: "unknown", zoneBinding: { providerKind: "spaceship", connectionLabel: "Spaceship", zoneLabel: "north.capital", validationStatus: "unverified" }, observation: null },
       ],
     },
   })], 50);

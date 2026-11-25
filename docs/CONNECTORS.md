@@ -64,7 +64,7 @@ registrar/dns/marketplace/acquisition 角色，覆盖 ADR-0027“完整域名能
 `qualification_pending`；以及已按当日官方文档逐项核对的平台（目前为 Porkbun）的 `implementation_pending`（官方提供、尚未实现）与
 `official_api_absent`（官方 API 无端点，按 ADR-0027 列入私有适配器清单），没有可执行状态）与单项资金确认引用已定义，仍不可执行；Provider-specific 最小权限及未知结果
 对账资格尚需逐项确证。
-Afternic 的原生库存已通过真实 Linux 开发账户读取。Spaceship Registrar 已通过 Native 连接、设置页、ProviderLane 和单 SQLCipher writer 组合完整归集，使用独立签名权益及资格。阿里云按相同客户入口组合同一批量资产事务，采用独立 ACS3 签名及 Native 托管。GoDaddy 用自己的 PAT 槽和官方 v3 读取作用域，复用原 Registrar 资产事务。Porkbun 用自己的 API key 对槽和官方 v3 `listAll` 只读请求，复用同一资产事务；同一连接另以 `dns/retrieve` 只读读取单个 Zone 的记录，写入本地 DNS 证据与 `unverified` Zone 绑定（`porkbun:dns:observe`，未取得资格）。各平台实测与发行状态见 [当前实现](CURRENT_IMPLEMENTATION.md)。
+Afternic 的原生库存已通过真实 Linux 开发账户读取。Spaceship Registrar 已通过 Native 连接、设置页、ProviderLane 和单 SQLCipher writer 组合完整归集，使用独立签名权益及资格。阿里云按相同客户入口组合同一批量资产事务，采用独立 ACS3 签名及 Native 托管。GoDaddy 用自己的 PAT 槽和官方 v3 读取作用域，复用原 Registrar 资产事务。Porkbun 用自己的 API key 对槽和官方 v3 `listAll` 只读请求，复用同一资产事务；同一连接另以 `dns/retrieve` 只读读取单个 Zone 的记录，写入本地 DNS 证据与 `unverified` Zone 绑定（`porkbun:dns:observe`，未取得资格）；并以 `domain/getNs` 只读读取注册局委派，写入只追加的本地委派观察，DNS 健康据此与 Zone 分配的 nameserver 比对（沿用 `porkbun:registrar:observe` 授权与资格，未取得资格）。各平台实测与发行状态见 [当前实现](CURRENT_IMPLEMENTATION.md)。
 Atom 使用官方卖家库存、精确详情和 Standard 下架接口。设置页读取持久库存，批量页读取签名确认和逐域名对账结果。原生专属托管和 Listing 绑定沿用各自所有者。实际账户、认证缺席及目标系统资格仍待验收。
 Sedo 使用官方 Basic API 卖家库存接口和 Native 专属托管，复用原 Listing 绑定与设置持久计数。认证账户和实机资格仍待验收。
 
