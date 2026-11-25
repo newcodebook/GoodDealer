@@ -50,6 +50,13 @@
 日志或 Cloud 配置。unseal 或签发 SecretID 时从受控文件经 stdin 直接送到验证 TLS 的固定 API；
 不得回显响应、重定向到普通临时文件或在聊天中传递材料。
 
+服务器配置 `max_lease_ttl = "24h"` 会截断 SecretID 的有效期，角色上的 `secret_id_ttl` 不能突破它。
+因此 `approle` 认证挂载点单独 tune 为 `max_lease_ttl=168h`；token 仍受角色 `token_max_ttl`
+3600 秒约束。每次签发后都要核对响应中的 `secret_id_ttl` 为 604800，不能只看角色配置。
+2026-11-25 前的 SecretID 实际只有 24 小时，过期后 AppRole 登录返回 400。Cloud 的 Lease 续签
+和授权因此失败关闭，只返回 503/403，不留日志。当前 SecretID 于 2026-11-25 12:33 CET 签发，
+2026-12-02 12:33 CET 到期。
+
 ## 五种用途与最小权限
 
 v2 `transit` mount 中的五把 Ed25519 key 均为 version 1、不可导出、不可明文备份、不可删除、

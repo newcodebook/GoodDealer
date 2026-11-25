@@ -170,6 +170,8 @@ Provider 页面回跳只构成不可信的 reconciliation hint，不能作为成
   2026-11-24 更新：卖家至少 500 个 Listing 才进入审查，Registrar API 须至少 100 个 AtomRegistrar 域名和/或为活跃卖家）。Seller/Partnership
   以查询参数 `api_token` 与 `user_id` 认证，Registrar 以 Bearer token 认证，[官方文档](https://apidocs.atom.com/introduction)未提供 scope。
   query-string token 不得进入日志、错误或 URL 记录。准入能否取得属于真实资格，未获批前相应能力保持不可执行。
+  Sedo Basic API 以 `partnerid` 与 `signkey` 认证，卖家函数另需账户用户名与密码（2026-11-25 核对[官方 Basic API v1](https://api.sedo.com/apidocs/v1/Basic/)，
+  密码至多 16 字符），没有 scope；文档未说明该密码是否就是账户登录密码（待受控账户核实）。四项凭据只在 Host custody，任何读写都不得把它们写入请求日志或错误。
 - **Linux**：Provider 秘密按 [ADR-0025](0025-linux-secret-service-custody.md) 的具名条目准入。固定 Native GTK 窗口只捕获已列明用途的字段，条目存入 Secret Service。新增 Provider 与备份条目须分别明确威胁接受。Linux 开发验收与 Windows/macOS 完整目标及实机资格分别记录。
 
 Cloudflare 观察的 401/403 统一表示凭据被拒绝，不据此区分失效与权限不足；429、408、425 与服务端错误

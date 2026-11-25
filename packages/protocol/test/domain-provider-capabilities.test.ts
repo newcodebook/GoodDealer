@@ -114,6 +114,12 @@ describe("domain Provider coverage and financial confirmation", () => {
       "registrar.restore", "registrar.transfer.out", "registrar.auth-code.request", "registrar.glue.manage",
       "marketplace.sale.auth-code.deliver", "acquisition.bid", "acquisition.backorder", "acquisition.monitor",
     ]);
+    const sedo = domainProviderCapabilityManifest.filter(({ platform }) => platform === "sedo");
+    expect(sedo.filter(({ reason }) => reason === "platform_facts_pending")).toEqual([]);
+    expect(sedo.filter(({ reason }) => reason !== "official_api_absent").map(({ capabilityId }) => capabilityId)).toEqual([
+      "marketplace.listing.observe", "marketplace.listing.manage", "marketplace.price.manage", "marketplace.monitor",
+      "acquisition.search", "acquisition.offer.observe",
+    ]);
     // Fixed-price creation alone does not make listing management implemented: delisting is missing.
     expect(domainProviderManifestEntry("spaceship", "marketplace.listing.manage")?.reason).toBe("implementation_pending");
     // The record read reports no Zone status or nameservers, so Zone observation is not implemented.

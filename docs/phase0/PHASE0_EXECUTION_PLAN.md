@@ -284,13 +284,16 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [ ] Dynadot：核对事实、列出能力清单、实现 Service 与测试（HMAC 密钥只在 Host custody）、取得资格证据（2026-11-24 已读取官方 V1 文档并记入 [API 核查](../PROVIDER_API_REVIEW.md)。暂停：`DOMAIN_LIST` 的 schema 与官方示例在字段命名、`locked` 类型上互相矛盾，时间单位与分页终止条件未写明，无法写出失败关闭的严格解析。影响：Dynadot 资产归集无法实现。可选方案：（a）用户在 Dynadot API 设置页生成沙箱密钥并填入 `local.env`，以沙箱真实响应确定 wire 形态（推荐，免费、不动真实资金）；（b）改用 V2 Beta，但官方声明其可能无通知变更；（c）按示例猜测字段，违反只依官方事实的约束，不采用。）
 - [ ] Namecheap：核对事实、列出能力清单、实现 Service 与测试（IP 白名单不满足时失败关闭并说明如何修复）、取得资格证据（暂停：2026-11-24 官方 API 文档 `namecheap.com/support/api/` 对自动化读取返回 403 与 Cloudflare 人机验证页，平台事实无法核实；不绕过人机验证。影响：Namecheap 资产归集无法开始。可选方案：（a）用户在应用内浏览器窗格打开该文档页并完成验证，之后由同一窗格读取（推荐）；（b）用户提供官方文档的离线副本及其来源；（c）凭记忆或社区代码实现，违反约束，不采用。）
 
-### 9. GoDaddy、Afternic
+### 9. GoDaddy、Afternic、Sedo
 
 - [ ] GoDaddy：官方 v3 账户归集已实现，真实生产账户与双系统实机待验收，其他能力按当前策略实施
 - [ ] Afternic：核对事实、列出能力清单，实现 Portfolio API 的 Listing 与改价，取得资格证据（2026-11-25 已核对官方 Portfolio API 参考与指南并写入 manifest：挂牌读取/管理/改价、销售记录、销售授权码交付与监控为 `implementation_pending`；注册商、DNS、购买侧能力与所有权验证（验证记录获取与触发只在网站）为 `official_api_absent`；官方 key 无 scope，已记入 ADR-0027 快照，见 [API 核查](../PROVIDER_API_REVIEW.md)「Afternic 能力映射」行（1eefae3，https://github.com/newcodebook/GoodDealer/pull/53）。余项：Listing 与改价作为 Service 实现、资格证据）
 - [ ] GoDaddy DNS 记录读取（`dns.records.observe`）：[Task Frame](GODADDY_DNS_RECORDS_OBSERVE_TASK_FRAME.md)；Native 只读客户端与严格分页解析已完成（9f9e124）。暂停：GoDaddy PAT 按 scope 授权，官方只列出 `domains.domain:read` 与写 scope `domains.dns:update`，未写明 `GET /zones/{zone}/dns-records` 需要哪个 scope，也没有只读 DNS scope（2026-11-24 [官方认证说明](https://developer.godaddy.com/docs/api-users/auth#pat-scopes)）。影响：无法判断只读 DNS 能否在最小权限下实现，组合需要把现有 GoDaddy 连接的角色从 registrar 扩为 dns+registrar，依据不足。可选方案：（a）用户用只勾选 `domains.domain:read` 的 PAT 先做一次账户归集（同时核实该 scope 覆盖 `GET /domain-names`），再对一个受控域名调用一次 DNS 读取（Linux 受控验收，`local.env` 的 `GODADDY_*`），成功即按同一连接扩展 DNS 角色并组合（推荐）；（b）若只有 `domains.dns:update` 可读，按“平台不提供最小权限授权”把 GoDaddy `dns.records.observe` 降级；（c）不验证直接要求用户授予写 scope，违反最小权限，不采用。
+- [x] Sedo：（2026-11-25 核对台账发现：ADR-0027 首发平台中 Sedo、易名、阿里云、22.cn 在台账中没有任务，按 ROADMAP 阶段 9–10 追加到本阶段）核对官方文档、更新平台事实快照并把能力清单映射到四种角色（2026-11-25 读取官方 Basic API v1，记入 [API 核查](../PROVIDER_API_REVIEW.md)「Sedo 能力映射」行与 ADR-0027 快照；Listing 管理、改价、监控、在售检索与标价观察为 `implementation_pending`；注册商、DNS、销售记录、销售授权码交付、所有权验证、出价、购买、预订与到账对账为 `official_api_absent`）（PR 链接待补）
+- [ ] Sedo：私有 Service、合同与负向测试（四项凭据只在 Host custody）、逐项能力资格证据（账户归集已在源码组合；余项按能力依赖推进）
+- [ ] Sedo：核实 `DomainInsert` 同时把域名放入 parking 的副作用，并在上架确认中说明（ROADMAP 阶段 9）
 
-### 10. Atom（含 AtomRegistrar）
+### 10. Atom（含 AtomRegistrar）、易名、阿里云、22.cn
 
 - [x] 核对官方文档和准入门槛，更新平台事实快照（2026-11-25 读取 Seller/Partnership 与 AtomRegistrar 两份官方 OpenAPI 1.0.0 及准入说明，记入 ADR-0027 快照与 [API 核查](../PROVIDER_API_REVIEW.md)「Atom 能力映射」行；manifest 逐项写明原因：注册商、DNS、Listing 管理/改价/销售/验证/监控、Partnership 检索与购买、到账对账为 `implementation_pending`；赎回、转出/授权码、glue、卖家交付销售授权码、竞拍、预订及其监控为 `official_api_absent`。准入为 Limited Beta 逐项审批，未获批前保持不可执行）（288c439）https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] Listing、逐笔确认的出价、AtomRegistrar 的 Service 与负向测试（query-string token 不进入日志、错误或 URL 记录）（待实现；按当前策略的能力依赖推进）
@@ -298,6 +301,10 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [ ] Atom Standard 整批上架（[Task Frame](ATOM_LISTING_CREATE_TASK_FRAME.md)；2026-11-24 已核对 `add-domain`/`domain-details`/`verify-dns` 官方合同。已完成第一部分：协议执行证据 `add_standard`、测试向量与 Cloud 审计/执行台账迁移 `202611240001`/`202611240002` 的准入。Host 设备签名已接入同一用途。Native `add-domain` 发送（固定 Standard、整数美元价格、仅文档回执）与写后整数售价读取已完成。剩余：本地计划/认领/结果（与 Codex 的 SellerHub DNS 分支 `202611200015` 重建同一本地批准表和四个共享触发器，待其合入后在其之上实施，避免两份整体重建互相覆盖）、Tauri 命令与批量页、文档与审查；补一条直接调用 Cloud 准入函数的 Postgres 负向测试，证明 `add_standard` 拒绝借用的 `matched`/`published` 结果（当前只由协议解析拦截）。协调：Codex 的 SellerHub DNS 验证分支 `202611200007`/`0008` 与本迁移整体替换同一 Cloud 准入函数，后合并的一方须把对方的用途并入自己的函数体）
 - [ ] Atom Standard 所有权验证（`verify-dns` 触发与 TXT 发布；依赖上架切片与 Cloudflare DNS 写入资格）
 - [x] 能力 manifest 计入已实现的 Atom 写能力（2026-11-24 核对 Spaceship 时发现：Host 已有 `atom:marketplace:write` 资格项与 Atom Standard 下架路径，但 manifest 的 Atom 只计入 `marketplace.listing.observe`；随 Atom 阶段核对官方事实时按实际覆盖范围更新 manifest 与 Host Service 镜像，部分实现的能力不计为已实现；2026-11-25 核对后无需改动：已实现的写只有 Standard 下架与尚未组合的 Standard 上架发送，Listing 管理仍不完整、改价未实现，因此 Atom 只计入 `marketplace.listing.observe`，理由写入 manifest 注释）（288c439）https://github.com/newcodebook/GoodDealer/pull/53
+- [ ] 易名：（2026-11-25 核对台账发现：ADR-0027 首发平台中 Sedo、易名、阿里云、22.cn 在台账中没有任务，按 ROADMAP 阶段 9–10 追加到本阶段）核对官方文档、更新平台事实快照并把能力清单映射到四种角色
+- [ ] 阿里云：核对官方文档、更新平台事实快照并把能力清单映射到四种角色（域名与交易两组 API）
+- [ ] 22.cn：核对官方文档、更新平台事实快照并把能力清单映射到四种角色
+- [ ] 易名、阿里云、22.cn：私有 Service、合同与负向测试、逐项能力资格证据（按能力依赖推进）
 
 ### 11. 1.0 资格与发行
 

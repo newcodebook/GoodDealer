@@ -240,6 +240,46 @@ const checkedFacts: Readonly<Partial<Record<LaunchPlatformKind, CheckedFacts>>> 
     "acquisition.arrival.reconcile": "implementation_pending",
     "acquisition.monitor": "official_api_absent",
   },
+  // Sedo Basic API v1 (https://api.sedo.com/apidocs/v1/Basic/), checked 2026-11-25. It is a
+  // seller and parking API with a for-sale search: no registrar or DNS functions (parking setup is
+  // not DNS), no sales records, ownership verification, offers, purchases or backorders.
+  // `DomainSearch` and `DomainStatus` return listed price and for-sale state, which back search and
+  // offer observation; with no purchase, there is no arrival to reconcile. Acquisition monitoring
+  // watches auctions and backorders (outbid, ended, caught), which Sedo's API does not expose.
+  sedo: {
+    "registrar.domain.observe": "official_api_absent",
+    "registrar.register": "official_api_absent",
+    "registrar.renew": "official_api_absent",
+    "registrar.restore": "official_api_absent",
+    "registrar.transfer.in": "official_api_absent",
+    "registrar.transfer.out": "official_api_absent",
+    "registrar.auth-code.request": "official_api_absent",
+    "registrar.lock.manage": "official_api_absent",
+    "registrar.auto-renew.manage": "official_api_absent",
+    "registrar.contact.manage": "official_api_absent",
+    "registrar.privacy.manage": "official_api_absent",
+    "nameservers.manage": "official_api_absent",
+    "registrar.glue.manage": "official_api_absent",
+    "registrar.monitor": "official_api_absent",
+    "zone.observe": "official_api_absent",
+    "dns.records.observe": "official_api_absent",
+    "dns.records.manage": "official_api_absent",
+    "dnssec.manage": "official_api_absent",
+    "dns.monitor": "official_api_absent",
+    "marketplace.listing.manage": "implementation_pending",
+    "marketplace.price.manage": "implementation_pending",
+    "marketplace.sales.observe": "official_api_absent",
+    "marketplace.sale.auth-code.deliver": "official_api_absent",
+    "marketplace.ownership.verify": "official_api_absent",
+    "marketplace.monitor": "implementation_pending",
+    "acquisition.search": "implementation_pending",
+    "acquisition.offer.observe": "implementation_pending",
+    "acquisition.bid": "official_api_absent",
+    "acquisition.backorder": "official_api_absent",
+    "acquisition.purchase": "official_api_absent",
+    "acquisition.arrival.reconcile": "official_api_absent",
+    "acquisition.monitor": "official_api_absent",
+  },
   // Spaceship External API OpenAPI 1.0.0 embedded in https://docs.spaceship.dev/, checked
   // 2026-11-24. Spaceship has no separate Zone resource: hosted DNS is per domain, so Zone
   // observation reads the domain's nameservers and record list. DNSSEC has no endpoint. A
