@@ -274,8 +274,8 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 
 ### 7. Spaceship（含 SellerHub）
 
-- [x] 核对官方文档并更新平台事实快照（2026-11-24 读取 [docs.spaceship.dev](https://docs.spaceship.dev/) 内嵌的官方 OpenAPI 1.0.0，各操作 `x-scopes` 记入 ADR-0027 最小权限快照，端点记入 [API 核查](../PROVIDER_API_REVIEW.md)「Spaceship 能力映射」行）（PR 链接待补）
-- [x] 能力清单映射到四种角色（2026-11-24 逐项核对：注册商全部能力（含赎回、转出/授权码、锁、隐私、glue）、DNS 记录与 Zone 观察、SellerHub 上架/验证/已售报表/监控、可用性与价格、SafePay 托管购买与到账对账为 `implementation_pending`；DNSSEC、销售授权码交付、竞拍、预订及其监控为 `official_api_absent`。核对时发现 SellerHub 挂牌读取与一口价变更已在源码实现但 manifest 未计入，现补为 `qualification_pending` 并同步 Host Service 镜像；固定价上架已实现而下架未实现，`marketplace.listing.manage` 保持 `implementation_pending`）（PR 链接待补）
+- [x] 核对官方文档并更新平台事实快照（2026-11-24 读取 [docs.spaceship.dev](https://docs.spaceship.dev/) 内嵌的官方 OpenAPI 1.0.0，各操作 `x-scopes` 记入 ADR-0027 最小权限快照，端点记入 [API 核查](../PROVIDER_API_REVIEW.md)「Spaceship 能力映射」行）（e93b92a）https://github.com/newcodebook/GoodDealer/pull/53
+- [x] 能力清单映射到四种角色（2026-11-24 逐项核对：注册商全部能力（含赎回、转出/授权码、锁、隐私、glue）、DNS 记录与 Zone 观察、SellerHub 上架/验证/已售报表/监控、可用性与价格、SafePay 托管购买与到账对账为 `implementation_pending`；DNSSEC、销售授权码交付、竞拍、预订及其监控为 `official_api_absent`。核对时发现 SellerHub 挂牌读取与一口价变更已在源码实现但 manifest 未计入，现补为 `qualification_pending` 并同步 Host Service 镜像；固定价上架已实现而下架未实现，`marketplace.listing.manage` 保持 `implementation_pending`）（e93b92a）https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 私有 Service、合同与负向测试（凭据 scope 和资格按角色隔离）（待实现；按当前策略的能力依赖推进）
 - [ ] 逐项能力资格证据（待实现；按当前策略的能力依赖推进）
 
