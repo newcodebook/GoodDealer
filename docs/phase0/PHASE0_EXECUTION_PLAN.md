@@ -270,7 +270,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [ ] 私有 Service、合同与负向测试（账户归集已在源码组合：Native 只读 `/domain/listAll`、成对凭据 custody 与三系统掩码输入、Host 库存迁移 `202611240001`、`porkbun:registrar:observe` 授权能力、Tauri 命令与 ProviderLane、设置页面板。余项：资格登记与真实账户验收，以及续费等其他能力；DNS 记录读取见下方单列项）
 - [ ] 逐项能力资格证据（使用沙箱或 `dryRun`）（待实现；按当前策略的能力依赖推进）
 - [ ] 证明框架核心模型未改动（待实现；按当前策略的能力依赖推进）
-- [ ] Porkbun DNS 记录读取（`dns.records.observe`）：[Task Frame](PORKBUN_DNS_RECORDS_OBSERVE_TASK_FRAME.md)；Native 只读 `GET /dns/retrieve/{domain}` 与严格解析已完成（5880f0f）。已按 ADR-0027 现行规则在源码组合：追加迁移 `202611240002` 把 Porkbun 连接角色扩为 dns+registrar 并新增只追加的读取回执；只为该连接最近一次归集中、尚无 Zone 绑定的资产建立 `unverified` 绑定，已有其他平台 Zone 绑定（含已解除）时失败关闭；DNS 健康按绑定连接选取观察并标注来源；证据只留本地；`porkbun:dns:observe` 授权能力与向量；设置页 Porkbun 面板的读取入口在资格认证前显示为不可用。余项：资格登记与真实账户验收（见 Task Frame“真实层”）。改绑另待 [ADR-0033（Proposed）](../adr/0033-multi-provider-dns-evidence.md)
+- [ ] Porkbun DNS 记录读取（`dns.records.observe`）：[Task Frame](PORKBUN_DNS_RECORDS_OBSERVE_TASK_FRAME.md)；Native 只读 `GET /dns/retrieve/{domain}` 与严格解析已完成（5880f0f）。已按 ADR-0027 现行规则在源码组合：追加迁移 `202611240002` 把 Porkbun 连接角色扩为 dns+registrar 并新增只追加的读取回执；只为该连接最近一次归集中、尚无 Zone 绑定的资产建立 `unverified` 绑定，已有其他平台 Zone 绑定（含已解除）、已有 Cloudflare 观测或首次读取即被告知由其他 nameserver 应答时失败关闭；DNS 健康按绑定连接选取观察并标注来源；证据只留本地；`porkbun:dns:observe` 授权能力与向量；设置页 Porkbun 面板的读取入口在资格认证前显示为不可用（84016b7，https://github.com/newcodebook/GoodDealer/pull/53）。余项：资格登记与真实账户验收（见 Task Frame“真实层”）。改绑另待 [ADR-0033（Proposed）](../adr/0033-multi-provider-dns-evidence.md)
 
 ### 7. Spaceship（含 SellerHub）
 
