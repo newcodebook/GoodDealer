@@ -302,7 +302,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [ ] Atom Standard 所有权验证（`verify-dns` 触发与 TXT 发布；依赖上架切片与 Cloudflare DNS 写入资格）
 - [x] 能力 manifest 计入已实现的 Atom 写能力（2026-11-24 核对 Spaceship 时发现：Host 已有 `atom:marketplace:write` 资格项与 Atom Standard 下架路径，但 manifest 的 Atom 只计入 `marketplace.listing.observe`；随 Atom 阶段核对官方事实时按实际覆盖范围更新 manifest 与 Host Service 镜像，部分实现的能力不计为已实现；2026-11-25 核对后无需改动：已实现的写只有 Standard 下架与尚未组合的 Standard 上架发送，Listing 管理仍不完整、改价未实现，因此 Atom 只计入 `marketplace.listing.observe`，理由写入 manifest 注释）（288c439）https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 易名：（2026-11-25 核对台账发现：ADR-0027 首发平台中 Sedo、易名、阿里云、22.cn 在台账中没有任务，按 ROADMAP 阶段 9–10 追加到本阶段）核对官方文档、更新平台事实快照并把能力清单映射到四种角色
-- [x] 阿里云：核对官方文档、更新平台事实快照并把能力清单映射到四种角色（域名与交易两组 API）（2026-11-25 读取 OpenAPI 门户的 Domain 2018-01-29/2018-02-08 与 Alidns 2015-01-09 官方元数据，记入 [API 核查](../PROVIDER_API_REVIEW.md)「阿里云能力映射」行与 ADR-0027 快照；注册商全部能力、DNS、检索与报价、一口价购买、预定删除域名、到账对账与监控为 `implementation_pending`，卖家市场全部能力与出价为 `official_api_absent`；严选在售清单与下单共用 RAM 动作 `domain:FixPrice`，不用于只读检索）（PR 链接待补）
+- [x] 阿里云：核对官方文档、更新平台事实快照并把能力清单映射到四种角色（域名与交易两组 API）（2026-11-25 读取 OpenAPI 门户的 Domain 2018-01-29/2018-02-08 与 Alidns 2015-01-09 官方元数据，记入 [API 核查](../PROVIDER_API_REVIEW.md)「阿里云能力映射」行与 ADR-0027 快照；注册商全部能力、DNS、检索与报价、一口价购买、预定删除域名、到账对账与监控为 `implementation_pending`，卖家市场全部能力与出价为 `official_api_absent`；严选在售清单与下单共用 RAM 动作 `domain:FixPrice`，不用于只读检索）（9809d89）https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] 22.cn：核对官方文档、更新平台事实快照并把能力清单映射到四种角色
 - [ ] 易名、阿里云、22.cn：私有 Service、合同与负向测试、逐项能力资格证据（按能力依赖推进）
 
