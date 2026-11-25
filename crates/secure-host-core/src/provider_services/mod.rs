@@ -545,10 +545,12 @@ mod tests {
                         capability,
                         C::RegistrarDomainObserve | C::ZoneObserve | C::DnsRecordsObserve
                     ),
+                    ProviderPlatform::Porkbun => {
+                        matches!(capability, C::RegistrarDomainObserve | C::DnsRecordsObserve)
+                    }
                     ProviderPlatform::Spaceship
                     | ProviderPlatform::Aliyun
-                    | ProviderPlatform::Godaddy
-                    | ProviderPlatform::Porkbun => capability == C::RegistrarDomainObserve,
+                    | ProviderPlatform::Godaddy => capability == C::RegistrarDomainObserve,
                     ProviderPlatform::Atom | ProviderPlatform::Sedo => {
                         capability == C::MarketplaceListingObserve
                     }

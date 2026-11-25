@@ -1,6 +1,6 @@
-import type { AliyunRegistrarPort, AliyunRegistrarStatus, GoDaddyRegistrarPort, GoDaddyRegistrarStatus, PorkbunRegistrarPort, PorkbunRegistrarStatus, AtomMarketplacePort, AtomMarketplaceStatus, SedoMarketplacePort, SedoMarketplaceStatus, CloudflareRegistrarAccountPort, CloudflareRegistrarAccountStatus, SellerHubStatus, SellerHubPort, SpaceshipRegistrarIntent, SpaceshipRegistrarPort, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
+import type { AliyunRegistrarPort, AliyunRegistrarStatus, GoDaddyRegistrarPort, GoDaddyRegistrarStatus, PorkbunRegistrarIntent, PorkbunRegistrarPort, PorkbunRegistrarStatus, AtomMarketplacePort, AtomMarketplaceStatus, SedoMarketplacePort, SedoMarketplaceStatus, CloudflareRegistrarAccountPort, CloudflareRegistrarAccountStatus, SellerHubStatus, SellerHubPort, SpaceshipRegistrarIntent, SpaceshipRegistrarPort, SpaceshipRegistrarStatus } from "@gooddealer/client-core";
 import { formatDate, formatNumber, getPresentationCopy, type Locale } from "@gooddealer/i18n";
-import { Badge, Button, Panel } from "@gooddealer/ui";
+import { Badge, Button, Input, Panel } from "@gooddealer/ui";
 import { useEffect, useRef, useState } from "react";
 
 type InventoryPanelProps<P> = {
@@ -57,6 +57,7 @@ function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
   const [retry, setRetry] = useState(0);
   const [readFailed, setReadFailed] = useState(false);
   const [submission, setSubmission] = useState<"pending" | "failed" | null>(null);
+  const [dnsDomains, setDnsDomains] = useState<Readonly<Record<string, string>>>({});
   const pending = useRef(false);
   const generation = useRef(0);
   const previous = useRef<string | null>(null);
@@ -106,16 +107,35 @@ function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
     capture_incomplete: copy.spaceshipRegistrarCapture,
     failed: copy.spaceshipRegistrarFailed,
   };
+  // Porkbun Zone record reads share the connection but report their own outcomes.
+  const dnsOutcomes: Partial<Record<string, string>> = {
+    confirmed: copy.porkbunDnsConfirmed,
+    answered_elsewhere: copy.porkbunDnsAnsweredElsewhere,
+    api_access_disabled: copy.porkbunDnsApiAccessDisabled,
+    not_in_account: copy.porkbunDnsNotInAccount,
+    domain_not_active: copy.porkbunDnsDomainNotActive,
+    unqualified: copy.porkbunDnsQualification,
+    local_operation_blocked: copy.porkbunDnsBlocked,
+    provider_response_rejected: copy.porkbunDnsInvalidResponse,
+  };
+  const lastOperation = view?.lastOperation ?? null;
   const message = readFailed ? copy[`${prefix}Unavailable`]
     : submission === "failed" ? copy.spaceshipRegistrarFailed
-    : (!busy && view?.lastOperation != null) ? outcomes[view.lastOperation.outcome] : null;
+    : (busy || lastOperation === null) ? null
+    : lastOperation.kind === "porkbun_dns_observe"
+      ? dnsOutcomes[lastOperation.outcome] ?? outcomes[lastOperation.outcome as keyof typeof outcomes]
+      : outcomes[lastOperation.outcome as keyof typeof outcomes];
+  const dns = view !== null && "dnsObserve" in view ? view.dnsObserve : null;
+  const canReadDns = writable && ready && dns !== null && dns.qualified && dns.entitled;
 
-  const submit = (intent: SpaceshipRegistrarIntent) => {
+  const submit = (intent: SpaceshipRegistrarIntent | PorkbunRegistrarIntent) => {
     if (!writable || pending.current) return;
     pending.current = true;
     setSubmission("pending");
     const ticket = generation.current;
-    void port.submit(intent).then(() => {
+    // Only a Porkbun status carries `dnsObserve`, so only the Porkbun port receives a DNS read.
+    const sent = intent.action === "observe-dns" ? (port as PorkbunRegistrarPort).submit(intent) : port.submit(intent);
+    void sent.then(() => {
       if (ticket === generation.current) {
         setView((current) => current === null ? current : { ...current, laneState: "busy" });
         setSubmission(null);
@@ -133,6 +153,8 @@ function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
     <p>{copy[`${prefix}Help`]}</p>
     {writable && view !== null && !view.observeEntitled ? <p>{copy[`${prefix}Entitlement`]}</p> : null}
     {writable && view !== null && (!view.observeQualified || !view.capturable) ? <p>{copy[`${prefix}Qualification`]}</p> : null}
+    {writable && dns !== null && !dns.entitled ? <p>{copy.porkbunDnsEntitlement}</p> : null}
+    {writable && dns !== null && !dns.qualified ? <p>{copy.porkbunDnsQualification}</p> : null}
     {busy ? <p>{copy[`${prefix}Working`]}</p> : null}
     <p role="status">{message}</p>
     {view?.connections.length ? <ul className="settings-device-directory" role="list">
@@ -159,6 +181,17 @@ function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
             <Button type="button" size="sm" disabled={readFailed || busy || view.laneState === "blocked"}
               aria-label={`${revokeLabel} ${name}`}
               onClick={() => submit({ schemaVersion: 1, action: "revoke", connectionId: connection.connectionId })}>{revokeLabel}</Button>
+            {dns === null || connection.state !== "active" ? null : <>
+              <Input size="sm" mono label={copy.porkbunDnsDomain} placeholder="example.com"
+                value={dnsDomains[connection.connectionId] ?? ""}
+                disabled={!canReadDns}
+                onChange={(event) => { const next = event.currentTarget.value; setDnsDomains((current) => ({ ...current, [connection.connectionId]: next })); }} />
+              <Button type="button" size="sm"
+                disabled={!canReadDns || (dnsDomains[connection.connectionId] ?? "").trim() === ""}
+                aria-label={`${copy.porkbunDnsRead} ${name}`}
+                onClick={() => submit({ schemaVersion: 1, action: "observe-dns", connectionId: connection.connectionId,
+                  domain: (dnsDomains[connection.connectionId] ?? "").trim().toLowerCase() })}>{copy.porkbunDnsRead}</Button>
+            </>}
           </div> : null}
         </li>;
       })}

@@ -346,6 +346,18 @@ pub(crate) const ACTIVE_TABLE_MANIFEST: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "porkbun_dns_reads",
+        &[
+            "workspace_id",
+            "observation_run_id",
+            "connection_id",
+            "entity_id",
+            "record_count",
+            "answered_elsewhere",
+            "completed_at",
+        ],
+    ),
+    (
         "afternic_ownership_review_preflights",
         &[
             "workspace_id",

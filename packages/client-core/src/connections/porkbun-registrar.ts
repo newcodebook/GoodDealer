@@ -1,5 +1,6 @@
 import { canonicalUtcTimestamp } from "@gooddealer/protocol/wire";
 import { z } from "zod";
+import { canonicalDomainNameSchema } from "../portfolio/domain-name";
 import { copyPlainData } from "../portfolio/index";
 
 const connectionIdSchema = z.uuidv4().refine((value) => value === value.toLowerCase());
@@ -16,12 +17,17 @@ export const porkbunRegistrarIntentSchema = z.discriminatedUnion("action", [
   z.object({ schemaVersion: version, action: z.literal("connect") }).strict(),
   z.object({ schemaVersion: version, action: z.literal("refresh"), connectionId: connectionIdSchema }).strict(),
   z.object({ schemaVersion: version, action: z.literal("revoke"), connectionId: connectionIdSchema }).strict(),
+  // One read-only Zone record read of an asset in that connection's latest inventory.
+  z.object({ schemaVersion: version, action: z.literal("observe-dns"), connectionId: connectionIdSchema,
+    domain: canonicalDomainNameSchema }).strict(),
 ]);
 
 const statusSchema = z.object({
   schemaVersion: version,
   observeQualified: z.boolean(),
   observeEntitled: z.boolean(),
+  /** Zone record reads through the same connection, qualified and entitled on their own. */
+  dnsObserve: z.object({ qualified: z.boolean(), entitled: z.boolean() }).strict(),
   capturable: z.boolean(),
   laneState: z.enum(["recovering", "ready", "busy", "blocked"]),
   connections: z.array(z.object({
@@ -35,10 +41,13 @@ const statusSchema = z.object({
     return row.lastScan !== null;
   })).max(64),
   lastOperation: z.object({
-    kind: z.enum(["porkbun_connect", "porkbun_refresh", "porkbun_revoke"]),
+    kind: z.enum(["porkbun_connect", "porkbun_refresh", "porkbun_revoke", "porkbun_dns_observe"]),
     outcome: z.enum(["confirmed", "unqualified", "unreachable", "retry_later", "credential_rejected",
-      "credential_store_unavailable", "local_operation_blocked", "provider_response_rejected", "capture_incomplete", "failed"]),
-  }).strict().nullable(),
+      "credential_store_unavailable", "local_operation_blocked", "provider_response_rejected", "capture_incomplete", "failed",
+      "answered_elsewhere", "api_access_disabled", "not_in_account", "domain_not_active"]),
+  }).strict().refine((operation) => operation.kind === "porkbun_dns_observe"
+    || !["answered_elsewhere", "api_access_disabled", "not_in_account", "domain_not_active"].includes(operation.outcome))
+    .nullable(),
 }).strict().refine(({ connections }) =>
   new Set(connections.map((row) => row.connectionId)).size === connections.length);
 

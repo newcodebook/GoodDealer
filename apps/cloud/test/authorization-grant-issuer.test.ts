@@ -122,6 +122,7 @@ describe("Desktop authorization Grant issuer", () => {
     [["atom:marketplace:observe", "feature:portfolio"], ["atom:marketplace:observe"]],
     [["feature:portfolio", "godaddy:registrar:observe"], ["godaddy:registrar:observe"]],
     [["feature:portfolio", "porkbun:registrar:observe"], ["porkbun:registrar:observe"]],
+    [["feature:portfolio", "porkbun:dns:observe"], ["porkbun:dns:observe"]],
     [["sedo:marketplace:observe", "sedo:marketplace:write"], ["sedo:marketplace:observe"]],
     [["feature:portfolio", "spaceship:registrar:observe"], ["spaceship:registrar:observe"]],
     [["feature:portfolio", "spaceship:marketplace:observe"], ["spaceship:marketplace:observe"]],

@@ -1,6 +1,6 @@
 # Porkbun DNS 记录读取
 
-状态：Task Frame。第 1 步（Native 只读客户端）已完成；第 2–6 步按 ADR-0027 现行规则组合（见第 3 步）；Zone 绑定改绑另待 [ADR-0033](../adr/0033-multi-provider-dns-evidence.md)（Proposed）。资格与真实账户验收均未取得。拥有者：root 主目录（PR #53 分支）。台账阶段 6「Porkbun」。
+状态：Task Frame。第 1–6 步已在源码完成，按 ADR-0027 现行规则组合（见第 3 步）；Zone 绑定改绑另待 [ADR-0033](../adr/0033-multi-provider-dns-evidence.md)（Proposed）。资格与真实账户验收均未取得。拥有者：root 主目录（PR #53 分支）。台账阶段 6「Porkbun」。
 
 **权威依据**
 - [ADR-0027](../adr/0027-multi-platform-domain-providers-and-marketplaces.md)：DNS 角色、最小权限、单资源唯一性。
@@ -15,10 +15,10 @@
 ## 交付旅程
 
 1. 用户已在设置中用 Read-only 密钥连接 Porkbun。
-2. 用户在资产页对一个 Porkbun 域名发起"读取 DNS 记录"。
+2. 用户在设置页的 Porkbun 面板中，对该连接最近一次归集到的某个域名发起"读取 DNS 记录"。资产页与 DNS 页只读：DNS 健康行不携带连接身份，无法在那里选定读取所用的连接。
 3. ProviderLane 用 custody 中的密钥读取该 Zone。
-4. 记录写入本地 DNS 证据，DNS 健康与市场验证前检查看到这些记录，来源标为 Porkbun。
-5. 如果其他 nameserver 在应答该域名，界面提示当前读到的记录并不是实际解析的结果。
+4. 记录写入本地 DNS 证据，DNS 健康页看到这些记录，来源标为 Porkbun。市场验证前检查仍只读 Cloudflare 观测，读取 Porkbun 证据尚未组合。首次读取不会绑定已有 Cloudflare 观测的资产，也不会在 Porkbun 表示由其他 nameserver 应答时新建绑定。
+5. 如果其他 nameserver 在应答该域名，界面提示当前读到的记录可能不是实际解析的结果。没有委派核对时，DNS 页一律把 Porkbun 观察显示为需关注，不显示为正常。
 
 全程只读，不提供写入入口。
 
@@ -85,18 +85,20 @@
 
 ## 分步交付
 
-1. Native：`PorkbunDnsClient::observe` 和 `porkbun/dns_wire.rs`，附负向测试。（已完成）
+1. Native：`PorkbunDnsClient::observe` 和 `porkbun/dns_wire.rs`，附负向测试。（已完成，5880f0f）
 2. 协议：
    - 新增 `porkbun:dns:observe` 授权能力，同步 grant 向量；
-   - manifest 中 `dns.records.observe` 与 `zone.observe` 由 `implementation_pending` 改为 `qualification_pending`；
+   - manifest 中 `dns.records.observe` 由 `implementation_pending` 改为 `qualification_pending`。`zone.observe` 保持 `implementation_pending`：记录读取不返回 Zone 状态、nameserver 或 DNSSEC；
    - `provider_services/porkbun.rs` 的 `IMPLEMENTED` 同步上述能力。
 3. `local-storage`：
    - 追加迁移，把 Porkbun 连接的角色扩为 dns+registrar。依据是官方 `read` 权限同时覆盖两项读取。
    - 写入 Porkbun DNS 观察；只为尚无 Zone 绑定的资产建立 `unverified` 的 Porkbun Zone 绑定（单资源唯一），已有其他平台 Zone 绑定的资产失败关闭并说明原因。
    - DNS 健康按绑定连接选取观察，Cloudflare 投影头保持不变；Porkbun 证据只留本地。
-4. Tauri：命令、ProviderLane，以及从生成源更新的权限与命令策略。
-5. Renderer：入口、来源标注与"可能非实际解析"提示。资格认证之前，入口显示为不可用并说明原因。
+4. Tauri：ProviderLane 的 `PorkbunDnsObserve` 操作，作为现有 `porkbun_registrar_submit` 命令的 `observe-dns` 意图接入，不新增 IPC 命令与权限；结果为封闭值（`confirmed`、`answered_elsewhere`、`api_access_disabled`、`not_in_account`、`domain_not_active` 或通用失败）。
+5. Renderer：设置页 Porkbun 面板的域名输入与读取按钮、结果提示；DNS 页按观察来源标注 Porkbun。资格认证之前，入口不可用并说明原因。
 6. 文档同步。
+
+第 2–6 步已在源码完成：迁移 `202611240002`（连接角色、只追加的 `porkbun_dns_reads` 回执与形态触发器）、`business/porkbun_dns.rs`（准入与提交共用同一套检查：凭据身份、交接、最近归集、Zone 绑定）、`desktop_local_host/porkbun_dns.rs`、DNS 健康按绑定连接选取观察，以及上述协议、Tauri 与 Renderer 改动。
 
 ## 验收
 

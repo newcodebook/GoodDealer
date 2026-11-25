@@ -25,7 +25,7 @@
 
 六个资产来源中，Cloudflare、Spaceship、阿里云和 GoDaddy 已组合账户级归集。四者仍待真实账户验收。Cloudflare 已组合设置中的独立 Registrar 账户连接与原有 Zone 衍生读取。独立入口会在受限 Native 窗口接收 Account ID 与用户 API Token，完整分页预检后发布凭据并在同事务保存资产、注册资料和回执。显式刷新持久绑定当前设备与 Lease，重开从首面续读。旧 Lease 的准备行可断开清理，需要新流程时重新连接。已组合 Linux GTK、Windows Win32 与 macOS 固定录入后端；受控授权、真实账户和目标系统资格仍待取得。Spaceship 的 Registrar 连接先用 Native 候选凭据预检全量库存，精确确认托管后才发布资产。追加迁移 `202611200006`，设置刷新受理前保存工作区、连接 incarnation、设备与 Lease。重开用同一请求从首面续读，完成时原子消费请求并保存观察、资产、Outbox 和回执。旧版待扫描位可通过显式刷新重新准入。仍需具名开发验收范围和真实 `domains:read` 账户。Afternic 的归集对象为市场库存。Linux 受控验收使用 Native 托管的真实 Afternic 凭据，读入 188 个库存域名并新增 188 个本地资产，重开复读仍为 188 个且新增 0。真实 Listing 写入待验收。Afternic 官方复核已进入源码组合，资格清单未开放。`OWNERSHIP_UNVERIFIED` 的私有会话、DNS 与自动验证闭环仍在实施。[所有权复核工作包](phase0/AFTERNIC_OWNERSHIP_REVIEW_TASK_FRAME.md)
 
-GoDaddy 按官方 Domains v3 读取 PAT 所属账户。追加迁移 `202611200008`，在刷新回执前记录当前工作区、连接 incarnation、设备和 Lease，并由同一 SQLCipher 事务发布注册观察、资产、Outbox 和回执。完整扫描缺席时，历史资料在资产与续费台中降为未知。断开先撤销使用权，再按固定系统槽清理。未取得实际账户验收或发行资格。GoDaddy DNS 记录读取已有 Native 只读客户端（`listDNSRecords` 严格分页解析），尚未组合进协议、本地证据和界面，生产入口不可达。Porkbun DNS 记录读取同样只有 Native 只读客户端（`GET /dns/retrieve/{domain}`，只需密钥的 `read` 权限），尚未组合；Porkbun 连接说明改为引导用户使用 Read-only 密钥。
+GoDaddy 按官方 Domains v3 读取 PAT 所属账户。追加迁移 `202611200008`，在刷新回执前记录当前工作区、连接 incarnation、设备和 Lease，并由同一 SQLCipher 事务发布注册观察、资产、Outbox 和回执。完整扫描缺席时，历史资料在资产与续费台中降为未知。断开先撤销使用权，再按固定系统槽清理。未取得实际账户验收或发行资格。GoDaddy DNS 记录读取已有 Native 只读客户端（`listDNSRecords` 严格分页解析），尚未组合进协议、本地证据和界面，生产入口不可达。Porkbun DNS 记录读取（`GET /dns/retrieve/{domain}`，只需密钥的 `read` 权限）已在源码组合：追加迁移 `202611240002` 把 Porkbun 连接角色扩为 dns+registrar 并保存只追加的读取回执；读取只接受该连接最近一次归集中的域名，记录写入本地 DNS 证据，并为尚无 Zone 绑定的资产建立 `unverified` 的 Porkbun 绑定（已有其他平台绑定或 Cloudflare 观测，或 Porkbun 表示由其他 nameserver 应答而尚无绑定时，失败关闭，改绑待 ADR-0033）；DNS 健康按绑定连接选取观察并标注来源 Porkbun，因没有 Zone 状态与委派核对而始终显示为需关注；证据不上传 Cloud。入口在设置页 Porkbun 面板，资格认证前显示为不可用并说明原因。未取得资格与真实账户验收。Porkbun 连接说明引导用户使用 Read-only 密钥。
 
 Atom 的设置库存同时核对无筛选与 `type=standard` 的两个完整响应。追加迁移 `202611200009` 将正向证据关联到同次库存、Listing 绑定与资产代次。设置可区分零命中及未获核对结果。会话或设备权威不再有效时整次拒绝提交；Standard 分支不可用或观察被隔离时，基础库存保留。此报告只说明保存扫描时的市场类别。
 
@@ -99,7 +99,7 @@ Native 在发领取前通过原 publication 锁持久化安装资格与 journal 
 
 ## Provider
 
-- 十二个首发平台在 `secure-host-core` 的 `provider_services` 各有一个私有 Service 骨架（ADR-0027“平台 Service 骨架”），镜像协议能力 manifest；唯一准入入口目前拒绝一切能力。Dynadot、易名、Namecheap、22.cn 只有骨架，没有 Native transport；Porkbun 的 Service 指向 Native 只读库存 transport。骨架不是平台交付。
+- 十二个首发平台在 `secure-host-core` 的 `provider_services` 各有一个私有 Service 骨架（ADR-0027“平台 Service 骨架”），镜像协议能力 manifest；唯一准入入口目前拒绝一切能力。Dynadot、易名、Namecheap、22.cn 只有骨架，没有 Native transport；Porkbun 的 Service 指向 Native 只读库存与 DNS 记录读取 transport。骨架不是平台交付。
 - Cloudflare Zone/DNS 只读 Service 位于 Secure Host 私有实现，包括固定来源 HTTPS、
   Native 凭据录入和 custody、观察、撤销和被拒凭据清除。Renderer 不接收 Token。
 - 接入向导已组合连接创建/激活，设置已组合连接维护；单独主动观察的完整客户入口仍需交付。

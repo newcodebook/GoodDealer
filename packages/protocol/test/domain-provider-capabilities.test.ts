@@ -75,7 +75,7 @@ describe("domain Provider coverage and financial confirmation", () => {
         "atom:marketplace.listing.observe",
         "cloudflare:registrar.domain.observe", "cloudflare:zone.observe", "cloudflare:dns.records.observe",
         "godaddy:registrar.domain.observe",
-        "porkbun:registrar.domain.observe",
+        "porkbun:registrar.domain.observe", "porkbun:dns.records.observe",
         "sedo:marketplace.listing.observe",
         "spaceship:registrar.domain.observe",
       ]);
@@ -88,7 +88,9 @@ describe("domain Provider coverage and financial confirmation", () => {
       "marketplace.sales.observe", "marketplace.sale.auth-code.deliver", "marketplace.ownership.verify",
       "marketplace.monitor", "acquisition.bid", "acquisition.backorder", "acquisition.monitor",
     ]);
-    expect(domainProviderManifestEntry("porkbun", "dns.records.observe")?.reason).toBe("implementation_pending");
+    expect(domainProviderManifestEntry("porkbun", "dns.records.observe")?.reason).toBe("qualification_pending");
+    // The record read reports no Zone status or nameservers, so Zone observation is not implemented.
+    expect(domainProviderManifestEntry("porkbun", "zone.observe")?.reason).toBe("implementation_pending");
     // Platforms whose phase has not checked facts stay pending rather than inheriting another's.
     expect(domainProviderManifestEntry("namecheap", "dns.records.observe")?.reason).toBe("platform_facts_pending");
     expect(Object.isFrozen(domainProviderCapabilityManifest)).toBe(true);

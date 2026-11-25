@@ -1102,6 +1102,19 @@ async fn run_provider_operation(
                     .map(|()| "confirmed"),
             ))
         }
+        ProviderOperation::PorkbunDnsObserve {
+            connection_id,
+            entity_id,
+        } => {
+            let run = Arc::new(porkbun::Run::new(host, cancel_fence, power, false));
+            Some(ProviderOperationRecord::of(
+                "porkbun_dns_observe",
+                run.observe_dns(connection_id, entity_id)
+                    .await
+                    .as_ref()
+                    .copied(),
+            ))
+        }
         ProviderOperation::PorkbunRevoke { connection_id } => {
             let run = Arc::new(porkbun::Run::new(host, cancel_fence, power, false));
             Some(ProviderOperationRecord::of(

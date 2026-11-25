@@ -46,8 +46,8 @@ export type DomainProviderManifestEntry = z.infer<typeof domainProviderManifestE
 
 /**
  * Locally implemented capabilities awaiting qualification include Cloudflare's registration,
- * Zone and DNS observation, Spaceship, Alibaba Cloud, GoDaddy and Porkbun registration observation, and Atom
- * seller inventory.
+ * Zone and DNS observation, Spaceship, Alibaba Cloud, GoDaddy and Porkbun registration observation,
+ * Porkbun DNS record observation, and Atom seller inventory.
  * docs/CONNECTORS.md records what the Host implements, and the matching `secure-host-core`
  * `provider_services` module's `IMPLEMENTED` list mirrors it; both must change with this list; the Host qualification register, not this list, decides what may run.
  * Every other entry waits on its platform's facts.
@@ -57,7 +57,7 @@ const implemented: Readonly<Partial<Record<LaunchPlatformKind, readonly DomainPr
   spaceship: ["registrar.domain.observe"],
   aliyun: ["registrar.domain.observe"],
   godaddy: ["registrar.domain.observe"],
-  porkbun: ["registrar.domain.observe"],
+  porkbun: ["registrar.domain.observe", "dns.records.observe"],
   atom: ["marketplace.listing.observe"],
   sedo: ["marketplace.listing.observe"],
 };
@@ -91,7 +91,6 @@ const checkedFacts: Readonly<Partial<Record<LaunchPlatformKind, CheckedFacts>>> 
     "registrar.glue.manage": "implementation_pending",
     "registrar.monitor": "implementation_pending",
     "zone.observe": "implementation_pending",
-    "dns.records.observe": "implementation_pending",
     "dns.records.manage": "implementation_pending",
     "dnssec.manage": "implementation_pending",
     "dns.monitor": "implementation_pending",

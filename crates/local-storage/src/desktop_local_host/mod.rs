@@ -22,6 +22,7 @@ pub(crate) mod forced_takeover;
 pub(crate) mod godaddy_registrar;
 mod native_backup;
 mod normal_handoff;
+pub(crate) mod porkbun_dns;
 pub(crate) mod porkbun_registrar;
 mod portable_backup;
 mod provider;

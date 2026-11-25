@@ -385,6 +385,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         owner: "active-workspace/porkbun-registrar-inventory",
         sql: include_str!("../active_workspace/porkbun_registrar_inventory.sql"),
     },
+    ActiveMigration {
+        id: 202_611_240_002,
+        owner: "active-workspace/porkbun-dns-observation",
+        sql: include_str!("../active_workspace/porkbun_dns_observation.sql"),
+    },
 ];
 
 /// Migrations that rebuild a table other tables reference. SQLite cannot alter a column CHECK, and
@@ -753,7 +758,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 58);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 59);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection
@@ -778,7 +783,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 99);
+        assert_eq!(table_count, 100);
         assert!(business_index_count >= 24);
 
         connection
@@ -1940,6 +1945,9 @@ mod afternic_delist_tests;
 
 #[cfg(test)]
 mod sellerhub_inventory_tests;
+
+#[cfg(test)]
+mod porkbun_dns_tests;
 
 #[cfg(test)]
 pub(crate) fn test_pre_listing_write_connection() -> Connection {

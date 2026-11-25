@@ -3,14 +3,14 @@ use super::ProviderCredentialError;
 use crate::native_cloud_runtime::NativeCloudCancelFence;
 use gooddealer_local_storage::{
     DesktopLocalHost, DesktopLocalHostError, DesktopNativeCloudAdmission, DesktopPorkbunConnection,
-    DesktopPorkbunConnectionState, DesktopPorkbunRegistrarStatus, DesktopRegistrationFact,
-    DesktopRegistrationStanding,
+    DesktopPorkbunConnectionState, DesktopPorkbunDnsRead, DesktopPorkbunDnsRecord,
+    DesktopPorkbunRegistrarStatus, DesktopRegistrationFact, DesktopRegistrationStanding,
 };
 use gooddealer_secure_host_core::{
     NativePowerCommitGuard, NativePowerGate, PorkbunCapture, PorkbunCredential,
-    PorkbunCredentialPlan, PorkbunError, PorkbunGuard, PorkbunRegistrarClient, PorkbunRegistration,
-    load_porkbun_credential_guarded, publish_porkbun_credential_guarded,
-    purge_porkbun_credential_guarded,
+    PorkbunCredentialPlan, PorkbunDnsClient, PorkbunDnsRecord, PorkbunDnsZone, PorkbunError,
+    PorkbunGuard, PorkbunRegistrarClient, PorkbunRegistration, load_porkbun_credential_guarded,
+    publish_porkbun_credential_guarded, purge_porkbun_credential_guarded,
 };
 use std::sync::Arc;
 
@@ -77,6 +77,15 @@ impl Run {
         drop(self.hold_power()?);
         self.host
             .recheck_porkbun_connection(connection)
+            .map_err(|_| PorkbunError::AuthorityStale)?;
+        drop(self.hold_power()?);
+        Ok(())
+    }
+
+    fn check_dns(&self, read: &DesktopPorkbunDnsRead) -> std::result::Result<(), PorkbunError> {
+        drop(self.hold_power()?);
+        self.host
+            .recheck_porkbun_dns_read(read)
             .map_err(|_| PorkbunError::AuthorityStale)?;
         drop(self.hold_power()?);
         Ok(())
@@ -173,6 +182,61 @@ impl Run {
         self.commit_inventory(connection, registrations).await
     }
 
+    /// Reads one asset's Zone records with the connection's key pair and commits them as local
+    /// evidence. Returns the closed outcome: `confirmed`, `answered_elsewhere` (committed, but
+    /// another nameserver may be answering), or a Porkbun refusal that wrote nothing.
+    pub(crate) async fn observe_dns(
+        self: &Arc<Self>,
+        id: String,
+        zone: String,
+    ) -> Result<&'static str> {
+        let run = Arc::clone(self);
+        let (read, credential) = tauri::async_runtime::spawn_blocking(move || {
+            let read = run.commit(|host| {
+                host.admit_porkbun_dns_read(host.begin_native_cloud_run()?, &id, &zone)
+            })?;
+            let credential = load_porkbun_credential_guarded(&Slot(read.connection()), &mut || {
+                run.check_dns(&read)
+            })
+            .map_err(native_error)?
+            .ok_or(ProviderCredentialError::Keychain)?;
+            Ok::<_, ProviderCredentialError>((read, credential))
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)??;
+        let client = PorkbunDnsClient::production().map_err(native_error)?;
+        let mut guard = || self.check_dns(&read);
+        let observed = tokio::select! {
+            biased;
+            _ = self.power.wait_for_epoch_change(self.epoch) => Err(PorkbunError::AuthorityStale),
+            result = client.observe(&credential, read.zone(), &mut guard) => result,
+        }
+        .map_err(native_error)?;
+        drop(credential);
+        let (records, answered_elsewhere) = match observed {
+            PorkbunDnsZone::Records {
+                records,
+                answered_elsewhere,
+            } => (records, answered_elsewhere),
+            // Porkbun refused this domain; nothing is written and existing evidence stands.
+            PorkbunDnsZone::ApiAccessDisabled => return Ok("api_access_disabled"),
+            PorkbunDnsZone::NotInAccount => return Ok("not_in_account"),
+            PorkbunDnsZone::DomainNotActive => return Ok("domain_not_active"),
+        };
+        let records = records.into_iter().map(dns_record).collect::<Vec<_>>();
+        let run = Arc::clone(self);
+        tauri::async_runtime::spawn_blocking(move || {
+            run.commit(|host| host.commit_porkbun_dns_read(&read, &records, answered_elsewhere))
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)??;
+        Ok(if answered_elsewhere {
+            "answered_elsewhere"
+        } else {
+            "confirmed"
+        })
+    }
+
     pub(crate) async fn revoke(self: &Arc<Self>, id: String) -> Result<()> {
         let run = Arc::clone(self);
         tauri::async_runtime::spawn_blocking(move || run.revoke_blocking(&id))
@@ -250,6 +314,17 @@ impl Run {
         // could not be deleted yet. Other connections remain independently usable.
         drop(self.hold_power().map_err(native_error)?);
         Ok(())
+    }
+}
+
+fn dns_record(row: PorkbunDnsRecord) -> DesktopPorkbunDnsRecord {
+    DesktopPorkbunDnsRecord {
+        record_id: row.record_id,
+        owner_name_ascii: row.owner_name_ascii,
+        record_type: row.record_type.as_str().to_owned(),
+        content: row.content,
+        ttl_seconds: row.ttl_seconds,
+        priority: row.priority,
     }
 }
 

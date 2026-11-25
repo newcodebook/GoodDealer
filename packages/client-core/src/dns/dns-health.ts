@@ -15,9 +15,9 @@ const dnsZoneBindingSchema = z.object({
   validationStatus: z.enum(["unverified", "verified", "stale", "conflicted", "detached"]),
 }).strict();
 
-/** Only Cloudflare Zones are observed today; other platforms have no composed observation. */
+/** The platform whose connection committed the observation; only these two observe Zones today. */
 const dnsZoneObservationSummarySchema = z.object({
-  providerKind: z.literal("cloudflare"),
+  providerKind: z.enum(["cloudflare", "porkbun"]),
   observedAt: z.iso.datetime(),
   availability: z.enum(["available", "unavailable"]),
   evidenceStatus: z.enum(["confirmed", "stale", "conflicted", "unknown"]),
@@ -40,6 +40,12 @@ const dnsHealthRowSchema = z.object({
   const live = row.zoneBinding !== null && row.zoneBinding.validationStatus !== "detached";
   if (row.bindable && (live || row.observation?.zoneLabel !== row.entityId)) {
     context.addIssue({ code: "custom", path: ["bindable"], message: "a bindable row needs an unbound asset and its own Zone observed" });
+  }
+  // The Host joins a Porkbun observation only through the asset's own live Porkbun binding, and
+  // binding is offered only from Cloudflare evidence.
+  if (row.observation?.providerKind === "porkbun"
+    && (!live || row.zoneBinding?.providerKind !== "porkbun" || row.bindable)) {
+    context.addIssue({ code: "custom", path: ["observation"], message: "a Porkbun observation needs the live Porkbun binding" });
   }
 });
 

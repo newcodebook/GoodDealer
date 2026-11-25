@@ -28,6 +28,28 @@ enum Intent {
         schema_version: u8,
         connection_id: String,
     },
+    /// One read-only record read of an asset's Zone through an existing connection.
+    #[serde(rename = "observe-dns")]
+    ObserveDns {
+        schema_version: u8,
+        connection_id: String,
+        domain: String,
+    },
+}
+
+/// A canonical lowercase LDH domain; the Host still requires it to be an inventoried asset.
+fn is_zone_name(value: &str) -> bool {
+    value.len() <= 253
+        && value.contains('.')
+        && value.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        })
 }
 
 impl Intent {
@@ -45,6 +67,16 @@ impl Intent {
                 connection_id,
             } if is_provider_connection_uuid(&connection_id) => {
                 Ok(ProviderOperation::PorkbunRevoke { connection_id })
+            }
+            Self::ObserveDns {
+                schema_version: 1,
+                connection_id,
+                domain,
+            } if is_provider_connection_uuid(&connection_id) && is_zone_name(&domain) => {
+                Ok(ProviderOperation::PorkbunDnsObserve {
+                    connection_id,
+                    entity_id: domain,
+                })
             }
             _ => Err("PORKBUN_INPUT_REJECTED"),
         }
@@ -141,6 +173,15 @@ mod tests {
             Ok(ProviderOperation::PorkbunConnect)
         );
         assert!(parse(r#"{"action":"refresh","schemaVersion":1,"connectionId":"11111111-1111-4111-a111-111111111111"}"#).is_ok());
+        assert_eq!(
+            parse(
+                r#"{"action":"observe-dns","schemaVersion":1,"connectionId":"11111111-1111-4111-a111-111111111111","domain":"xn--bcher-kva.example"}"#
+            ),
+            Ok(ProviderOperation::PorkbunDnsObserve {
+                connection_id: "11111111-1111-4111-a111-111111111111".into(),
+                entity_id: "xn--bcher-kva.example".into(),
+            })
+        );
         for input in [
             r#"{"action":"connect","schemaVersion":1,"apiKey":"refuse"}"#,
             r#"{"action":"connect","schemaVersion":1,"url":"https://example.test"}"#,
@@ -148,6 +189,13 @@ mod tests {
             r#"{"action":"connect","schemaVersion":0}"#,
             r#"{"action":"refresh","schemaVersion":1,"connectionId":"11111111-1111-4111-A111-111111111111"}"#,
             r#"{"action":"update","schemaVersion":1}"#,
+            r#"{"action":"observe-dns","schemaVersion":1,"connectionId":"11111111-1111-4111-a111-111111111111"}"#,
+            r#"{"action":"observe-dns","schemaVersion":1,"connectionId":"11111111-1111-4111-a111-111111111111","domain":"Example.test"}"#,
+            r#"{"action":"observe-dns","schemaVersion":1,"connectionId":"11111111-1111-4111-a111-111111111111","domain":"example"}"#,
+            r#"{"action":"observe-dns","schemaVersion":1,"connectionId":"11111111-1111-4111-a111-111111111111","domain":"-a.example"}"#,
+            r#"{"action":"observe-dns","schemaVersion":1,"connectionId":"11111111-1111-4111-a111-111111111111","domain":"a..example"}"#,
+            r#"{"action":"observe-dns","schemaVersion":1,"connectionId":"11111111-1111-4111-a111-111111111111","domain":"example.test","records":[]}"#,
+            r#"{"action":"observe_dns","schemaVersion":1,"connectionId":"11111111-1111-4111-a111-111111111111","domain":"example.test"}"#,
         ] {
             assert!(parse(input).is_err());
         }

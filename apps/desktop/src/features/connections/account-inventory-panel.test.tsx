@@ -174,8 +174,8 @@ it("sends only the Porkbun account intent and retains the saved result in read-o
   const root = createRoot(container);
   const connectionId = "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953";
   const ready: PorkbunRegistrarStatus = {
-    schemaVersion: 1, observeQualified: true, observeEntitled: true, capturable: true,
-    laneState: "ready", connections: [], lastOperation: null,
+    schemaVersion: 1, observeQualified: true, observeEntitled: true, dnsObserve: { qualified: false, entitled: true },
+    capturable: true, laneState: "ready", connections: [], lastOperation: null,
   };
   const saved: PorkbunRegistrarStatus = {
     ...ready,
@@ -201,6 +201,46 @@ it("sends only the Porkbun account intent and retains the saved result in read-o
     expect(connect()).toBeUndefined();
     expect(refresh()).toBeNull();
     expect(container.textContent).toContain("读取 2 个，新增 2 个，跳过 0 个。");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("keeps the Porkbun DNS read unavailable until qualified and sends only the canonical domain", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const connectionId = "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953";
+  const unqualified: PorkbunRegistrarStatus = {
+    schemaVersion: 1, observeQualified: true, observeEntitled: true, dnsObserve: { qualified: false, entitled: true },
+    capturable: true, laneState: "ready", lastOperation: null,
+    connections: [{ connectionId, state: "active", scanPending: false,
+      lastScan: { observed: 1, imported: 1, skipped: 0, completedAt: "2026-11-24T00:00:00Z" } }],
+  };
+  const qualified: PorkbunRegistrarStatus = { ...unqualified, dnsObserve: { qualified: true, entitled: true } };
+  const answered: PorkbunRegistrarStatus = { ...qualified, lastOperation: { kind: "porkbun_dns_observe", outcome: "answered_elsewhere" } };
+  const status = vi.fn<() => Promise<PorkbunRegistrarStatus>>().mockResolvedValueOnce(unqualified)
+    .mockResolvedValueOnce(qualified).mockResolvedValue(answered);
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const render = () => root.render(<PorkbunRegistrarPanel locale="zh-CN" port={{ status, submit }} writable onChanged={() => {}} />);
+  const read = () => container.querySelector<HTMLButtonElement>('button[aria-label="读取 DNS 记录 Porkbun"]')!;
+  const input = () => container.querySelector<HTMLInputElement>("input")!;
+  try {
+    await act(async () => render());
+    expect(container.textContent).toContain("Porkbun DNS 记录读取尚未通过资格认证，暂不可用。");
+    expect(input().disabled).toBe(true);
+    expect(read().disabled).toBe(true);
+    await act(async () => [...container.querySelectorAll("button")].find((node) => node.textContent === "刷新状态")!.click());
+    expect(input().disabled).toBe(false);
+    expect(read().disabled).toBe(true);
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input(), " Example.COM ");
+      input().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => read().click());
+    expect(submit).toHaveBeenCalledExactlyOnceWith({ schemaVersion: 1, action: "observe-dns", connectionId, domain: "example.com" });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("可能由其他 nameserver 应答");
   } finally {
     await act(async () => root.unmount());
     container.remove();

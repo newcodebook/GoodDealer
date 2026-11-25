@@ -354,7 +354,7 @@ fn read_state(
     }
 }
 
-fn connection_seed(
+pub(super) fn connection_seed(
     connection: &Connection,
     workspace: &str,
     id: &str,
@@ -368,7 +368,7 @@ fn connection_seed(
            LEFT JOIN porkbun_registrar_pending_scans p
              ON p.workspace_id=s.workspace_id AND p.connection_id=s.connection_id AND p.incarnation_id=s.incarnation_id
           WHERE s.workspace_id=?1 AND s.connection_id=?2 AND c.provider_kind='porkbun'
-            AND c.connection_incarnation_id=s.incarnation_id AND json(c.capabilities_json)='[\"registrar\"]'
+            AND c.connection_incarnation_id=s.incarnation_id AND json(c.capabilities_json)='[\"dns\",\"registrar\"]'
             AND s.purged_at IS NULL AND c.deleted_at IS NULL AND (
               (s.state='prepared' AND c.credential_use_state='inactive' AND c.lifecycle_status='invalid' AND c.revoked_at IS NULL)
               OR (s.state='active' AND c.credential_use_state='active' AND c.lifecycle_status='active' AND c.validation_status='valid' AND c.revoked_at IS NULL)
@@ -439,7 +439,7 @@ impl BusinessDatabase {
             "INSERT INTO local_provider_connections
              (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,lifecycle_status,
               capabilities_json,created_at,validation_status,connection_incarnation_id,credential_use_state)
-             VALUES (?1,?2,'porkbun',?3,?4,'invalid','[\"registrar\"]',?4,'unknown',?5,'inactive')",
+             VALUES (?1,?2,'porkbun',?3,?4,'invalid','[\"dns\",\"registrar\"]',?4,'unknown',?5,'inactive')",
              params![workspace,seed.connection_id,label,at,seed.incarnation_id],
         ).map_err(storage)?;
         tx.execute(

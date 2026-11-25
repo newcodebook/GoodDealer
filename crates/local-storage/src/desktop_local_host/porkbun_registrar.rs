@@ -8,7 +8,10 @@ use crate::{
     DesktopPorkbunConnectionSummary, DesktopRegistrarScanReceipt, DesktopRegistrationFact,
     active_workspace::{
         business::{PorkbunConnectionSeed, PorkbunInventoryCommit},
-        capability_qualification::{PORKBUN_REGISTRAR_OBSERVE as OBSERVE, capability_qualified},
+        capability_qualification::{
+            PORKBUN_DNS_OBSERVE as DNS_OBSERVE, PORKBUN_REGISTRAR_OBSERVE as OBSERVE,
+            capability_qualified,
+        },
     },
     desktop_sync_runtime::{
         DesktopSyncError, DesktopSyncRunAdmission, DesktopSyncRuntime, require_provider_dispatch,
@@ -19,13 +22,13 @@ use sha2::{Digest, Sha256};
 
 /// Opaque Native-only receipt for one exact credential incarnation and scan head.
 pub struct DesktopPorkbunConnection {
-    admission: DesktopNativeCloudAdmission,
-    seed: PorkbunConnectionSeed,
+    pub(super) admission: DesktopNativeCloudAdmission,
+    pub(super) seed: PorkbunConnectionSeed,
     digest: String,
 }
 
 impl DesktopPorkbunConnection {
-    fn new(admission: DesktopNativeCloudAdmission, seed: PorkbunConnectionSeed) -> Self {
+    pub(super) fn new(admission: DesktopNativeCloudAdmission, seed: PorkbunConnectionSeed) -> Self {
         let mut hash = Sha256::new();
         hash.update(b"GOODDEALER-PORKBUN-REGISTRAR-V3\0");
         for part in [
@@ -80,14 +83,23 @@ impl DesktopPorkbunConnection {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DesktopPorkbunDnsAvailability {
+    pub qualified: bool,
+    pub entitled: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DesktopPorkbunRegistrarStatus {
     pub schema_version: u8,
     pub observe_qualified: bool,
     pub observe_entitled: bool,
+    /// Zone record reads through the same connection, qualified and entitled separately.
+    pub dns_observe: DesktopPorkbunDnsAvailability,
     pub connections: Vec<DesktopPorkbunConnectionSummary>,
 }
 
-fn database_error(error: BusinessDatabaseError) -> DesktopSyncError {
+pub(super) fn database_error(error: BusinessDatabaseError) -> DesktopSyncError {
     match error {
         BusinessDatabaseError::MutationStale => DesktopSyncError::StaleAuthority,
         BusinessDatabaseError::InvalidInput => DesktopSyncError::InvalidInput,
@@ -95,7 +107,7 @@ fn database_error(error: BusinessDatabaseError) -> DesktopSyncError {
     }
 }
 
-fn now() -> Result<String, DesktopLocalHostError> {
+pub(super) fn now() -> Result<String, DesktopLocalHostError> {
     Ok(format_timestamp(
         current_unix_seconds().map_err(|_| DesktopLocalHostError::AuthorityRejected)?,
     ))
@@ -141,6 +153,11 @@ impl DesktopLocalHost {
                 observe_qualified: capability_qualified(OBSERVE),
                 observe_entitled: restriction == RuntimeRestriction::Active
                     && authority.capabilities.iter().any(|cap| cap == OBSERVE),
+                dns_observe: DesktopPorkbunDnsAvailability {
+                    qualified: capability_qualified(DNS_OBSERVE),
+                    entitled: restriction == RuntimeRestriction::Active
+                        && authority.capabilities.iter().any(|cap| cap == DNS_OBSERVE),
+                },
                 connections: runtime.database_for_backup().porkbun_connection_summaries(
                     (restriction == RuntimeRestriction::Active)
                         .then_some((authority.device_id.as_str(), authority.lease_epoch)),

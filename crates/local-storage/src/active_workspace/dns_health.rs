@@ -69,7 +69,8 @@ pub struct DnsZoneBinding {
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DnsZoneObservationSummary {
-    /// Only Cloudflare Zones are observed today; other platforms have no composed observation.
+    /// The platform whose connection committed the observation: Cloudflare, or Porkbun for an
+    /// asset whose live Zone binding is on Porkbun. Other platforms have no composed observation.
     pub provider_kind: String,
     pub observed_at: String,
     pub availability: String,
@@ -105,6 +106,7 @@ type RawRow = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
     [i64; 5],
 );
 
@@ -112,10 +114,12 @@ type RawRow = (
 const ASSETS: &str = "a.workspace_id = ?1 AND a.deleted_at IS NULL";
 /// The search: a canonical domain prefix (`?2`, empty for every asset) up to its successor (`?3`).
 const PREFIX: &str = "(?2 = '' OR (a.entity_id >= ?2 AND a.entity_id < ?3))";
-/// Each asset's Zone binding and its applicable Zone observation. Only Cloudflare Zones are
-/// observed, and an observation says nothing about a Zone bound on another platform, so it joins
-/// only for an unbound or detached asset or a Cloudflare-bound one. The Renderer applies the same
-/// rule per row; joining here keeps the workspace-wide counts consistent with it.
+/// Each asset's Zone binding and its applicable Zone observation. A Cloudflare observation joins
+/// through its projection head, and only for an unbound or detached asset or a Cloudflare-bound
+/// one: it says nothing about a Zone bound on another platform. A live binding on another platform
+/// joins the latest observation its own connection committed for the asset (today only Porkbun
+/// writes one). The Renderer applies the same rule per row; joining here keeps the
+/// workspace-wide counts consistent with it.
 ///
 /// A binding or observation a storage repair quarantined (ADR-0019) joins as absent: the asset reads
 /// as unbound or unobserved instead of failing the page.
@@ -131,11 +135,22 @@ const ZONE_JOINS: &str = "
        ON h.workspace_id = a.workspace_id AND h.entity_id = a.entity_id
       AND (b.entity_id IS NULL OR b.validation_status = 'detached' OR b.provider_kind = 'cloudflare')
      LEFT JOIN dns_zone_observations z
-       ON z.workspace_id = h.workspace_id AND z.zone_observation_id = h.observation_id
+       ON z.workspace_id = a.workspace_id AND z.zone_observation_id = coalesce(h.observation_id, (
+            SELECT bz.zone_observation_id
+              FROM dns_zone_observations bz JOIN provider_observation_runs br
+                ON br.workspace_id = bz.workspace_id AND br.observation_run_id = bz.observation_run_id
+             WHERE b.provider_kind <> 'cloudflare' AND b.validation_status <> 'detached'
+               AND bz.workspace_id = b.workspace_id AND bz.entity_id = b.entity_id
+               AND br.connection_id = b.connection_id AND br.observation_capability = 'dns'
+             ORDER BY bz.observed_at DESC, bz.rowid DESC LIMIT 1))
       AND NOT EXISTS (SELECT 1 FROM storage_repair_receipts x
-                      WHERE x.workspace_id = h.workspace_id
+                      WHERE x.workspace_id = a.workspace_id
                         AND x.repair_kind = 'dns_zone_observation'
-                        AND x.row_key = h.observation_id)";
+                        AND x.row_key = z.zone_observation_id)
+     LEFT JOIN provider_observation_runs zr
+       ON zr.workspace_id = z.workspace_id AND zr.observation_run_id = z.observation_run_id
+     LEFT JOIN local_provider_connections zc
+       ON zc.workspace_id = zr.workspace_id AND zc.connection_id = zr.connection_id";
 
 /// The binding and observation columns `project_row` validates, in its order; the page read adds the
 /// record counts after them.
@@ -143,7 +158,7 @@ const ROW_COLUMNS: &str = "a.entity_id,
                    b.provider_kind, c.provider_kind, c.display_label, b.resource_label, b.validation_status,
                    z.observed_at, z.observation_availability, z.evidence_status, z.zone_name_ascii,
                    coalesce(z.cloudflare_zone_status, 'unknown'), z.authoritative_nameservers_json,
-                   z.dnssec_status";
+                   z.dnssec_status, zc.provider_kind";
 
 pub(crate) struct ActiveDnsHealthReader<'a> {
     connection: &'a Connection,
@@ -214,12 +229,13 @@ impl<'a> ActiveDnsHealthReader<'a> {
                         row.get(10)?,
                         row.get(11)?,
                         row.get(12)?,
+                        row.get(13)?,
                         [
-                            row.get(13)?,
                             row.get(14)?,
                             row.get(15)?,
                             row.get(16)?,
                             row.get(17)?,
+                            row.get(18)?,
                         ],
                     ))
                 },
@@ -310,6 +326,7 @@ pub(super) fn rejected_rows(
                 row.get(10)?,
                 row.get(11)?,
                 row.get(12)?,
+                row.get(13)?,
                 // Record counts come from aggregates that cannot hold a bad value.
                 [0; 5],
             ))
@@ -373,7 +390,7 @@ pub(super) fn rejected_parts(
             (typed, shown)
         };
         let (binding, binding_shown) = text(1..6);
-        let (observation, observation_shown) = text(6..13);
+        let (observation, observation_shown) = text(6..14);
         let binding_bad = binding.is_none_or(|columns| {
             let raw: RawRow = (
                 entity_id.clone(),
@@ -382,6 +399,7 @@ pub(super) fn rejected_parts(
                 columns[2].clone(),
                 columns[3].clone(),
                 columns[4].clone(),
+                None,
                 None,
                 None,
                 None,
@@ -408,11 +426,12 @@ pub(super) fn rejected_parts(
                 columns[4].clone(),
                 columns[5].clone(),
                 columns[6].clone(),
+                columns[7].clone(),
                 [0; 5],
             );
             project_row(raw).is_err()
         });
-        let observation_id: Option<String> = row.get(13).ok().flatten();
+        let observation_id: Option<String> = row.get(14).ok().flatten();
         if !binding_bad && !observation_bad {
             continue;
         }
@@ -492,8 +511,8 @@ fn project_row(raw: RawRow) -> Result<DnsHealthRow, PortfolioReadError> {
         }),
         _ => return Err(PortfolioReadError::ProjectionRejected),
     };
-    let observation = match (raw.6, raw.7, raw.8, raw.9, raw.10, raw.11, raw.12) {
-        (None, None, None, None, _, None, None) => None,
+    let observation = match (raw.6, raw.7, raw.8, raw.9, raw.10, raw.11, raw.12, raw.13) {
+        (None, None, None, None, _, None, None, None) => None,
         (
             Some(observed_at),
             Some(availability),
@@ -502,6 +521,7 @@ fn project_row(raw: RawRow) -> Result<DnsHealthRow, PortfolioReadError> {
             Some(zone_status),
             Some(nameservers),
             Some(dnssec_status),
+            Some(observation_provider),
         ) => {
             let authoritative_nameservers: Vec<String> = serde_json::from_str(&nameservers)
                 .map_err(|_| PortfolioReadError::ProjectionRejected)?;
@@ -509,7 +529,7 @@ fn project_row(raw: RawRow) -> Result<DnsHealthRow, PortfolioReadError> {
                 return Err(PortfolioReadError::ProjectionRejected);
             }
             Some(DnsZoneObservationSummary {
-                provider_kind: "cloudflare".to_owned(),
+                provider_kind: closed(observation_provider, &["cloudflare", "porkbun"])?,
                 observed_at: validate_timestamp(Some(observed_at))?
                     .ok_or(PortfolioReadError::ProjectionRejected)?,
                 availability: closed(availability, &["available", "unavailable"])?,
@@ -528,11 +548,11 @@ fn project_row(raw: RawRow) -> Result<DnsHealthRow, PortfolioReadError> {
                     &["active", "inactive", "unknown", "unsupported"],
                 )?,
                 record_counts: DnsRecordCounts {
-                    a: count(raw.13[0])?,
-                    aaaa: count(raw.13[1])?,
-                    cname: count(raw.13[2])?,
-                    txt: count(raw.13[3])?,
-                    other: count(raw.13[4])?,
+                    a: count(raw.14[0])?,
+                    aaaa: count(raw.14[1])?,
+                    cname: count(raw.14[2])?,
+                    txt: count(raw.14[3])?,
+                    other: count(raw.14[4])?,
                 },
             })
         }

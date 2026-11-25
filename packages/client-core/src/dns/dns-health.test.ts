@@ -50,6 +50,30 @@ function read(overrides: Record<string, unknown> = {}): unknown {
 }
 
 describe("DNS health Host read", () => {
+  it("attributes a Porkbun read to its live Porkbun binding and never shows it as current", () => {
+    const porkbun = { ...observation, providerKind: "porkbun", zoneStatus: "unknown", authoritativeNameservers: [], evidenceStatus: "conflicted" };
+    const binding = { providerKind: "porkbun", connectionLabel: "Porkbun", zoneLabel: "observed.test", validationStatus: "unverified" };
+    const row = { entityId: "observed.test", bindable: false, zoneBinding: binding, observation: porkbun };
+    const view = projectDnsHealthViewModel([parseDnsHealthRead(read({
+      totalRows: 1, assetCount: 1, observedCount: 1, warningCount: 1, window: { startIndex: 0, size: 50, rows: [row] },
+    }))], 50);
+    expect(view.rows[0]).toMatchObject({ providerDisplayName: "Porkbun", recordCount: 2, zoneNameservers: [], propagationStatus: "warning" });
+    // Without its own live Porkbun binding a Porkbun observation is inconsistent, and never bindable.
+    for (const bad of [
+      { ...row, zoneBinding: null },
+      { ...row, zoneBinding: { ...binding, validationStatus: "detached" } },
+      { ...row, zoneBinding: { ...binding, providerKind: "cloudflare" } },
+      { ...row, bindable: true },
+    ]) {
+      expect(() => parseDnsHealthRead(read({
+        totalRows: 1, assetCount: 1, observedCount: 1, warningCount: 1, window: { startIndex: 0, size: 50, rows: [bad] },
+      }))).toThrow();
+    }
+    expect(() => parseDnsHealthRead(read({ window: { startIndex: 0, size: 50, rows: [
+      { ...row, observation: { ...porkbun, providerKind: "godaddy" } },
+    ] } }))).toThrow();
+  });
+
   it("projects observed facts without ownership, delegation or record verdicts", () => {
     const view = projectDnsHealthViewModel([parseDnsHealthRead(read())], 50);
     expect(view.ownershipAvailability).toBe("unavailable");
