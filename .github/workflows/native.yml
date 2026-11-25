@@ -37,7 +37,9 @@ jobs:
             platform: darwin
             arch: x64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    # macos-15-intel finished the full native gate in 33–40 minutes on 2026-11-24/25, and runs still
+    # in progress at 40 minutes were cancelled; 60 leaves headroom without hiding a hang.
+    timeout-minutes: 60
     env:
       WP0_CI_JOB_NAME: ${{ matrix.name }}
       WP0_EXPECTED_PLATFORM: ${{ matrix.platform }}
