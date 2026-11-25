@@ -154,6 +154,11 @@ Provider 页面回跳只构成不可信的 reconciliation hint，不能作为成
   `/dns/retrieve/{domain}` 都只需要 `read`，因此账户归集与 DNS 读取共用一把 Read-only 密钥。注册局委派 `GET /domain/getNs/{domain}`
   同样只需 `read`（2026-11-24 重新下载同一 v3.112 规范核对，SHA-256 未变）；官方说明它实时读自注册局、nameserver 为无序集合，
   响应 `{status, ns[]}`，声明 200、400、429。
+  Spaceship API 密钥按 scope 授权（2026-11-24 核对 [docs.spaceship.dev](https://docs.spaceship.dev/) 内嵌的官方 OpenAPI 1.0.0
+  各操作的 `x-scopes`）：`domains:read`（列表、详情、可用性与价格）、`domains:write`（自动续费、联系人、nameserver、隐私、glue）、
+  `domains:billing`（注册、续费、赎回、转入）、`domains:transfer`（授权码、转移锁、转移详情）、`dnsrecords:read`/`write`、
+  `contacts:read`/`write`、`sellerhub:read`/`write`（挂牌、已售报表、验证记录、Checkout link、SafePay）与 `asyncoperations:read`。
+  资金操作返回 202 并需异步结果对账；读、写与资金各有独立 scope，因此可按角色和能力分别签发凭据。
 - **Linux**：Provider 秘密按 [ADR-0025](0025-linux-secret-service-custody.md) 的具名条目准入。固定 Native GTK 窗口只捕获已列明用途的字段，条目存入 Secret Service。新增 Provider 与备份条目须分别明确威胁接受。Linux 开发验收与 Windows/macOS 完整目标及实机资格分别记录。
 
 Cloudflare 观察的 401/403 统一表示凭据被拒绝，不据此区分失效与权限不足；429、408、425 与服务端错误

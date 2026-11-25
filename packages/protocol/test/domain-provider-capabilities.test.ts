@@ -77,7 +77,7 @@ describe("domain Provider coverage and financial confirmation", () => {
         "godaddy:registrar.domain.observe",
         "porkbun:registrar.domain.observe", "porkbun:dns.records.observe",
         "sedo:marketplace.listing.observe",
-        "spaceship:registrar.domain.observe",
+        "spaceship:registrar.domain.observe", "spaceship:marketplace.listing.observe", "spaceship:marketplace.price.manage",
       ]);
     // A platform whose phase checked its official facts leaves no capability pending on facts.
     const porkbun = domainProviderCapabilityManifest.filter(({ platform }) => platform === "porkbun");
@@ -89,6 +89,13 @@ describe("domain Provider coverage and financial confirmation", () => {
       "marketplace.monitor", "acquisition.bid", "acquisition.backorder", "acquisition.monitor",
     ]);
     expect(domainProviderManifestEntry("porkbun", "dns.records.observe")?.reason).toBe("qualification_pending");
+    const spaceship = domainProviderCapabilityManifest.filter(({ platform }) => platform === "spaceship");
+    expect(spaceship.filter(({ reason }) => reason === "platform_facts_pending")).toEqual([]);
+    expect(spaceship.filter(({ reason }) => reason === "official_api_absent").map(({ capabilityId }) => capabilityId)).toEqual([
+      "dnssec.manage", "marketplace.sale.auth-code.deliver", "acquisition.bid", "acquisition.backorder", "acquisition.monitor",
+    ]);
+    // Fixed-price creation alone does not make listing management implemented: delisting is missing.
+    expect(domainProviderManifestEntry("spaceship", "marketplace.listing.manage")?.reason).toBe("implementation_pending");
     // The record read reports no Zone status or nameservers, so Zone observation is not implemented.
     expect(domainProviderManifestEntry("porkbun", "zone.observe")?.reason).toBe("implementation_pending");
     // Platforms whose phase has not checked facts stay pending rather than inheriting another's.

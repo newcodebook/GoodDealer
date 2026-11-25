@@ -13,7 +13,7 @@
 //! must both agree before a capability runs (ADR-0024).
 //!
 //! Temporary exception (ADR-0027 "平台 Service 骨架"): the implemented platform transports
-//! (Cloudflare Zone/DNS and Registrar observation, Spaceship, 阿里云, `GoDaddy`, Porkbun, Atom, Sedo
+//! (Cloudflare Zone/DNS and Registrar observation, Spaceship Registrar and `SellerHub`, 阿里云, `GoDaddy`, Porkbun, Atom, Sedo
 //! and Afternic) are composed directly by Desktop under their own qualification or
 //! controlled-acceptance gates, not through this admission. Each moves behind
 //! `admit_provider_capability` in the change that makes an admission constructible; until then
@@ -548,9 +548,15 @@ mod tests {
                     ProviderPlatform::Porkbun => {
                         matches!(capability, C::RegistrarDomainObserve | C::DnsRecordsObserve)
                     }
-                    ProviderPlatform::Spaceship
-                    | ProviderPlatform::Aliyun
-                    | ProviderPlatform::Godaddy => capability == C::RegistrarDomainObserve,
+                    ProviderPlatform::Spaceship => matches!(
+                        capability,
+                        C::RegistrarDomainObserve
+                            | C::MarketplaceListingObserve
+                            | C::MarketplacePriceManage
+                    ),
+                    ProviderPlatform::Aliyun | ProviderPlatform::Godaddy => {
+                        capability == C::RegistrarDomainObserve
+                    }
                     ProviderPlatform::Atom | ProviderPlatform::Sedo => {
                         capability == C::MarketplaceListingObserve
                     }

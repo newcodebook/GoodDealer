@@ -274,8 +274,8 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 
 ### 7. Spaceship（含 SellerHub）
 
-- [ ] 核对官方文档并更新平台事实快照（待实现；按当前策略的能力依赖推进）
-- [ ] 能力清单映射到四种角色（待实现；按当前策略的能力依赖推进）
+- [x] 核对官方文档并更新平台事实快照（2026-11-24 读取 [docs.spaceship.dev](https://docs.spaceship.dev/) 内嵌的官方 OpenAPI 1.0.0，各操作 `x-scopes` 记入 ADR-0027 最小权限快照，端点记入 [API 核查](../PROVIDER_API_REVIEW.md)「Spaceship 能力映射」行）（PR 链接待补）
+- [x] 能力清单映射到四种角色（2026-11-24 逐项核对：注册商全部能力（含赎回、转出/授权码、锁、隐私、glue）、DNS 记录与 Zone 观察、SellerHub 上架/验证/已售报表/监控、可用性与价格、SafePay 托管购买与到账对账为 `implementation_pending`；DNSSEC、销售授权码交付、竞拍、预订及其监控为 `official_api_absent`。核对时发现 SellerHub 挂牌读取与一口价变更已在源码实现但 manifest 未计入，现补为 `qualification_pending` 并同步 Host Service 镜像；固定价上架已实现而下架未实现，`marketplace.listing.manage` 保持 `implementation_pending`）（PR 链接待补）
 - [ ] 私有 Service、合同与负向测试（凭据 scope 和资格按角色隔离）（待实现；按当前策略的能力依赖推进）
 - [ ] 逐项能力资格证据（待实现；按当前策略的能力依赖推进）
 
@@ -297,6 +297,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [ ] 逐项能力资格证据，或者带原因标记为不可执行（待实现；按当前策略的能力依赖推进）
 - [ ] Atom Standard 整批上架（[Task Frame](ATOM_LISTING_CREATE_TASK_FRAME.md)；2026-11-24 已核对 `add-domain`/`domain-details`/`verify-dns` 官方合同。已完成第一部分：协议执行证据 `add_standard`、测试向量与 Cloud 审计/执行台账迁移 `202611240001`/`202611240002` 的准入。Host 设备签名已接入同一用途。Native `add-domain` 发送（固定 Standard、整数美元价格、仅文档回执）与写后整数售价读取已完成。剩余：本地计划/认领/结果（与 Codex 的 SellerHub DNS 分支 `202611200015` 重建同一本地批准表和四个共享触发器，待其合入后在其之上实施，避免两份整体重建互相覆盖）、Tauri 命令与批量页、文档与审查；补一条直接调用 Cloud 准入函数的 Postgres 负向测试，证明 `add_standard` 拒绝借用的 `matched`/`published` 结果（当前只由协议解析拦截）。协调：Codex 的 SellerHub DNS 验证分支 `202611200007`/`0008` 与本迁移整体替换同一 Cloud 准入函数，后合并的一方须把对方的用途并入自己的函数体）
 - [ ] Atom Standard 所有权验证（`verify-dns` 触发与 TXT 发布；依赖上架切片与 Cloudflare DNS 写入资格）
+- [ ] 能力 manifest 计入已实现的 Atom 写能力（2026-11-24 核对 Spaceship 时发现：Host 已有 `atom:marketplace:write` 资格项与 Atom Standard 下架路径，但 manifest 的 Atom 只计入 `marketplace.listing.observe`；随 Atom 阶段核对官方事实时按实际覆盖范围更新 manifest 与 Host Service 镜像，部分实现的能力不计为已实现）
 
 ### 11. 1.0 资格与发行
 

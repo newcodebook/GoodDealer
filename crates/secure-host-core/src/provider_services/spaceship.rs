@@ -9,6 +9,9 @@ use super::{PlatformService, ProviderCapability};
 pub(super) struct SpaceshipService;
 
 impl PlatformService for SpaceshipService {
-    const IMPLEMENTED: &'static [ProviderCapability] =
-        &[ProviderCapability::RegistrarDomainObserve];
+    const IMPLEMENTED: &'static [ProviderCapability] = &[
+        ProviderCapability::RegistrarDomainObserve,
+        ProviderCapability::MarketplaceListingObserve,
+        ProviderCapability::MarketplacePriceManage,
+    ];
 }

@@ -47,14 +47,15 @@ export type DomainProviderManifestEntry = z.infer<typeof domainProviderManifestE
 /**
  * Locally implemented capabilities awaiting qualification include Cloudflare's registration,
  * Zone and DNS observation, Spaceship, Alibaba Cloud, GoDaddy and Porkbun registration observation,
- * Porkbun DNS record observation, and Atom seller inventory.
+ * Porkbun DNS record observation, Spaceship SellerHub listing observation and BIN price changes,
+ * and Atom seller inventory.
  * docs/CONNECTORS.md records what the Host implements, and the matching `secure-host-core`
  * `provider_services` module's `IMPLEMENTED` list mirrors it; both must change with this list; the Host qualification register, not this list, decides what may run.
  * Every other entry waits on its platform's facts.
  */
 const implemented: Readonly<Partial<Record<LaunchPlatformKind, readonly DomainProviderCapabilityId[]>>> = {
   cloudflare: ["registrar.domain.observe", "zone.observe", "dns.records.observe"],
-  spaceship: ["registrar.domain.observe"],
+  spaceship: ["registrar.domain.observe", "marketplace.listing.observe", "marketplace.price.manage"],
   aliyun: ["registrar.domain.observe"],
   godaddy: ["registrar.domain.observe"],
   porkbun: ["registrar.domain.observe", "dns.records.observe"],
@@ -101,6 +102,46 @@ const checkedFacts: Readonly<Partial<Record<LaunchPlatformKind, CheckedFacts>>> 
     "marketplace.sale.auth-code.deliver": "official_api_absent",
     "marketplace.ownership.verify": "official_api_absent",
     "marketplace.monitor": "official_api_absent",
+    "acquisition.search": "implementation_pending",
+    "acquisition.offer.observe": "implementation_pending",
+    "acquisition.bid": "official_api_absent",
+    "acquisition.backorder": "official_api_absent",
+    "acquisition.purchase": "implementation_pending",
+    "acquisition.arrival.reconcile": "implementation_pending",
+    "acquisition.monitor": "official_api_absent",
+  },
+  // Spaceship External API OpenAPI 1.0.0 embedded in https://docs.spaceship.dev/, checked
+  // 2026-11-24. Spaceship has no separate Zone resource: hosted DNS is per domain, so Zone
+  // observation reads the domain's nameservers and record list. DNSSEC has no endpoint. A
+  // SellerHub sale is delivered outside the API, which has no delivery endpoint.
+  // SellerHub fixed-price creation is implemented, but delisting is not, so listing management
+  // as a whole stays pending.
+  // `acquisition.purchase` covers only a buyer-initiated SafePay escrow for a named domain;
+  // there is no auction, backorder or public aftermarket search, so their monitoring is absent.
+  spaceship: {
+    "registrar.register": "implementation_pending",
+    "registrar.renew": "implementation_pending",
+    "registrar.restore": "implementation_pending",
+    "registrar.transfer.in": "implementation_pending",
+    "registrar.transfer.out": "implementation_pending",
+    "registrar.auth-code.request": "implementation_pending",
+    "registrar.lock.manage": "implementation_pending",
+    "registrar.auto-renew.manage": "implementation_pending",
+    "registrar.contact.manage": "implementation_pending",
+    "registrar.privacy.manage": "implementation_pending",
+    "nameservers.manage": "implementation_pending",
+    "registrar.glue.manage": "implementation_pending",
+    "registrar.monitor": "implementation_pending",
+    "zone.observe": "implementation_pending",
+    "dns.records.observe": "implementation_pending",
+    "dns.records.manage": "implementation_pending",
+    "dnssec.manage": "official_api_absent",
+    "dns.monitor": "implementation_pending",
+    "marketplace.listing.manage": "implementation_pending",
+    "marketplace.sales.observe": "implementation_pending",
+    "marketplace.sale.auth-code.deliver": "official_api_absent",
+    "marketplace.ownership.verify": "implementation_pending",
+    "marketplace.monitor": "implementation_pending",
     "acquisition.search": "implementation_pending",
     "acquisition.offer.observe": "implementation_pending",
     "acquisition.bid": "official_api_absent",
