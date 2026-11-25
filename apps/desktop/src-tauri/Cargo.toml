@@ -8,6 +8,7 @@ license.workspace = true
 [features]
 default = []
 afternic-controlled-acceptance = ["gooddealer-local-storage/afternic-controlled-acceptance"]
+development-qualification = ["gooddealer-local-storage/development-qualification"]
 
 [build-dependencies]
 tauri-build.workspace = true

@@ -1,4 +1,12 @@
 fn main() {
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_DEVELOPMENT_QUALIFICATION");
+    if std::env::var_os("CARGO_FEATURE_DEVELOPMENT_QUALIFICATION").is_some() {
+        // A custom profile can enable debug assertions, so also require the real debug profile.
+        assert!(
+            std::env::var("PROFILE").as_deref() == Ok("debug"),
+            "development-qualification requires the debug build profile"
+        );
+    }
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_AFTERNIC_CONTROLLED_ACCEPTANCE");
     if std::env::var_os("CARGO_FEATURE_AFTERNIC_CONTROLLED_ACCEPTANCE").is_some() {
         // Cargo reports PROFILE=debug for profiles inheriting dev. Its artifact directory

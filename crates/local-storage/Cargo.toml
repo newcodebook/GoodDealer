@@ -8,6 +8,8 @@ license.workspace = true
 [features]
 default = []
 afternic-controlled-acceptance = []
+# Debug-only: treats every Provider capability as qualified (ADR-0027 development qualification).
+development-qualification = []
 
 [dependencies]
 base64 = "=0.22.1"

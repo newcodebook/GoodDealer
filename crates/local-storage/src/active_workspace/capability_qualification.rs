@@ -52,13 +52,34 @@ fn applies(capability: &str, target_os: Option<&str>) -> bool {
     }
 }
 
+/// ADR-0027 development qualification: the non-default `development-qualification` feature opens
+/// every well-formed capability so developers can exercise real Provider flows before review.
+/// `build.rs` and the `compile_error!` below refuse it outside the debug profile, so the
+/// shipped register above stays the only source of qualification. Unit tests keep the closed
+/// register even when the feature is on, so refusal paths remain tested.
+const DEVELOPMENT_QUALIFICATION: bool = cfg!(all(feature = "development-qualification", not(test)));
+
+// Kept beside the register rather than in `lib.rs`: the crate root must stay free of
+// feature-selected items (rebootstrap production policy).
+#[cfg(all(feature = "development-qualification", not(debug_assertions)))]
+compile_error!("development-qualification is limited to debug builds");
+
+fn well_formed(capability: &str) -> bool {
+    let parts: Vec<&str> = capability.split(':').collect();
+    parts.len() == 3 && parts.iter().all(|part| !part.is_empty())
+}
+
 /// Whether one capability may execute.
 pub(crate) fn capability_qualified(capability: &str) -> bool {
-    qualified().any(|qualified| qualified == capability)
+    (DEVELOPMENT_QUALIFICATION && well_formed(capability))
+        || qualified().any(|qualified| qualified == capability)
 }
 
 /// Whether any capability of a platform's role may execute; used by reads that report per role.
 pub(crate) fn role_qualified(platform: &str, role: &str) -> bool {
+    // Only the shipped register counts here. The settings read fails closed on a qualified role
+    // until its contract can report an executable state; development qualification is an
+    // execution overlay, so applying it here would make every saved connection unreadable.
     qualified().any(|capability| {
         let mut parts = capability.splitn(3, ':');
         parts.next() == Some(platform) && parts.next() == Some(role)
@@ -152,6 +173,22 @@ mod tests {
             assert!(capability_qualified(AFTERNIC_OWNERSHIP_REVIEW));
         }
         assert!(!capability_qualified(AFTERNIC_OWNERSHIP_REVIEW));
+    }
+
+    #[test]
+    fn development_qualification_stays_closed_in_unit_tests_and_needs_full_ids() {
+        assert!(!capability_qualified(SPACESHIP_MARKETPLACE_OBSERVE));
+        assert!(well_formed(SPACESHIP_MARKETPLACE_OBSERVE));
+        for malformed in [
+            "",
+            "spaceship",
+            "spaceship:marketplace",
+            "spaceship::observe",
+            "a:b:c:d",
+            ":b:c",
+        ] {
+            assert!(!well_formed(malformed), "{malformed}");
+        }
     }
 
     #[test]
