@@ -287,7 +287,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 ### 9. GoDaddy、Afternic
 
 - [ ] GoDaddy：官方 v3 账户归集已实现，真实生产账户与双系统实机待验收，其他能力按当前策略实施
-- [ ] Afternic：核对事实、列出能力清单，实现 Portfolio API 的 Listing 与改价，取得资格证据（待实现；按当前策略的能力依赖推进）
+- [ ] Afternic：核对事实、列出能力清单，实现 Portfolio API 的 Listing 与改价，取得资格证据（2026-11-25 已核对官方 Portfolio API 参考与指南并写入 manifest：挂牌读取/管理/改价、销售记录、销售授权码交付与监控为 `implementation_pending`；注册商、DNS、购买侧能力与所有权验证（验证记录获取与触发只在网站）为 `official_api_absent`；官方 key 无 scope，已记入 ADR-0027 快照，见 [API 核查](../PROVIDER_API_REVIEW.md)「Afternic 能力映射」行（PR 链接待补）。余项：Listing 与改价作为 Service 实现、资格证据）
 - [ ] GoDaddy DNS 记录读取（`dns.records.observe`）：[Task Frame](GODADDY_DNS_RECORDS_OBSERVE_TASK_FRAME.md)；Native 只读客户端与严格分页解析已完成（9f9e124）。暂停：GoDaddy PAT 按 scope 授权，官方只列出 `domains.domain:read` 与写 scope `domains.dns:update`，未写明 `GET /zones/{zone}/dns-records` 需要哪个 scope，也没有只读 DNS scope（2026-11-24 [官方认证说明](https://developer.godaddy.com/docs/api-users/auth#pat-scopes)）。影响：无法判断只读 DNS 能否在最小权限下实现，组合需要把现有 GoDaddy 连接的角色从 registrar 扩为 dns+registrar，依据不足。可选方案：（a）用户用只勾选 `domains.domain:read` 的 PAT 先做一次账户归集（同时核实该 scope 覆盖 `GET /domain-names`），再对一个受控域名调用一次 DNS 读取（Linux 受控验收，`local.env` 的 `GODADDY_*`），成功即按同一连接扩展 DNS 角色并组合（推荐）；（b）若只有 `domains.dns:update` 可读，按“平台不提供最小权限授权”把 GoDaddy `dns.records.observe` 降级；（c）不验证直接要求用户授予写 scope，违反最小权限，不采用。
 
 ### 10. Atom（含 AtomRegistrar）

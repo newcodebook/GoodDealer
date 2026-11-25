@@ -154,6 +154,48 @@ const checkedFacts: Readonly<Partial<Record<LaunchPlatformKind, CheckedFacts>>> 
     "acquisition.arrival.reconcile": "implementation_pending",
     "acquisition.monitor": "official_api_absent",
   },
+  // Afternic Aftermarket Portfolio API reference and guides (https://api.afternic.com/docs/portfolio-api/,
+  // changelog up to 2026-11-05), checked 2026-11-25. It is a seller-side API only: Afternic is not a
+  // registrar or DNS host (GoDaddy is its own platform), and it has no buyer, bid or backorder API.
+  // Ownership challenges for a listing held by another account are fetched and triggered only on
+  // the website; the API can only resubmit a listing under review, so ownership verification is
+  // absent. The Native listing transport runs under a controlled-acceptance gate, not as an
+  // implemented Service capability, so nothing here is counted as implemented.
+  afternic: {
+    "registrar.domain.observe": "official_api_absent",
+    "registrar.register": "official_api_absent",
+    "registrar.renew": "official_api_absent",
+    "registrar.restore": "official_api_absent",
+    "registrar.transfer.in": "official_api_absent",
+    "registrar.transfer.out": "official_api_absent",
+    "registrar.auth-code.request": "official_api_absent",
+    "registrar.lock.manage": "official_api_absent",
+    "registrar.auto-renew.manage": "official_api_absent",
+    "registrar.contact.manage": "official_api_absent",
+    "registrar.privacy.manage": "official_api_absent",
+    "nameservers.manage": "official_api_absent",
+    "registrar.glue.manage": "official_api_absent",
+    "registrar.monitor": "official_api_absent",
+    "zone.observe": "official_api_absent",
+    "dns.records.observe": "official_api_absent",
+    "dns.records.manage": "official_api_absent",
+    "dnssec.manage": "official_api_absent",
+    "dns.monitor": "official_api_absent",
+    "marketplace.listing.observe": "implementation_pending",
+    "marketplace.listing.manage": "implementation_pending",
+    "marketplace.price.manage": "implementation_pending",
+    "marketplace.sales.observe": "implementation_pending",
+    "marketplace.sale.auth-code.deliver": "implementation_pending",
+    "marketplace.ownership.verify": "official_api_absent",
+    "marketplace.monitor": "implementation_pending",
+    "acquisition.search": "official_api_absent",
+    "acquisition.offer.observe": "official_api_absent",
+    "acquisition.bid": "official_api_absent",
+    "acquisition.backorder": "official_api_absent",
+    "acquisition.purchase": "official_api_absent",
+    "acquisition.arrival.reconcile": "official_api_absent",
+    "acquisition.monitor": "official_api_absent",
+  },
   // Spaceship External API OpenAPI 1.0.0 embedded in https://docs.spaceship.dev/, checked
   // 2026-11-24. Spaceship has no separate Zone resource: hosted DNS is per domain, so Zone
   // observation reads the domain's nameservers and record list. DNSSEC has no endpoint. A

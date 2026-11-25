@@ -101,6 +101,13 @@ describe("domain Provider coverage and financial confirmation", () => {
       "dns.records.manage", "dnssec.manage", "dns.monitor",
       "acquisition.search", "acquisition.offer.observe", "acquisition.arrival.reconcile",
     ]);
+    const afternic = domainProviderCapabilityManifest.filter(({ platform }) => platform === "afternic");
+    expect(afternic.filter(({ reason }) => reason === "platform_facts_pending")).toEqual([]);
+    // A seller-only API: every capability outside the marketplace role is absent.
+    expect(afternic.filter(({ reason }) => reason !== "official_api_absent").map(({ capabilityId }) => capabilityId)).toEqual([
+      "marketplace.listing.observe", "marketplace.listing.manage", "marketplace.price.manage",
+      "marketplace.sales.observe", "marketplace.sale.auth-code.deliver", "marketplace.monitor",
+    ]);
     // Fixed-price creation alone does not make listing management implemented: delisting is missing.
     expect(domainProviderManifestEntry("spaceship", "marketplace.listing.manage")?.reason).toBe("implementation_pending");
     // The record read reports no Zone status or nameservers, so Zone observation is not implemented.

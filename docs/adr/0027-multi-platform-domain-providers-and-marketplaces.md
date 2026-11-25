@@ -163,6 +163,9 @@ Provider 页面回跳只构成不可信的 reconciliation hint，不能作为成
   `x-api-token-group` 与 [Registrar API 指南](https://developers.cloudflare.com/registrar/registrar-api/)）：Zone 读取为 `Zone Read`，
   DNS 记录与 DNSSEC 读取为 `DNS Read`、写入为 `DNS Write`；Registrar 端点在 OpenAPI 中未声明权限组，指南只要求 Registrar 写权限；
   规范的权限组清单另有 `Registrar Domains Read`/`Registrar Domains Admin`（及 Sandbox 对应项），读取注册清单所需的最小权限须在受控账户上核实。Registrar API 为 beta：续费、转移与联系人更新写明尚未提供，注册计费且不可退款。
+  Afternic Portfolio API 只有账户级 key/secret（2026-11-25 核对[官方认证说明](https://api.afternic.com/docs/portfolio-api/guides/authentication/)：
+  每个账户至多 2 把，`Authorization: sso-key`），没有 scope，读写挂牌与提交销售授权码共用同一凭据。按本节规则（只对支持 scope
+  的平台要求最小 scope）不据此降级，这是 GoodDealer 的取舍：凭据只在 Host custody，写能力逐项资格认证并单独确认。
 - **Linux**：Provider 秘密按 [ADR-0025](0025-linux-secret-service-custody.md) 的具名条目准入。固定 Native GTK 窗口只捕获已列明用途的字段，条目存入 Secret Service。新增 Provider 与备份条目须分别明确威胁接受。Linux 开发验收与 Windows/macOS 完整目标及实机资格分别记录。
 
 Cloudflare 观察的 401/403 统一表示凭据被拒绝，不据此区分失效与权限不足；429、408、425 与服务端错误
