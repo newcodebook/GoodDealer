@@ -94,6 +94,13 @@ describe("domain Provider coverage and financial confirmation", () => {
     expect(spaceship.filter(({ reason }) => reason === "official_api_absent").map(({ capabilityId }) => capabilityId)).toEqual([
       "dnssec.manage", "marketplace.sale.auth-code.deliver", "acquisition.bid", "acquisition.backorder", "acquisition.monitor",
     ]);
+    const cloudflare = domainProviderCapabilityManifest.filter(({ platform }) => platform === "cloudflare");
+    expect(cloudflare.filter(({ reason }) => reason === "platform_facts_pending")).toEqual([]);
+    expect(cloudflare.filter(({ reason }) => reason === "implementation_pending").map(({ capabilityId }) => capabilityId)).toEqual([
+      "registrar.register", "registrar.transfer.in", "registrar.auto-renew.manage", "registrar.monitor",
+      "dns.records.manage", "dnssec.manage", "dns.monitor",
+      "acquisition.search", "acquisition.offer.observe", "acquisition.arrival.reconcile",
+    ]);
     // Fixed-price creation alone does not make listing management implemented: delisting is missing.
     expect(domainProviderManifestEntry("spaceship", "marketplace.listing.manage")?.reason).toBe("implementation_pending");
     // The record read reports no Zone status or nameservers, so Zone observation is not implemented.

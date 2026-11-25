@@ -110,6 +110,50 @@ const checkedFacts: Readonly<Partial<Record<LaunchPlatformKind, CheckedFacts>>> 
     "acquisition.arrival.reconcile": "implementation_pending",
     "acquisition.monitor": "official_api_absent",
   },
+  // Cloudflare API OpenAPI 4.0.0 (https://github.com/cloudflare/api-schemas, main 1083734) and the
+  // Registrar API beta guide, checked 2026-11-25. Registrar writes are registration, auto-renew
+  // and transfer-in only: renewal, contact, lock, privacy and nameserver changes, restore and
+  // outbound transfer codes have no endpoint (the guide lists renewals and contact updates as not
+  // yet available). The guide also says transfers are not yet available while the OpenAPI lists
+  // transfer-in; it stays pending and that conflict must be settled before it is implemented.
+  // The custom-nameserver and nameserver-set endpoints only change what a hosted Zone hands out;
+  // for a Cloudflare Registrar domain, registry nameservers and glue are changed by contacting
+  // Cloudflare Support, so nameserver and glue management are absent.
+  // Cloudflare has no domain marketplace or aftermarket, and premium registration is unsupported,
+  // so acquisition purchase, bids and backorders are absent. Arrival reconciliation still applies
+  // to a domain bought elsewhere and transferred in, read through the transfer-in status.
+  cloudflare: {
+    "registrar.register": "implementation_pending",
+    "registrar.renew": "official_api_absent",
+    "registrar.restore": "official_api_absent",
+    "registrar.transfer.in": "implementation_pending",
+    "registrar.transfer.out": "official_api_absent",
+    "registrar.auth-code.request": "official_api_absent",
+    "registrar.lock.manage": "official_api_absent",
+    "registrar.auto-renew.manage": "implementation_pending",
+    "registrar.contact.manage": "official_api_absent",
+    "registrar.privacy.manage": "official_api_absent",
+    "nameservers.manage": "official_api_absent",
+    "registrar.glue.manage": "official_api_absent",
+    "registrar.monitor": "implementation_pending",
+    "dns.records.manage": "implementation_pending",
+    "dnssec.manage": "implementation_pending",
+    "dns.monitor": "implementation_pending",
+    "marketplace.listing.observe": "official_api_absent",
+    "marketplace.listing.manage": "official_api_absent",
+    "marketplace.price.manage": "official_api_absent",
+    "marketplace.sales.observe": "official_api_absent",
+    "marketplace.sale.auth-code.deliver": "official_api_absent",
+    "marketplace.ownership.verify": "official_api_absent",
+    "marketplace.monitor": "official_api_absent",
+    "acquisition.search": "implementation_pending",
+    "acquisition.offer.observe": "implementation_pending",
+    "acquisition.bid": "official_api_absent",
+    "acquisition.backorder": "official_api_absent",
+    "acquisition.purchase": "official_api_absent",
+    "acquisition.arrival.reconcile": "implementation_pending",
+    "acquisition.monitor": "official_api_absent",
+  },
   // Spaceship External API OpenAPI 1.0.0 embedded in https://docs.spaceship.dev/, checked
   // 2026-11-24. Spaceship has no separate Zone resource: hosted DNS is per domain, so Zone
   // observation reads the domain's nameservers and record list. DNSSEC has no endpoint. A

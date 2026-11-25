@@ -261,7 +261,7 @@ Desktop 正常 Query 仍读取本地 SQLCipher。
 - [x] 第一个写入 `domain_assets.expires_on` 的注册商观察必须写入注册局到期时刻的 UTC 日期，不能用本地日期或注册商显示日期（到期窗口按 UTC 日计算的前提；当前只有测试种子写入该列），并补写入侧测试（2026-11-24 核对：到期日现由注册商观察 `registrar_observations.expires_on` 写入并经读取事实投影，`domain_assets.expires_on` 在生产路径中只会被置空（恢复、重置），写入具体日期的只有测试种子与修复。五个已接入的注册商都按 UTC 取日期：Cloudflare 只接受 `Z` 时间戳并取其日期，阿里云按 epoch 毫秒换算 UTC，GoDaddy 与 Spaceship 把带偏移的时间换算到 UTC，Porkbun 官方 `listAll` 说明“日期均为 UTC”并只接受该形态。各 Native 解析器已有跨午夜的写入侧测试，偏移时间不会落到本地日期） https://github.com/newcodebook/GoodDealer/pull/53
 - [ ] Cloudflare DNS 写入与 DNSSEC（待实现；按当前策略的能力依赖推进）
 - [ ] Cloudflare 监控（待实现；按当前策略的能力依赖推进）
-- [ ] 核对 Cloudflare 平台事实并更新快照（待实现；按当前策略的能力依赖推进）
+- [x] 核对 Cloudflare 平台事实并更新快照（2026-11-25 读取官方 OpenAPI 4.0.0 与 Registrar API beta 指南，记入 [API 核查](../PROVIDER_API_REVIEW.md)「Cloudflare 能力映射」行与 ADR-0027 最小权限快照；manifest 逐项写明原因：注册、自动续费、转入、DNS 写入与 DNSSEC、可用性与报价、监控与到账对账为 `implementation_pending`；续费、赎回、转出/授权码、锁、联系人、隐私、nameserver、glue、全部市场能力、竞拍、预订与购买为 `official_api_absent`。指南与 OpenAPI 对转入是否可用说法冲突，实施转入前须重新核对；OpenAPI 列出的 `registrar-sandbox` 用途未由文档说明，不作为免费沙箱依据）（PR 链接待补）
 
 ### 6. Porkbun
 
