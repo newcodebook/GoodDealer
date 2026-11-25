@@ -395,6 +395,11 @@ const ACTIVE_MIGRATIONS: &[ActiveMigration] = &[
         owner: "active-workspace/registrar-delegation-observation",
         sql: include_str!("../active_workspace/registrar_delegation_observation.sql"),
     },
+    ActiveMigration {
+        id: 202_611_250_001,
+        owner: "active-workspace/spaceship-shared-connection",
+        sql: include_str!("../active_workspace/spaceship_shared_connection.sql"),
+    },
 ];
 
 /// Migrations that rebuild a table other tables reference. SQLite cannot alter a column CHECK, and
@@ -763,7 +768,7 @@ mod tests {
         reason = "the manifest test intentionally enumerates the complete schema in one proof"
     )]
     fn complete_business_schema_matches_the_fail_closed_manifest() {
-        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 60);
+        assert_eq!(super::ACTIVE_MIGRATIONS.len(), 61);
         assert!(!super::ACTIVE_MIGRATIONS[0].sql.contains("ALTER TABLE"));
         let mut connection = Connection::open_in_memory().unwrap();
         connection

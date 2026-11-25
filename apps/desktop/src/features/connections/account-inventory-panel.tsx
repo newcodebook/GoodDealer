@@ -90,6 +90,10 @@ function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
   const ready = view?.laneState === "ready" && !readFailed && submission !== "pending";
   const canScan = writable && ready && view.observeQualified && view.observeEntitled;
   const busy = submission === "pending" || view?.laneState === "busy";
+  // A Spaceship connect may enable SellerHub alone, so it does not wait for Registrar observation.
+  const canConnect = view !== null && "connectAvailable" in view
+    ? writable && ready && view.connectAvailable
+    : canScan;
   const states = {
     prepared: copy.spaceshipRegistrarPrepared,
     active: copy.spaceshipRegistrarActive,
@@ -145,9 +149,10 @@ function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
     setSubmission("pending");
     const ticket = generation.current;
     // Only a Porkbun status carries `dnsObserve`, so only the Porkbun port receives a per-domain read.
+    // SellerHub has no connect of its own: its panel never offers one and its port refuses it.
     const sent = intent.action === "observe-dns" || intent.action === "observe-delegation"
       ? (port as PorkbunRegistrarPort).submit(intent)
-      : port.submit(intent);
+      : (port as SpaceshipRegistrarPort).submit(intent);
     void sent.then(() => {
       if (ticket === generation.current) {
         setView((current) => current === null ? current : { ...current, laneState: "busy" });
@@ -214,8 +219,9 @@ function AccountInventoryPanel({ provider, locale, port, writable, onChanged }:
         </li>;
       })}
     </ul> : null}
-    {writable ? <Button type="button" disabled={!canScan || !view?.capturable}
-      onClick={() => submit({ schemaVersion: 1, action: "connect" })}>{copy[`${prefix}Connect`]}</Button> : null}
+    {/* SellerHub is a role of the Spaceship connection, so only Spaceship offers a connect. */}
+    {writable && provider !== "sellerhub" ? <Button type="button" disabled={!canConnect || !view?.capturable}
+      onClick={() => submit({ schemaVersion: 1, action: "connect" })}>{copy[`${copyPrefix[provider]}Connect`]}</Button> : null}
   </Panel>;
 }
 

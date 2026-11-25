@@ -50,7 +50,6 @@ pub(crate) enum ProviderOperation {
     SpaceshipRevoke {
         connection_id: String,
     },
-    SellerHubConnect,
     SellerHubRefresh {
         connection_id: String,
     },
@@ -170,7 +169,7 @@ impl ProviderOperation {
             Self::SellerHubBinStep => "spaceship:sellerhub-bin-price",
             Self::AtomStandardDelistStep => "atom:standard-delist",
             Self::AfternicConnect { .. } => "afternic:new-connection",
-            Self::SpaceshipConnect | Self::SellerHubConnect => "spaceship:new-connection",
+            Self::SpaceshipConnect => "spaceship:new-connection",
             Self::AliyunConnect => "aliyun:new-connection",
             Self::GoDaddyConnect => "godaddy:new-connection",
             Self::PorkbunConnect => "porkbun:new-connection",
@@ -272,7 +271,6 @@ impl ProviderRecoveryOutcome {
             | ProviderOperation::SpaceshipRevoke { .. } => self.spaceship,
             ProviderOperation::SellerHubBinStep
             | ProviderOperation::SellerHubCreateStep
-            | ProviderOperation::SellerHubConnect
             | ProviderOperation::SellerHubRefresh { .. }
             | ProviderOperation::SellerHubRevoke { .. } => self.sellerhub,
             ProviderOperation::AliyunConnect
@@ -398,7 +396,6 @@ impl ProviderAdmissionState {
             ProviderOperation::Activate { .. }
             | ProviderOperation::AfternicConnect { .. }
             | ProviderOperation::SpaceshipConnect
-            | ProviderOperation::SellerHubConnect
             | ProviderOperation::AliyunConnect
             | ProviderOperation::GoDaddyConnect
             | ProviderOperation::PorkbunConnect

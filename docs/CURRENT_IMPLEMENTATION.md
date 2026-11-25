@@ -12,7 +12,7 @@
 | --- | --- | --- | --- |
 | Cloudflare | 官方 Zone/DNS 读取及 Registrar 账户库存 | 单 Zone 连接与维护；设置页账户扫描在确认受理前入库，原子归集并在重开后从首面续读。资产详情和续费台读取完整扫描中的有效注册资料。可以从有效 Zone 读取其账户，或在设置直接连接 Registrar 账户；两条路径均须独立 Registrar 授权与资格 | 未取得 |
 | Afternic | 官方库存/GET/Create/Update/Remove/Relist | 设置连接、完整市场库存归集、持久整批上架/改价/下架及重开只读对账已组合。源码支持批次内或独立的 `OWNERSHIP_REVIEW` 官方复核。Linux debug 受控范围只包括库存与 `wecin.com` 的三项 Listing 变更 | Linux 受控真实库存读取通过，挂牌写入与目标平台资格待验收 |
-| Spaceship | 官方 Registrar 账户列表、SellerHub 账户列表、精确 GET/PATCH 和固定价 POST | 设置页提供独立的注册域名和 SellerHub 连接。两者在 Native 预检完整账户后才托管凭据，刷新入库后受理，同一设备和 Lease 可重开续读。SellerHub 归集同时写入资产和销售观察，断开撤销本地执行并清理凭据。「批量操作」已组合 SellerHub 一口价预览、一次确认、本机后台 PATCH、精确读取对账与重开续查。同页提供固定价上架预览、确认和按域名结果。下架和自动 DNS 验证仍在实施 | Registrar 及 SellerHub 读写分别待真实卖家账户与实机资格 |
+| Spaceship | 官方 Registrar 账户列表、SellerHub 账户列表、精确 GET/PATCH 和固定价 POST | 设置页只有一个 Spaceship 连接：一次录入 API Key 和 Secret，Native 用同一密钥分别预检注册域名和 SellerHub 完整账户，返回 403 的角色不纳入，其余角色组成连接（`capabilities_json` 固定为 `["registrar"]`、`["marketplace"]` 或二者），凭据只托管一份。各角色保留自己的扫描请求与回执，刷新入库后受理，同一设备和 Lease 可重开续读；断开撤销并清理整个连接（迁移 `202611250001`）。SellerHub 归集同时写入资产和销售观察，断开撤销本地执行并清理凭据。「批量操作」已组合 SellerHub 一口价预览、一次确认、本机后台 PATCH、精确读取对账与重开续查。同页提供固定价上架预览、确认和按域名结果。下架和自动 DNS 验证仍在实施 | Registrar 及 SellerHub 读写分别待真实卖家账户与实机资格 |
 | Atom | 官方 Seller API 库存、精确详情和 Standard 下架 | 设置可原子归集库存、持久刷新并在重开后续读。批量页已组合 Standard 下架预览、一次签名确认、持久单次发送和重开只读对账。当前精确读取只支持确认挂牌存在，批量页保留未核实结果。上架、DNS 与私有验证继续开发 | 匿名认证错误已取证。需要获准的卖家账号及受控 Standard 挂牌，核对认证下架和账户内缺席。目标系统与发行资格待验收 |
 | Namecheap | 未实现实际 Service | 未实现 | 未取得 |
 | Dynadot | 未实现实际 Service | 未实现 | 未取得 |

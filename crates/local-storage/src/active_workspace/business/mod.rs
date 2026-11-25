@@ -117,6 +117,7 @@ mod porkbun_dns;
 mod porkbun_registrar;
 mod registrar_inventory;
 mod sedo_marketplace;
+mod spaceship_account;
 mod spaceship_registrar;
 mod spaceship_sellerhub;
 mod spaceship_sellerhub_bin;
@@ -155,6 +156,8 @@ pub use sedo_marketplace::{
     DesktopSedoMarketplaceListingFact, DesktopSedoMarketplaceScanReceipt,
 };
 pub(crate) use sedo_marketplace::{SedoMarketplaceConnectionSeed, SedoMarketplaceInventoryCommit};
+pub(crate) use spaceship_account::SpaceshipAccountSeeds;
+pub use spaceship_account::SpaceshipRoles;
 pub use spaceship_registrar::{DesktopSpaceshipConnectionState, DesktopSpaceshipConnectionSummary};
 pub(crate) use spaceship_registrar::{SpaceshipConnectionSeed, SpaceshipInventoryCommit};
 pub use spaceship_sellerhub::{

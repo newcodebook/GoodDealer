@@ -349,7 +349,7 @@ fn read_state(
     }
 }
 
-fn connection_seed(
+pub(super) fn connection_seed(
     connection: &Connection,
     workspace: &str,
     id: &str,
@@ -360,10 +360,11 @@ fn connection_seed(
            LEFT JOIN spaceship_sellerhub_pending_scans p
              ON p.workspace_id=s.workspace_id AND p.connection_id=s.connection_id AND p.incarnation_id=s.incarnation_id
           WHERE s.workspace_id=?1 AND s.connection_id=?2 AND c.provider_kind='spaceship'
-            AND c.connection_incarnation_id=s.incarnation_id AND json(c.capabilities_json)='[\"marketplace\"]'
+            AND c.connection_incarnation_id=s.incarnation_id
+            AND json(c.capabilities_json) IN ('[\"marketplace\"]','[\"marketplace\",\"registrar\"]')
             AND s.purged_at IS NULL AND c.deleted_at IS NULL AND (
               (s.state='prepared' AND c.credential_use_state='inactive' AND c.lifecycle_status='invalid' AND c.revoked_at IS NULL)
-              OR (s.state='active' AND c.credential_use_state='active' AND c.lifecycle_status='active' AND c.validation_status='valid' AND c.revoked_at IS NULL)
+              OR (s.state IN ('prepared','active') AND c.credential_use_state='active' AND c.lifecycle_status='active' AND c.validation_status='valid' AND c.revoked_at IS NULL)
               OR (s.state='revoked' AND c.credential_use_state='revoked' AND c.lifecycle_status='revoked' AND c.revoked_at IS NOT NULL)
             )",
         params![workspace,id], |row| {
@@ -391,6 +392,32 @@ fn connection_seed(
     Ok(seed)
 }
 
+/// Inserts this role's prepared slot row and first scan request inside the account preparation.
+pub(super) fn stage_prepared(
+    tx: &Connection,
+    workspace: &str,
+    identity: (&str, &str, &str),
+    at: &str,
+    execution: (&str, u64),
+) -> Result<SellerHubConnectionSeed> {
+    let (connection_id, incarnation_id, credential_proof) = identity;
+    tx.execute(
+        "INSERT INTO spaceship_sellerhub_connections (workspace_id,connection_id,incarnation_id,credential_proof,state,created_at)
+         VALUES (?1,?2,?3,?4,'prepared',?5)",
+        params![workspace, connection_id, incarnation_id, credential_proof, at],
+    )
+    .map_err(storage)?;
+    let staged = SellerHubConnectionSeed {
+        connection_id: connection_id.to_owned(),
+        incarnation_id: incarnation_id.to_owned(),
+        credential_proof: credential_proof.to_owned(),
+        state: DesktopSpaceshipConnectionState::Prepared,
+        pending: None,
+    };
+    insert_scan_request(tx, workspace, &staged, execution)?;
+    connection_seed(tx, workspace, connection_id)
+}
+
 pub(super) fn queue_scan_in_transaction(
     tx: &Connection,
     workspace: &str,
@@ -416,6 +443,9 @@ pub(super) fn queue_scan_in_transaction(
 }
 
 impl BusinessDatabase {
+    /// Single-role preparation for tests; production prepares through
+    /// `prepare_spaceship_account`, which may declare both Spaceship roles.
+    #[cfg(test)]
     pub(crate) fn prepare_sellerhub_connection<G>(
         &mut self,
         label: &str,
@@ -423,49 +453,15 @@ impl BusinessDatabase {
         execution: (&str, u64),
         guard: impl FnOnce() -> Result<G>,
     ) -> Result<SellerHubConnectionSeed> {
-        if !crate::portfolio_projection::valid_connection_label(label) {
-            return Err(BusinessDatabaseError::InvalidInput);
-        }
-        super::validate_timestamp(Some(at.to_owned()))
-            .map_err(|_| BusinessDatabaseError::InvalidInput)?;
-        let seed = SellerHubConnectionSeed {
-            connection_id: random_id()?,
-            incarnation_id: random_id()?,
-            credential_proof: hex_digest(random_id()?.as_bytes()),
-            state: DesktopSpaceshipConnectionState::Prepared,
-            pending: None,
-        };
-        let workspace = &self.workspace_id;
-        let tx = self
-            .store
-            .fixture_connection()
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage)?;
-        let existing: i64 = tx.query_row(
-            "SELECT count(*) FROM local_provider_connections WHERE workspace_id=?1 AND deleted_at IS NULL
-              AND lifecycle_status<>'deleted' AND credential_use_state<>'retired'",
-            [workspace], |row| row.get(0),
-        ).map_err(storage)?;
-        if existing >= i64::from(super::super::settings::MAX_CONNECTIONS) {
-            return Err(BusinessDatabaseError::InvalidInput);
-        }
-        tx.execute(
-            "INSERT INTO local_provider_connections
-             (workspace_id,connection_id,provider_kind,display_label,active_credential_changed_at,lifecycle_status,
-              capabilities_json,created_at,validation_status,connection_incarnation_id,credential_use_state)
-             VALUES (?1,?2,'spaceship',?3,?4,'invalid','[\"marketplace\"]',?4,'unknown',?5,'inactive')",
-             params![workspace,seed.connection_id,label,at,seed.incarnation_id],
-        ).map_err(storage)?;
-        tx.execute(
-            "INSERT INTO spaceship_sellerhub_connections (workspace_id,connection_id,incarnation_id,credential_proof,state,created_at)
-             VALUES (?1,?2,?3,?4,'prepared',?5)",
-             params![workspace,seed.connection_id,seed.incarnation_id,seed.credential_proof,at],
-        ).map_err(storage)?;
-        insert_scan_request(&tx, workspace, &seed, execution)?;
-        let seed = connection_seed(&tx, workspace, &seed.connection_id)?;
-        let _guard = guard()?;
-        tx.commit().map_err(storage)?;
-        Ok(seed)
+        self.prepare_spaceship_account(
+            label,
+            super::SpaceshipRoles::MARKETPLACE,
+            at,
+            execution,
+            guard,
+        )?
+        .sellerhub
+        .ok_or(BusinessDatabaseError::StorageRejected)
     }
 
     pub(crate) fn sellerhub_connection(&self, id: &str) -> Result<SellerHubConnectionSeed> {
@@ -600,6 +596,7 @@ impl BusinessDatabase {
         Ok(receipt)
     }
 
+    #[cfg(test)]
     pub(crate) fn revoke_sellerhub_connection<G>(
         &mut self,
         seed: &SellerHubConnectionSeed,
@@ -632,6 +629,7 @@ impl BusinessDatabase {
         Ok(revoked)
     }
 
+    #[cfg(test)]
     pub(crate) fn confirm_sellerhub_purge<G>(
         &mut self,
         seed: &SellerHubConnectionSeed,

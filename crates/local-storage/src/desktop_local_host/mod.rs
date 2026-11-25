@@ -35,6 +35,7 @@ pub(crate) mod sedo_marketplace;
     reason = "backup projection accessors await production native composition"
 )]
 mod source;
+pub(crate) mod spaceship_account;
 pub(crate) mod spaceship_registrar;
 pub(crate) mod spaceship_sellerhub;
 #[cfg(all(test, unix))]

@@ -395,6 +395,7 @@ impl DesktopLocalHost {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use crate::SpaceshipRoles;
     use crate::{
         DesktopSellerHubListingFact, DesktopSellerHubListingState,
         active_workspace::capability_qualification::test_qualification::qualify,
@@ -446,8 +447,11 @@ mod tests {
         let _observe = qualify(OBSERVE);
         let create = qualify(CREATE);
         let admission = || host.begin_native_cloud_run().unwrap();
+        let account = host
+            .prepare_spaceship_account(admission(), "SellerHub", SpaceshipRoles::MARKETPLACE)
+            .unwrap();
         let connection = host
-            .prepare_sellerhub_connection(admission(), "SellerHub")
+            .resume_sellerhub_connection(admission(), account.connection_id())
             .unwrap();
         let domains = ["first.test", "second.test"];
         let observations = domains.map(|domain| DesktopSellerHubListingFact {

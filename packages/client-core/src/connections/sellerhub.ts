@@ -12,8 +12,8 @@ const scanSchema = z.object({
   completedAt: canonicalUtcTimestamp,
 }).strict().refine((scan) => scan.imported + scan.skipped <= scan.observed);
 
+// SellerHub is a role of the one Spaceship connection: connecting happens through Spaceship.
 export const sellerHubIntentSchema = z.discriminatedUnion("action", [
-  z.object({ schemaVersion: version, action: z.literal("connect") }).strict(),
   z.object({ schemaVersion: version, action: z.literal("refresh"), connectionId: connectionIdSchema }).strict(),
   z.object({ schemaVersion: version, action: z.literal("revoke"), connectionId: connectionIdSchema }).strict(),
 ]);
@@ -35,7 +35,7 @@ const statusSchema = z.object({
     return row.lastScan !== null;
   })).max(64),
   lastOperation: z.object({
-    kind: z.enum(["sellerhub_connect", "sellerhub_refresh", "sellerhub_revoke"]),
+    kind: z.enum(["sellerhub_refresh", "sellerhub_revoke"]),
     outcome: z.enum(["confirmed", "unqualified", "unreachable", "retry_later", "credential_rejected",
       "credential_store_unavailable", "local_operation_blocked", "provider_response_rejected", "capture_incomplete", "failed"]),
   }).strict().nullable(),

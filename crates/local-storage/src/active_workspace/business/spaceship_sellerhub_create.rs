@@ -215,7 +215,7 @@ fn current_scan(tx: &Connection, workspace: &str, connection: &str) -> Result<Sc
            AND c.revoked_at IS NULL AND c.lifecycle_status='active' AND c.validation_status='valid'
            AND c.credential_use_state='active'
            AND c.connection_incarnation_id=s.incarnation_id AND c.provider_kind='spaceship'
-           AND json(c.capabilities_json)='[\"marketplace\"]'
+           AND json(c.capabilities_json) IN ('[\"marketplace\"]','[\"marketplace\",\"registrar\"]')
          ORDER BY r.rowid DESC LIMIT 1",
         params![workspace, connection],
         |row| {

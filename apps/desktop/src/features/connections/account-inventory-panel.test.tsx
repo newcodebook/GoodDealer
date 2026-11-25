@@ -7,7 +7,7 @@ import { AliyunRegistrarPanel, AtomMarketplacePanel, CloudflareRegistrarAccountP
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-it("uses the separate SellerHub role and keeps the saved inventory available read-only", async () => {
+it("shows SellerHub as a role of the Spaceship connection without its own connect", async () => {
   const container = document.body.appendChild(document.createElement("div"));
   const root = createRoot(container);
   const connectionId = "4fe4d4c0-f7dc-42bd-81dd-4d3e12dd2953";
@@ -19,23 +19,23 @@ it("uses the separate SellerHub role and keeps the saved inventory available rea
     ...ready,
     connections: [{ connectionId, state: "active", scanPending: false,
       lastScan: { observed: 2, imported: 2, skipped: 0, completedAt: "2026-11-20T00:00:00Z" } }],
-    lastOperation: { kind: "sellerhub_connect", outcome: "confirmed" },
+    lastOperation: { kind: "sellerhub_refresh", outcome: "confirmed" },
   };
   const status = vi.fn<() => Promise<SellerHubStatus>>().mockResolvedValueOnce(ready).mockResolvedValue(saved);
   const submit = vi.fn().mockResolvedValue(undefined);
   const port = { status, submit };
   const render = (writable: boolean) => root.render(<SellerHubPanel locale="zh-CN" port={port} writable={writable} onChanged={() => {}} />);
-  const connect = () => [...container.querySelectorAll("button")].find((node) => node.textContent === "连接 SellerHub");
+  const connect = () => [...container.querySelectorAll("button")].find((node) => node.textContent?.startsWith("连接"));
   const refresh = () => container.querySelector<HTMLButtonElement>('button[aria-label="刷新 SellerHub 挂牌 SellerHub"]');
   try {
     await act(async () => render(true));
     expect(container.textContent).toContain("sellerhub:read");
     expect(container.querySelector("input")).toBeNull();
-    await act(async () => connect()!.click());
-    expect(submit).toHaveBeenNthCalledWith(1, { schemaVersion: 1, action: "connect" });
+    expect(connect()).toBeUndefined();
+    await act(async () => root.render(<SellerHubPanel locale="zh-CN" port={port} writable onChanged={() => {}} key="saved" />));
     expect(container.querySelector('[role="status"]')?.textContent).toBe("SellerHub 归集结果已保存。");
     await act(async () => refresh()!.click());
-    expect(submit).toHaveBeenNthCalledWith(2, { schemaVersion: 1, action: "refresh", connectionId });
+    expect(submit).toHaveBeenNthCalledWith(1, { schemaVersion: 1, action: "refresh", connectionId });
     await act(async () => render(false));
     expect(connect()).toBeUndefined();
     expect(refresh()).toBeNull();
@@ -51,7 +51,7 @@ it("connects once, reads the saved scan and preserves it after a later failed re
   const container = document.body.appendChild(document.createElement("div"));
   const root = createRoot(container);
   const initial: SpaceshipRegistrarStatus = {
-    schemaVersion: 1, laneState: "ready", observeEntitled: true, observeQualified: true, capturable: true,
+    schemaVersion: 1, laneState: "ready", observeEntitled: true, connectAvailable: true, observeQualified: true, capturable: true,
     lastOperation: null, connections: [],
   };
   const id = "11111111-1111-4111-a111-111111111111";
@@ -400,6 +400,27 @@ it("opens Sedo's Native connection flow and retains the saved scan after scope i
     expect(button("刷新 Sedo 库存").disabled).toBe(true);
     expect(button("连接 Sedo").disabled).toBe(true);
     expect(button("断开连接").disabled).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("offers the Spaceship connect when only the SellerHub role is entitled", async () => {
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const status: SpaceshipRegistrarStatus = {
+    schemaVersion: 1, laneState: "ready", observeEntitled: false, connectAvailable: true, observeQualified: true,
+    capturable: true, lastOperation: null, connections: [],
+  };
+  const port = { status: vi.fn(async () => status), submit: vi.fn(async () => undefined) };
+  const connect = () => [...container.querySelectorAll("button")].find((node) => node.textContent === "连接 Spaceship")!;
+  try {
+    await act(async () => root.render(<SpaceshipRegistrarPanel locale="zh-CN" port={port} writable onChanged={() => {}} />));
+    expect(connect().disabled).toBe(false);
+    port.status.mockResolvedValue({ ...status, connectAvailable: false });
+    await act(async () => root.render(<SpaceshipRegistrarPanel locale="zh-CN" port={{ ...port }} writable onChanged={() => {}} />));
+    expect(connect().disabled).toBe(true);
   } finally {
     await act(async () => root.unmount());
     container.remove();

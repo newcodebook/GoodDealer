@@ -21,7 +21,6 @@ use crate::{
     },
 };
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 #[path = "spaceship_sellerhub_creation.rs"]
 mod creation;
@@ -38,24 +37,11 @@ pub struct DesktopSellerHubConnection {
 
 impl DesktopSellerHubConnection {
     fn new(admission: DesktopNativeCloudAdmission, seed: SellerHubConnectionSeed) -> Self {
-        let mut hash = Sha256::new();
-        hash.update(b"GOODDEALER-SPACESHIP-SELLERHUB-V1\0");
-        for part in [
+        let digest = super::spaceship_account::spaceship_slot_digest(
             admission.workspace_id(),
             &seed.connection_id,
             &seed.incarnation_id,
-        ] {
-            hash.update((part.len() as u64).to_be_bytes());
-            hash.update(part.as_bytes());
-        }
-        let digest = hash
-            .finalize()
-            .iter()
-            .fold(String::with_capacity(64), |mut output, byte| {
-                use std::fmt::Write as _;
-                write!(output, "{byte:02x}").expect("writing into String");
-                output
-            });
+        );
         Self {
             admission,
             seed,
@@ -488,22 +474,6 @@ impl DesktopLocalHost {
         })
     }
 
-    /// Admits Native capture and a read-only registrar scan before creating a credential slot.
-    ///
-    /// # Errors
-    /// Refuses stale authority, missing qualification or missing commercial access.
-    pub fn recheck_sellerhub_connection_preparation(
-        &self,
-        admission: &DesktopNativeCloudAdmission,
-    ) -> Result<(), DesktopLocalHostError> {
-        self.with_sync_runtime(Some(&admission.inner), |sync, database, run| {
-            let run = run.ok_or(DesktopSyncError::StaleAuthority)?;
-            sync.recheck_sync_run(database, run)?;
-            require_observe(sync, run)?;
-            require_provider_dispatch(database)
-        })
-    }
-
     /// Returns only the public connection state and counts from the last complete local scan.
     ///
     /// # Errors
@@ -523,39 +493,6 @@ impl DesktopLocalHost {
                     )?,
             })
         })
-    }
-
-    /// Stages a new slot under current authority before credentials are written.
-    ///
-    /// # Errors
-    /// Refuses unqualified, unentitled or stale authority, invalid labels and storage failures.
-    pub fn prepare_sellerhub_connection(
-        &self,
-        admission: DesktopNativeCloudAdmission,
-        label: &str,
-    ) -> Result<DesktopSellerHubConnection, DesktopLocalHostError> {
-        let at = now()?;
-        let seed =
-            self.with_sync_business_write(&admission.inner, |sync, business, run, fence| {
-                sync.recheck_sync_run(business.database_for_backup(), run)?;
-                require_observe(sync, run)?;
-                require_provider_dispatch(business.database_for_backup())?;
-                if !business.has_read_generation_capacity() {
-                    return Err(DesktopSyncError::StorageRejected);
-                }
-                let seed = business
-                    .database_for_backup_mut()
-                    .prepare_sellerhub_connection(
-                        label,
-                        &at,
-                        (run.device_id(), run.lease_epoch()),
-                        || fence.verify(sync, run),
-                    )
-                    .map_err(database_error)?;
-                business.advance_read_generation_after_sync_commit();
-                Ok(seed)
-            })?;
-        Ok(DesktopSellerHubConnection::new(admission, seed))
     }
 
     /// Persists the exact refresh before the Native command acknowledges admission.
@@ -670,84 +607,6 @@ impl DesktopLocalHost {
                 .map_err(database_error)?;
             business.advance_read_generation_after_sync_commit();
             Ok(receipt)
-        })
-    }
-
-    /// Durably denies further use before the Native slot is removed. Available after Provider rights expire.
-    ///
-    /// # Errors
-    /// Refuses stale workspace authority or a nonexistent connection.
-    pub fn revoke_sellerhub_connection(
-        &self,
-        admission: DesktopNativeCloudAdmission,
-        id: &str,
-    ) -> Result<DesktopSellerHubConnection, DesktopLocalHostError> {
-        let at = now()?;
-        let seed =
-            self.with_sync_business_write(&admission.inner, |sync, business, run, fence| {
-                if !business.has_read_generation_capacity() {
-                    return Err(DesktopSyncError::StorageRejected);
-                }
-                let db = business.database_for_backup_mut();
-                sync.recheck_sync_run(db, run)?;
-                let seed = db.sellerhub_connection(id).map_err(database_error)?;
-                let revoked = db
-                    .revoke_sellerhub_connection(&seed, &at, || fence.verify(sync, run))
-                    .map_err(database_error)?;
-                business.advance_read_generation_after_sync_commit();
-                Ok(revoked)
-            })?;
-        Ok(DesktopSellerHubConnection::new(admission, seed))
-    }
-
-    /// Retires exactly the preparation whose Native capture was canceled or whose slot is absent.
-    ///
-    /// # Errors
-    /// Refuses active connections, stale authority and a replaced preparation.
-    pub fn abandon_sellerhub_preparation(
-        &self,
-        connection: DesktopSellerHubConnection,
-    ) -> Result<DesktopSellerHubConnection, DesktopLocalHostError> {
-        if !connection.is_prepared() {
-            return Err(DesktopLocalHostError::AuthorityRejected);
-        }
-        let at = now()?;
-        let seed = self.with_sync_business_write(
-            &connection.admission.inner,
-            |sync, business, run, fence| {
-                if !business.has_read_generation_capacity() {
-                    return Err(DesktopSyncError::StorageRejected);
-                }
-                let revoked = business
-                    .database_for_backup_mut()
-                    .revoke_sellerhub_connection(&connection.seed, &at, || fence.verify(sync, run))
-                    .map_err(database_error)?;
-                business.advance_read_generation_after_sync_commit();
-                Ok(revoked)
-            },
-        )?;
-        Ok(DesktopSellerHubConnection::new(connection.admission, seed))
-    }
-
-    /// Publishes the verified absence of the exact revoked Native credential.
-    ///
-    /// # Errors
-    /// Refuses stale authority and any slot that has not been durably revoked.
-    pub fn confirm_sellerhub_purge(
-        &self,
-        connection: &DesktopSellerHubConnection,
-    ) -> Result<(), DesktopLocalHostError> {
-        let at = now()?;
-        self.with_sync_business_write(&connection.admission.inner, |sync, business, run, fence| {
-            if !business.has_read_generation_capacity() {
-                return Err(DesktopSyncError::StorageRejected);
-            }
-            business
-                .database_for_backup_mut()
-                .confirm_sellerhub_purge(&connection.seed, &at, || fence.verify(sync, run))
-                .map_err(database_error)?;
-            business.advance_read_generation_after_sync_commit();
-            Ok(())
         })
     }
 }

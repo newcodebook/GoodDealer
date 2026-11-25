@@ -96,6 +96,10 @@ DNS 只合并需要的验证记录，不全量覆盖用户记录；完成验证�
 
 首次真实取证使用具名、有限期限的开发验收范围；不能因为生产资格尚未取得而永远拒绝取证，也不能把开发取证开关当作生产资格。验收构建必须显式选择非默认编译特性，只允许已授权的系统和实际debug profile；release及其他profile在构建时拒绝。生产资格登记与DTO中的资格事实保持不变。
 
+开发资格（2026-11-25 用户决定）：开发阶段不再为每个平台单独申请具名验收范围。非默认编译特性 `development-qualification` 只能用于 debug profile，release 及其他 profile 在构建时拒绝。启用后，Host 把所有格式完整的 `platform:role:capability` 视为已资格化，DTO 里的资格字段也如实显示为可执行，可用 `pnpm --filter @gooddealer/desktop tauri:dev` 启动。真实 Grant、Lease、商业权限、Native 录入与 custody、ProviderLane、确认与对账照常生效，只放开资格登记这一层。生产资格登记表不变，单元测试保持关闭的登记表；用该特性取得的结果只是开发证据，不能写入登记表，也不能当作生产资格。
+
+Spaceship 单连接（2026-11-25 用户决定）：Spaceship 的 Registrar 与 SellerHub 使用同一 API 密钥，因此只建立一个 Spaceship 连接。连接时用该密钥分别预检各个已资格化且已授权的角色，平台返回 403 的角色不纳入，连接声明的角色集在之后保持不变；要增加角色，需要断开后重新连接。各角色仍分别受能力资格、Grant 权限和扫描回执约束，凭据只托管一份，撤销与清理覆盖整个连接。
+
 local-storage在唯一业务事务内固定验收run与当前GoodDealer账户、工作区、设备、Lease epoch、唯一连接及其incarnation/generation/public proof。范围固定Provider、受控域名、动作和截止；重开只恢复原绑定，不自动换连接、凭据或授权代次。截止来自验签执行上下文的连续时间，不能靠系统时间回拨延长。完整库存只读限于同一受控凭据账户，写入逐项验证域名与动作。
 
 取证仍使用真实Grant、Lease、商业权限、Native录入/custody、原ProviderLane、持久预览批准和最后提交栅栏。休眠、取消、撤销、代次与范围变化都关闭准入；未知结果保留并只读对账，不因此重新发送。撤销与清理仍可减少秘密持有，不能删除run来重新授予范围。Host仅返回脱敏范围说明，Renderer不能输入或授予验收权威；不增加秘密桥、任意代理或假签名。

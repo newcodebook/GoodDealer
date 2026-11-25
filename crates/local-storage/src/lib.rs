@@ -155,6 +155,7 @@ pub use active_workspace::batch_operations::{
 };
 pub use active_workspace::business::CloudflareDnsRecordWrite;
 pub use active_workspace::business::DomainAssetMutationReceipt;
+pub use active_workspace::business::SpaceshipRoles;
 pub(crate) use active_workspace::business::{
     BusinessDatabase, BusinessDatabaseError, ClaimedCloudflareDnsProjection, ClaimedSyncMutation,
     CloudflareCredentialEnvelopeKind, CloudflareCredentialOperationKind,
@@ -238,6 +239,7 @@ pub use desktop_local_host::porkbun_registrar::{
 pub use desktop_local_host::sedo_marketplace::{
     DesktopSedoConnection, DesktopSedoMarketplaceStatus,
 };
+pub use desktop_local_host::spaceship_account::DesktopSpaceshipAccount;
 pub use desktop_local_host::spaceship_registrar::{
     DesktopSpaceshipConnection, DesktopSpaceshipRegistrarStatus,
 };

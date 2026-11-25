@@ -1,4 +1,5 @@
-//! Connect and recover Spaceship Registrar through the existing serial Provider lane.
+//! Connect and recover Spaceship through the existing serial Provider lane. One API key forms one
+//! connection; the Registrar and `SellerHub` roles it proves share that connection's Native slot.
 #[path = "spaceship_sellerhub.rs"]
 mod sellerhub;
 
@@ -6,8 +7,8 @@ use super::ProviderCredentialError;
 use crate::native_cloud_runtime::NativeCloudCancelFence;
 use gooddealer_local_storage::{
     DesktopLocalHost, DesktopLocalHostError, DesktopNativeCloudAdmission, DesktopRegistrationFact,
-    DesktopRegistrationStanding, DesktopSpaceshipConnection, DesktopSpaceshipConnectionState,
-    DesktopSpaceshipRegistrarStatus,
+    DesktopRegistrationStanding, DesktopSpaceshipAccount, DesktopSpaceshipConnection,
+    DesktopSpaceshipConnectionState, DesktopSpaceshipRegistrarStatus, SpaceshipRoles,
 };
 use gooddealer_secure_host_core::{
     NativePowerCommitGuard, NativePowerGate, SpaceshipCapture, SpaceshipClient,
@@ -32,6 +33,33 @@ impl SpaceshipCredentialPlan for Slot<'_> {
     }
     fn public_proof(&self) -> &str {
         self.0.public_proof()
+    }
+}
+
+/// The whole connection's slot; every role derives the same key from the same incarnation.
+struct AccountSlot<'a>(&'a DesktopSpaceshipAccount);
+impl SpaceshipCredentialPlan for AccountSlot<'_> {
+    fn connection_incarnation(&self) -> &str {
+        self.0.connection_incarnation()
+    }
+    fn connection_digest(&self) -> &str {
+        self.0.connection_digest()
+    }
+    fn generation(&self) -> u64 {
+        1
+    }
+    fn public_proof(&self) -> &str {
+        self.0.public_proof()
+    }
+}
+
+/// A role the key's scopes do not cover answers `Forbidden` and is left out of the connection.
+/// Any other failure rejects the key before anything is stored.
+fn proven<T>(probe: std::result::Result<T, SpaceshipError>) -> Result<Option<T>> {
+    match probe {
+        Ok(value) => Ok(Some(value)),
+        Err(SpaceshipError::Forbidden) => Ok(None),
+        Err(error) => Err(native_error(error)),
     }
 }
 
@@ -85,13 +113,30 @@ impl Run {
         Ok(())
     }
 
-    fn check_preparation(&self, admission: &DesktopNativeCloudAdmission) -> Result<()> {
-        drop(self.hold_power().map_err(native_error)?);
+    fn check_account(
+        &self,
+        account: &DesktopSpaceshipAccount,
+    ) -> std::result::Result<(), SpaceshipError> {
+        drop(self.hold_power()?);
         self.host
-            .recheck_spaceship_connection_preparation(admission)
+            .recheck_spaceship_account(account)
+            .map_err(|_| SpaceshipError::AuthorityStale)?;
+        drop(self.hold_power()?);
+        Ok(())
+    }
+
+    fn check_preparation(
+        &self,
+        admission: &DesktopNativeCloudAdmission,
+        required: Option<SpaceshipRoles>,
+    ) -> Result<SpaceshipRoles> {
+        drop(self.hold_power().map_err(native_error)?);
+        let roles = self
+            .host
+            .recheck_spaceship_account_preparation(admission, required)
             .map_err(host_error)?;
         drop(self.hold_power().map_err(native_error)?);
-        Ok(())
+        Ok(roles)
     }
 
     fn commit<T>(
@@ -110,40 +155,79 @@ impl Run {
             return Err(ProviderCredentialError::Unavailable);
         }
         let capture = Arc::clone(self);
-        let (admission, credential) = tauri::async_runtime::spawn_blocking(move || {
+        let (admission, offered, credential) = tauri::async_runtime::spawn_blocking(move || {
             let admission = capture.host.begin_native_cloud_run().map_err(host_error)?;
-            capture.check_preparation(&admission)?;
+            let offered = capture.check_preparation(&admission, None)?;
             let credential = SpaceshipCapture::capture_guarded(&mut || {
                 capture
-                    .check_preparation(&admission)
+                    .check_preparation(&admission, Some(offered))
+                    .map(drop)
                     .map_err(|_| SpaceshipError::AuthorityStale)
             })
             .map_err(native_error)?;
-            Ok::<_, ProviderCredentialError>((admission, credential))
+            Ok::<_, ProviderCredentialError>((admission, offered, credential))
         })
         .await
         .map_err(|_| ProviderCredentialError::Unavailable)??;
-        // A rejected or incomplete first read never creates a durable connection. Once custody
-        // confirms the same candidate bytes, the scan can be published without a second request.
-        let registrations = self
-            .scan(&credential, &mut || {
-                self.check_preparation(&admission)
-                    .map_err(|_| SpaceshipError::AuthorityStale)
-            })
-            .await?;
+        // A rejected or incomplete first read never creates a durable connection. Each admitted
+        // role is probed with the same candidate key; the roles it proves form the connection,
+        // and once custody confirms those bytes their scans publish without a second request.
+        let mut guard = || {
+            self.check_preparation(&admission, Some(offered))
+                .map(drop)
+                .map_err(|_| SpaceshipError::AuthorityStale)
+        };
+        let registrations = if offered.registrar {
+            proven(self.scan(&credential, &mut guard).await)?
+        } else {
+            None
+        };
+        let listings = if offered.marketplace {
+            proven(self.sellerhub_scan(&credential, &mut guard).await)?
+        } else {
+            None
+        };
+        let roles = SpaceshipRoles {
+            registrar: registrations.is_some(),
+            marketplace: listings.is_some(),
+        };
+        if !roles.registrar && !roles.marketplace {
+            return Err(ProviderCredentialError::CredentialRejected);
+        }
         let publish = Arc::clone(self);
-        let connection = tauri::async_runtime::spawn_blocking(move || {
-            let connection =
-                publish.commit(|host| host.prepare_spaceship_connection(admission, "Spaceship"))?;
-            publish_spaceship_credential_guarded(&Slot(&connection), &credential, &mut || {
-                publish.check(&connection)
+        let id = tauri::async_runtime::spawn_blocking(move || {
+            let account = publish
+                .commit(|host| host.prepare_spaceship_account(admission, "Spaceship", roles))?;
+            publish_spaceship_credential_guarded(&AccountSlot(&account), &credential, &mut || {
+                publish.check_account(&account)
             })
             .map_err(native_error)?;
-            Ok::<_, ProviderCredentialError>(connection)
+            Ok::<_, ProviderCredentialError>(account.connection_id().to_owned())
         })
         .await
         .map_err(|_| ProviderCredentialError::Unavailable)??;
-        self.commit_inventory(connection, registrations).await
+        // Each role publishes its own first scan. A failure leaves that role's scan pending for
+        // recovery without undoing the roles already published.
+        if let Some(registrations) = registrations {
+            let connection = self.resume(&id).await?;
+            self.commit_inventory(connection, registrations).await?;
+        }
+        if let Some(listings) = listings {
+            let connection = self.sellerhub_resume(&id).await?;
+            self.sellerhub_commit_inventory(connection, listings)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn resume(self: &Arc<Self>, id: &str) -> Result<DesktopSpaceshipConnection> {
+        let run = Arc::clone(self);
+        let id = id.to_owned();
+        tauri::async_runtime::spawn_blocking(move || {
+            run.commit(|host| host.resume_spaceship_connection(host.begin_native_cloud_run()?, &id))
+        })
+        .await
+        .map_err(|_| ProviderCredentialError::Unavailable)?
     }
 
     pub(crate) async fn refresh(self: &Arc<Self>, id: String) -> Result<()> {
@@ -159,9 +243,8 @@ impl Run {
             match credential {
                 Some(credential) => Ok(Some((connection, credential))),
                 None if connection.is_prepared() => {
-                    let retired =
-                        run.commit(|host| host.abandon_spaceship_preparation(connection))?;
-                    run.purge_and_confirm(&retired)?;
+                    // Capture never completed custody for this connection, so retire all of it.
+                    run.revoke_blocking(connection.connection_id())?;
                     Ok(None)
                 }
                 None => Err(ProviderCredentialError::Keychain),
@@ -172,7 +255,8 @@ impl Run {
         let (connection, credential) = work.ok_or(ProviderCredentialError::Keychain)?;
         let registrations = self
             .scan(&credential, &mut || self.check(&connection))
-            .await?;
+            .await
+            .map_err(native_error)?;
         drop(credential);
         self.commit_inventory(connection, registrations).await
     }
@@ -184,30 +268,28 @@ impl Run {
             .map_err(|_| ProviderCredentialError::Unavailable)?
     }
 
+    /// Retires the whole connection: every role is denied before the shared slot is removed.
     fn revoke_blocking(&self, id: &str) -> Result<()> {
-        let connection = self
-            .commit(|host| host.revoke_spaceship_connection(host.begin_native_cloud_run()?, id))?;
-        self.purge_and_confirm(&connection)
-    }
-
-    fn purge_and_confirm(&self, connection: &DesktopSpaceshipConnection) -> Result<()> {
-        purge_spaceship_credential_guarded(&Slot(connection), &mut || self.check(connection))
-            .map_err(native_error)?;
-        self.commit(|host| host.confirm_spaceship_purge(connection))
+        let account =
+            self.commit(|host| host.revoke_spaceship_account(host.begin_native_cloud_run()?, id))?;
+        purge_spaceship_credential_guarded(&AccountSlot(&account), &mut || {
+            self.check_account(&account)
+        })
+        .map_err(native_error)?;
+        self.commit(|host| host.confirm_spaceship_account_purge(&account))
     }
 
     async fn scan(
         &self,
         credential: &SpaceshipCredential,
         guard: &mut SpaceshipGuard<'_>,
-    ) -> Result<Vec<DesktopRegistrationFact>> {
-        let client = SpaceshipClient::production().map_err(native_error)?;
+    ) -> std::result::Result<Vec<DesktopRegistrationFact>, SpaceshipError> {
+        let client = SpaceshipClient::production()?;
         let registrations = tokio::select! {
             biased;
             _ = self.power.wait_for_epoch_change(self.epoch) => Err(SpaceshipError::AuthorityStale),
             result = client.scan_registrations(credential, guard) => result,
-        }
-        .map_err(native_error)?;
+        }?;
         Ok(registrations.into_iter().map(registration_fact).collect())
     }
 

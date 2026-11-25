@@ -1,9 +1,8 @@
 //! `SellerHub` uses the same Spaceship transport, custody, power guard and Provider lane.
 use super::{
-    Arc, DesktopNativeCloudAdmission, ProviderCredentialError, Result, Run, SpaceshipCapture,
-    SpaceshipClient, SpaceshipCredential, SpaceshipCredentialPlan, SpaceshipError, SpaceshipGuard,
-    host_error, load_spaceship_credential_guarded, native_error,
-    publish_spaceship_credential_guarded, purge_spaceship_credential_guarded,
+    Arc, ProviderCredentialError, Result, Run, SpaceshipClient, SpaceshipCredential,
+    SpaceshipCredentialPlan, SpaceshipError, SpaceshipGuard, host_error,
+    load_spaceship_credential_guarded, native_error,
 };
 use gooddealer_local_storage::{
     DesktopSellerHubBinClaim, DesktopSellerHubBinWork, DesktopSellerHubConnection,
@@ -44,55 +43,17 @@ impl Run {
         Ok(())
     }
 
-    fn sellerhub_check_preparation(&self, admission: &DesktopNativeCloudAdmission) -> Result<()> {
-        drop(self.hold_power().map_err(native_error)?);
-        self.host
-            .recheck_sellerhub_connection_preparation(admission)
-            .map_err(host_error)?;
-        drop(self.hold_power().map_err(native_error)?);
-        Ok(())
-    }
-
-    pub(crate) async fn sellerhub_connect(self: &Arc<Self>) -> Result<()> {
-        if !SpaceshipCapture::supported() {
-            return Err(ProviderCredentialError::Unavailable);
-        }
-        let capture = Arc::clone(self);
-        let (admission, credential) = tauri::async_runtime::spawn_blocking(move || {
-            let admission = capture.host.begin_native_cloud_run().map_err(host_error)?;
-            capture.sellerhub_check_preparation(&admission)?;
-            let credential = SpaceshipCapture::capture_guarded(&mut || {
-                capture
-                    .sellerhub_check_preparation(&admission)
-                    .map_err(|_| SpaceshipError::AuthorityStale)
-            })
-            .map_err(native_error)?;
-            Ok::<_, ProviderCredentialError>((admission, credential))
+    pub(super) async fn sellerhub_resume(
+        self: &Arc<Self>,
+        id: &str,
+    ) -> Result<DesktopSellerHubConnection> {
+        let run = Arc::clone(self);
+        let id = id.to_owned();
+        tauri::async_runtime::spawn_blocking(move || {
+            run.commit(|host| host.resume_sellerhub_connection(host.begin_native_cloud_run()?, &id))
         })
         .await
-        .map_err(|_| ProviderCredentialError::Unavailable)??;
-        // A rejected or incomplete first read never creates a durable connection. Once custody
-        // confirms the same candidate bytes, the scan can be published without a second request.
-        let listings = self
-            .sellerhub_scan(&credential, &mut || {
-                self.sellerhub_check_preparation(&admission)
-                    .map_err(|_| SpaceshipError::AuthorityStale)
-            })
-            .await?;
-        let publish = Arc::clone(self);
-        let connection = tauri::async_runtime::spawn_blocking(move || {
-            let connection = publish.commit(|host| {
-                host.prepare_sellerhub_connection(admission, "Spaceship SellerHub")
-            })?;
-            publish_spaceship_credential_guarded(&Slot(&connection), &credential, &mut || {
-                publish.sellerhub_check(&connection)
-            })
-            .map_err(native_error)?;
-            Ok::<_, ProviderCredentialError>(connection)
-        })
-        .await
-        .map_err(|_| ProviderCredentialError::Unavailable)??;
-        self.sellerhub_commit_inventory(connection, listings).await
+        .map_err(|_| ProviderCredentialError::Unavailable)?
     }
 
     pub(crate) async fn sellerhub_refresh(self: &Arc<Self>, id: String) -> Result<()> {
@@ -108,9 +69,8 @@ impl Run {
             match credential {
                 Some(credential) => Ok(Some((connection, credential))),
                 None if connection.is_prepared() => {
-                    let retired =
-                        run.commit(|host| host.abandon_sellerhub_preparation(connection))?;
-                    run.sellerhub_purge_and_confirm(&retired)?;
+                    // Capture never completed custody for this connection, so retire all of it.
+                    run.revoke_blocking(connection.connection_id())?;
                     Ok(None)
                 }
                 None => Err(ProviderCredentialError::Keychain),
@@ -121,48 +81,27 @@ impl Run {
         let (connection, credential) = work.ok_or(ProviderCredentialError::Keychain)?;
         let listings = self
             .sellerhub_scan(&credential, &mut || self.sellerhub_check(&connection))
-            .await?;
+            .await
+            .map_err(native_error)?;
         drop(credential);
         self.sellerhub_commit_inventory(connection, listings).await
     }
 
-    pub(crate) async fn sellerhub_revoke(self: &Arc<Self>, id: String) -> Result<()> {
-        let run = Arc::clone(self);
-        tauri::async_runtime::spawn_blocking(move || run.sellerhub_revoke_blocking(&id))
-            .await
-            .map_err(|_| ProviderCredentialError::Unavailable)?
-    }
-
-    fn sellerhub_revoke_blocking(&self, id: &str) -> Result<()> {
-        let connection = self
-            .commit(|host| host.revoke_sellerhub_connection(host.begin_native_cloud_run()?, id))?;
-        self.sellerhub_purge_and_confirm(&connection)
-    }
-
-    fn sellerhub_purge_and_confirm(&self, connection: &DesktopSellerHubConnection) -> Result<()> {
-        purge_spaceship_credential_guarded(&Slot(connection), &mut || {
-            self.sellerhub_check(connection)
-        })
-        .map_err(native_error)?;
-        self.commit(|host| host.confirm_sellerhub_purge(connection))
-    }
-
-    async fn sellerhub_scan(
+    pub(super) async fn sellerhub_scan(
         &self,
         credential: &SpaceshipCredential,
         guard: &mut SpaceshipGuard<'_>,
-    ) -> Result<Vec<DesktopSellerHubListingFact>> {
-        let client = SpaceshipClient::production().map_err(native_error)?;
+    ) -> std::result::Result<Vec<DesktopSellerHubListingFact>, SpaceshipError> {
+        let client = SpaceshipClient::production()?;
         let listings = tokio::select! {
             biased;
             _ = self.power.wait_for_epoch_change(self.epoch) => Err(SpaceshipError::AuthorityStale),
             result = client.scan_sellerhub_listings(credential, guard) => result,
-        }
-        .map_err(native_error)?;
+        }?;
         Ok(listings.into_iter().map(listing_fact).collect())
     }
 
-    async fn sellerhub_commit_inventory(
+    pub(super) async fn sellerhub_commit_inventory(
         self: &Arc<Self>,
         connection: DesktopSellerHubConnection,
         listings: Vec<DesktopSellerHubListingFact>,
@@ -333,7 +272,7 @@ impl Run {
         for row in status.connections {
             drop(self.hold_power().map_err(native_error)?);
             if row.state == DesktopSpaceshipConnectionState::Revoked {
-                let _ = self.sellerhub_revoke(row.connection_id).await;
+                let _ = self.revoke(row.connection_id).await;
             } else if status.observe_entitled && status.observe_qualified && row.scan_pending {
                 let _ = self.sellerhub_refresh(row.connection_id).await;
             }

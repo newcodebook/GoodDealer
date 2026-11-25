@@ -17,9 +17,6 @@ use tauri::State;
     deny_unknown_fields
 )]
 enum Intent {
-    Connect {
-        schema_version: u8,
-    },
     Refresh {
         schema_version: u8,
         connection_id: String,
@@ -33,7 +30,6 @@ enum Intent {
 impl Intent {
     fn operation(self) -> Result<ProviderOperation, &'static str> {
         match self {
-            Self::Connect { schema_version: 1 } => Ok(ProviderOperation::SellerHubConnect),
             Self::Refresh {
                 schema_version: 1,
                 connection_id,
@@ -136,10 +132,8 @@ mod tests {
                     .map_err(|_| "wire")?;
             intent.operation()
         };
-        assert_eq!(
-            parse(r#"{"action":"connect","schemaVersion":1}"#),
-            Ok(ProviderOperation::SellerHubConnect)
-        );
+        // One Spaceship connection serves SellerHub; it has no connect of its own.
+        assert!(parse(r#"{"action":"connect","schemaVersion":1}"#).is_err());
         assert!(parse(r#"{"action":"refresh","schemaVersion":1,"connectionId":"11111111-1111-4111-a111-111111111111"}"#).is_ok());
         for input in [
             r#"{"action":"connect","schemaVersion":1,"apiKey":"refuse"}"#,

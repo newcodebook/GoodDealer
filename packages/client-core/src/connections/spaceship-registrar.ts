@@ -22,6 +22,8 @@ const statusSchema = z.object({
   schemaVersion: version,
   observeQualified: z.boolean(),
   observeEntitled: z.boolean(),
+  // One connect serves Registrar and SellerHub; it opens when either role is available.
+  connectAvailable: z.boolean(),
   capturable: z.boolean(),
   laneState: z.enum(["recovering", "ready", "busy", "blocked"]),
   connections: z.array(z.object({

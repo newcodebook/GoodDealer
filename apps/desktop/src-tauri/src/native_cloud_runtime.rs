@@ -119,7 +119,6 @@ impl ProviderOperationRecord {
                 if matches!(
                     kind,
                     "spaceship_connect"
-                        | "sellerhub_connect"
                         | "aliyun_connect"
                         | "atom_connect"
                         | "sedo_connect"
@@ -1004,13 +1003,6 @@ async fn run_provider_operation(
                     .map(|()| "confirmed"),
             ))
         }
-        ProviderOperation::SellerHubConnect => {
-            let run = Arc::new(spaceship::Run::new(host, cancel_fence, power, false));
-            Some(ProviderOperationRecord::of(
-                "sellerhub_connect",
-                run.sellerhub_connect().await.as_ref().map(|()| "confirmed"),
-            ))
-        }
         ProviderOperation::SellerHubRefresh { connection_id } => {
             let run = Arc::new(spaceship::Run::new(host, cancel_fence, power, false));
             Some(ProviderOperationRecord::of(
@@ -1025,7 +1017,7 @@ async fn run_provider_operation(
             let run = Arc::new(spaceship::Run::new(host, cancel_fence, power, false));
             Some(ProviderOperationRecord::of(
                 "sellerhub_revoke",
-                run.sellerhub_revoke(connection_id)
+                run.revoke(connection_id)
                     .await
                     .as_ref()
                     .map(|()| "confirmed"),
@@ -2178,7 +2170,7 @@ mod tests {
         }
         assert_eq!(
             ProviderOperationRecord::of(
-                "sellerhub_connect",
+                "spaceship_connect",
                 Err(&ProviderCredentialError::Capture)
             )
             .outcome,

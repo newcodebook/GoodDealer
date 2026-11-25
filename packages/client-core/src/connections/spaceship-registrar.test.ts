@@ -21,7 +21,7 @@ it("requires a complete saved scan to report an active connection", () => {
   const row = { connectionId: id, state: "active", scanPending: false,
     lastScan: { observed: 3, imported: 2, skipped: 1, completedAt: "2026-11-20T00:00:00Z" } };
   const status = { schemaVersion: 1, laneState: "ready", observeEntitled: true,
-    observeQualified: true, capturable: true, lastOperation: null, connections: [row] };
+    connectAvailable: true, observeQualified: true, capturable: true, lastOperation: null, connections: [row] };
   expect(parseSpaceshipRegistrarStatus(status).connections).toHaveLength(1);
   for (const connections of [
     [row, row],
